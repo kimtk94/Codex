@@ -198,6 +198,35 @@ jobs:
             --qc output/daily20/qc.json \
             --baseline-journal output/daily20/research/forward_shadow/journal.jsonl \
             --out output/daily20/research/bear_forward
+      - name: Freeze prospective 21-feature and fitted-model provenance; grade replay HOLD
+        if: github.event_name != 'pull_request'
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/stability_gate.py \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --scores output/daily20/research/latest_research_scores.csv \
+            --bull-journal output/daily20/research/forward_shadow/journal.jsonl \
+            --bear-journal output/daily20/research/bear_forward/journal.jsonl \
+            --bull-report output/daily20/research/forward_shadow/report.json \
+            --bear-report output/daily20/research/bear_forward/report.json \
+            --out output/daily20/research/stability
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("output/daily20/research/stability/report.json").read_text())
+          assert report["research_only"] is True
+          assert report["strategy_promoted"] is False
+          assert report["promotional_attribution_allowed"] is False
+          if report["research_hold"]:
+              print("REPLAY_DRIFT_RESEARCH_HOLD: research data publication remains permitted; promotional attribution is blocked")
+          else:
+              print("STABILITY_RESEARCH_ONLY", report["status"])
+          PY
       - name: Publish reproducible research evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -260,3 +289,19 @@ jobs:
             --data-root drive_stage/data \
             --results-root drive_stage/results \
             --output-root drive_stage/uploaded
+      - name: Independently re-download pinned Drive results and verify first-seal snapshot hashes
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_daily20/stability_drive_readback.py \
+            --local-zip drive_stage/uploaded/daily20_results_latest.zip \
+            --out drive_stage/readback/daily20_stability_readback.json
+      - name: Preserve read-only Drive post-upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-drive-stability-readback
+          path: drive_stage/readback/daily20_stability_readback.json
+          if-no-files-found: warn
+          retention-days: 21
