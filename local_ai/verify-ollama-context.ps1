@@ -24,8 +24,8 @@ try {
     }
     $tags = Invoke-RestMethod -Uri "$baseUrl/api/tags" -Method Get -TimeoutSec 10
     $models = @($tags.models | ForEach-Object { $_.name })
-    if ($models -notcontains $Model) {
-        throw "Model not installed locally: $Model. Run ollama pull $Model."
+    if ($models -notcontains $Model -and $models -notcontains ($Model + ":latest")) {
+        throw "Model not installed locally: $Model. Run Fix-Codex-4096.cmd to create it."
     }
 
     # IMPORTANT: omit options.num_ctx so /api/ps reports the true model default,
@@ -46,7 +46,7 @@ try {
     }
     Write-Host "Synthetic inference response received. No user data was transmitted."
     $loaded = Invoke-RestMethod -Uri "$baseUrl/api/ps" -Method Get -TimeoutSec 10
-    $selected = @($loaded.models | Where-Object { $_.name -eq $Model -or $_.model -eq $Model }) | Select-Object -First 1
+    $selected = @($loaded.models | Where-Object { ($_.name -eq $Model -or $_.model -eq $Model -or $_.name -eq ($Model + ":latest") -or $_.model -eq ($Model + ":latest")) }) | Select-Object -First 1
     if ($null -eq $selected -or @($selected).Count -eq 0) {
         throw "Ollama model was not listed as loaded in /api/ps. Check ollama ps."
     }
