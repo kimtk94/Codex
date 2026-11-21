@@ -67,7 +67,7 @@ def check_events(journal, core):
         raise RuntimeError("JOURNAL_NOT_A_LIST")
     parent = ROOT_HASH
     signal_index, settled_index = {}, set()
-    last_date = ""
+    last_signal_date = ""
     for number, event in enumerate(journal, 1):
         if not isinstance(event, dict) or event.get("seq") != number:
             raise RuntimeError("JOURNAL_SEQUENCE_BROKEN")
@@ -77,10 +77,12 @@ def check_events(journal, core):
             raise RuntimeError("JOURNAL_INVALID_EVENT_IDENTITY")
         key = (event.get("signal_date"), event["symbol"])
         date = str(event.get("signal_date"))
-        if date < last_date:
-            raise RuntimeError("JOURNAL_DATE_REGRESSED")
-        last_date = date
         if event["kind"] == "SIGNAL":
+            # An already-frozen later signal can precede a settlement of an
+            # older signal in the append-only event stream.
+            if date < last_signal_date:
+                raise RuntimeError("JOURNAL_SIGNAL_DATE_REGRESSED")
+            last_signal_date = date
             if key in signal_index:
                 raise RuntimeError("JOURNAL_DUPLICATE_FROZEN_SIGNAL")
             if not 0 <= event.get("probability", -1) <= 1:
