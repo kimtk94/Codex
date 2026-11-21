@@ -363,11 +363,26 @@ jobs:
           assert r["source_snapshot_is_historical_asof_evidence"] is False
           assert r["status"] in (
               "OFFICIAL_DIRECTORY_SNAPSHOT_RESEARCH_HOLD",
-              "OFFICIAL_DIRECTORY_SOURCE_UNAVAILABLE_HOLD")
+              "OFFICIAL_DIRECTORY_SOURCE_UNAVAILABLE_HOLD",
+              "OFFICIAL_DIRECTORY_SOURCE_HISTORY_INCOMPLETE_HOLD")
           assert r["journal"]["current_snapshot_not_retrojected"] is True
+          h = r["source_history"]
+          assert h["regular_close_or_point_in_time_listing_certified"] is False
+          if "${{ github.event_name }}" == "pull_request":
+              assert h["status"] == "PR_PREVIEW_UNSEALED"
+          else:
+              # We cannot call a Drive backup durable if any previously
+              # sealed Nasdaq Trader raw body was lost or silently replaced.
+              assert h["status"] == "FULL_SOURCE_BYTES_VERIFIED"
+              assert h["all_journal_digests_attested_by_raw_bytes"] is True
+              assert h["raw_source_blob_count"] >= 2
+              assert r["journal"]["earlier_full_source_bytes_preserved"] is True
           print("DAILY20_OFFICIAL_SNAPSHOT",r["status"],
                 "observed",r.get("research_listing_observed",0),"/25",
-                "journal",r["journal"]["status"],"certified 0/25")
+                "journal",r["journal"]["status"],
+                "full_blob_history",h["status"],
+                "source_blob_count",h.get("raw_source_blob_count",0),
+                "certified 0/25")
           PY
       - name: Secondary provider return comparison (advisory; independence unverified)
         run: |
