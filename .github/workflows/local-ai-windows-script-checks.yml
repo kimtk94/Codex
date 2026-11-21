@@ -44,6 +44,26 @@ jobs:
             }
             Write-Host "PowerShell parse PASS: $file"
           }
+      - name: Windows integration tests - real synthetic Git file reading
+        shell: pwsh
+        run: |
+          python -m unittest discover -s local_ai/tests -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          $testRoot = Join-Path $env:RUNNER_TEMP "local-ai-file-read-test"
+          New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+          git -C $testRoot init -q
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          "LOCAL_AI_WINDOWS_CI_MARKER" | Set-Content -LiteralPath (Join-Path $testRoot "marker.txt") -Encoding utf8
+          $result = python .\local_ai\repo_reader.py --repo $testRoot --file "marker.txt"
+          if ($LASTEXITCODE -ne 0) { throw "File reader failed on Windows runner" }
+          if (($result -join "`n") -notmatch "ACTUAL_FILE_READ:" -or ($result -join "`n") -notmatch "LOCAL_AI_WINDOWS_CI_MARKER") {
+            throw "Real file content was not read"
+          }
+          $listed = python .\local_ai\repo_reader.py --repo $testRoot --list
+          if ($LASTEXITCODE -ne 0 -or $listed -notcontains "marker.txt") { throw "Git inventory failed" }
+          Write-Host "PASS: Real Windows Git file read and inventory, no Ollama model involved"
+
       - name: Validate one-click launchers and local-only defaults
         shell: pwsh
         run: |
