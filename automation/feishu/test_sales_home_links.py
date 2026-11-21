@@ -2,12 +2,15 @@
 """Synthetic-only tests: never contact Feishu and never use real credentials."""
 import sys
 import unittest
+import urllib.error
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sales_home_links import (
     TARGETS, LINK_LABELS, EXPECTED_STATUS, url, plan, validate_current_link,
-    link_url, require_success, extract_token
+    link_url, require_success, extract_token, pages, safe_page_get,
+    READ_MAX_RETRIES
 )
 
 def record(key, href="", record_id=None):
@@ -23,6 +26,64 @@ def record(key, href="", record_id=None):
     }
 
 class SalesHomeSafety(unittest.TestCase):
+    def test_one_page_timeout_is_retried_with_same_cursor_no_duplicate(self):
+        seen = []
+        def get(method, path, token=None):
+            self.assertEqual(method, "GET")
+            seen.append(path)
+            if len(seen) == 1:
+                return {"code": 0, "data": {
+                    "has_more": True, "page_token": "cursor-one",
+                    "items": [{"record_id": "rec1"}]}}
+            if len(seen) == 2:
+                raise TimeoutError("synthetic timeout, no credentials")
+            return {"code": 0, "data": {
+                "has_more": False, "items": [{"record_id": "rec2"}]}}
+        with mock.patch("sales_home_links.request", side_effect=get), \
+             mock.patch("sales_home_links.time.sleep") as sleep:
+            got = list(pages("/dummy/tables/id/records", "synthetic-token"))
+        self.assertEqual([r["record_id"] for r in got], ["rec1", "rec2"])
+        self.assertEqual(seen[1], seen[2])
+        self.assertIn("page_token=cursor-one", seen[2])
+        sleep.assert_called_once()
+
+    def test_transient_http_503_read_is_retried(self):
+        err = urllib.error.HTTPError(
+            "https://open.feishu.cn", 503, "synthetic", None, None)
+        with mock.patch("sales_home_links.request", side_effect=[
+                err, {"code": 0, "data": {"has_more": False, "items": []}}]) as req, \
+             mock.patch("sales_home_links.time.sleep") as sleeper:
+            self.assertEqual(list(pages("/dummy", "token")), [])
+        self.assertEqual(req.call_count, 2)
+        sleeper.assert_called_once()
+
+    def test_http_400_read_is_not_retried(self):
+        err = urllib.error.HTTPError(
+            "https://open.feishu.cn", 400, "bad request", None, None)
+        with mock.patch("sales_home_links.request", side_effect=err) as req, \
+             mock.patch("sales_home_links.time.sleep") as sleeper:
+            with self.assertRaises(urllib.error.HTTPError):
+                list(pages("/dummy", "token"))
+        req.assert_called_once()
+        sleeper.assert_not_called()
+
+    def test_read_transient_exhaustion_fails_closed_without_values(self):
+        with mock.patch("sales_home_links.request",
+                        side_effect=TimeoutError("SECRET_RAW_URL")) as req, \
+             mock.patch("sales_home_links.time.sleep") as sleeper:
+            with self.assertRaisesRegex(
+                    RuntimeError, "FEISHU_READ_PAGE_TRANSIENT_EXHAUSTED") as ctx:
+                safe_page_get("/dummy", "synthetic-token")
+        self.assertNotIn("SECRET_RAW_URL", str(ctx.exception))
+        self.assertEqual(req.call_count, READ_MAX_RETRIES + 1)
+        self.assertEqual(sleeper.call_count, READ_MAX_RETRIES)
+
+    def test_transient_transport_retries_are_get_only(self):
+        with mock.patch("sales_home_links.request", return_value={
+                "code": 0, "data": {"items": [], "has_more": False}}) as req:
+            list(pages("/dummy", "token"))
+        self.assertEqual(req.call_args.args[0], "GET")
+
     def test_exact_known_urls(self):
         self.assertEqual(url("blkzYT2OAVQssL3Y"),
             "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkzYT2OAVQssL3Y")

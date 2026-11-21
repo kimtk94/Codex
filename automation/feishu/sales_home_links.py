@@ -8,6 +8,8 @@ Run in audit mode by default; --apply explicitly enables writes.
 import argparse
 import os
 import urllib.parse
+import urllib.error
+import time
 
 from base_readonly_probe import request, require
 
@@ -42,6 +44,30 @@ def require_success(response, label):
         raise RuntimeError(label + "_API_ERROR_" + str(response.get("code") if isinstance(response, dict) else "BAD_JSON"))
     return response.get("data") or {}
 
+READ_MAX_RETRIES = 2
+READ_RETRY_HTTP = frozenset({429, 500, 502, 503, 504})
+
+
+def safe_page_get(path, token):
+    """Retry transient GET transport errors only. Never replay any write.
+
+    Each retry reads the same page token. A failed page is not yielded,
+    so callers never receive partially duplicated results from retries.
+    """
+    for attempt in range(READ_MAX_RETRIES + 1):
+        try:
+            return request("GET", path, token=token)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in READ_RETRY_HTTP:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionResetError):
+            pass
+        if attempt == READ_MAX_RETRIES:
+            raise RuntimeError("FEISHU_READ_PAGE_TRANSIENT_EXHAUSTED") from None
+        time.sleep(min(2 ** attempt, 2))
+    raise RuntimeError("FEISHU_READ_PAGE_UNREACHABLE")
+
+
 def pages(path, token, extra=None):
     cursor = ""
     count = 0
@@ -52,7 +78,7 @@ def pages(path, token, extra=None):
         if cursor:
             params["page_token"] = cursor
         qs = urllib.parse.urlencode(params)
-        data = require_success(request("GET", path + "?" + qs, token=token), "LIST")
+        data = require_success(safe_page_get(path + "?" + qs, token), "LIST")
         for row in data.get("items") or []:
             yield row
         count += 1
