@@ -232,3 +232,44 @@ revision, market impact, correlation/concentration, limited bear examples, and
 fully independent prospective portfolio PnL require additional verification.
 The existing retrospective Bear-only Logistic +40.94% return **must not** be
 mistaken for realized or independently confirmed forward alpha.
+
+
+## Mandatory portfolio Monte Carlo (paired and year-stratified)
+
+`monte_carlo.py` runs under **the same required GitHub Actions job** after
+the incumbent 16 and bear challenger 20 retrospective cash-ledger scenarios.
+**Publication to Google Drive is BLOCKED** if the fixed stress report is
+missing, inconsistent or attempts to claim live/future OOS validation.
+
+- Resample the **entire daily equity-return vector jointly** (36 strategy
+  scenarios + SPY and QQQ) so the same market-wide loss day is applied to all
+  strategies. This retains contemporaneous cross-strategy/benchmark dependence.
+- Apply *circular moving block bootstrap* with blocks of **1 / 5 / 20 trading
+  sessions, 2,000 replications per block length**; seed fixed at 2601121.
+  Repeated sample draws are made **separately within each historical calendar
+  year**, preserving the observed number of 2024, 2025 and 2026 sessions. A
+  block of 1 is the IID optimistic diagnostic, and 5/20 lengths stress loss
+  clustering. Even 20-day blocks do not preserve all serial correlation.
+- The source is **real cash-constrained daily portfolio equity**, net of the
+  strategy's already modeled transaction costs, not a random shuffle of
+  independent trades or sum of 1,499 individual trade returns. Paired SPY/QQQ
+  daily closes are sampled with exactly the same date indices.
+- For each of 38 series × 3 blocks = **114 results rows**, report empirical
+  5th/median/95th percentile simulated cumulative returns, bottom-5% CVaR,
+  lower-tail close-only MDD, probabilities of negative total return and
+  drawdown 20%/30%, probabilities of lagging paired SPY/QQQ, and medians of
+  return spread versus benchmarks. The 20-block results are prominent;
+  the 1/5-block results expose methodology sensitivity.
+- Results in `research/monte_carlo/monte_carlo_scenarios.csv`,
+  `monte_carlo_summary.json` and `monte_carlo_observed_baseline.csv`.
+  Deterministic seeds allow exact CI test reproduction, not predictive
+  certainty.
+
+**No live approval**: this is a *conditional stress distribution constructed
+from the same already-investigated 2024–2026 historical sample*, not a
+prospective forecast, a p-value correcting ex-post symbol selection, nor a
+replacement for genuinely future OOS evidence. Historical adjusted prices and
+the assumption of repeated daily return segments can misrepresent broker
+fills, regime transitions and position-sizing state. Monte Carlo 5th-percentile
+drawdown is not intraday max loss; use alongside gap and low-price diagnostics
+from frozen prospective observations.
