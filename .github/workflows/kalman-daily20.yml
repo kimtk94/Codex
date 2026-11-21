@@ -346,6 +346,42 @@ jobs:
                 "Yahoo repaired-event suppression",r["yahoo_repair_suppression_observed"],
                 "role-based identity",r["identity_role_schema_events"],"certified 0/26")
           PY
+      - name: Archive issuer and ETF sponsor evidence for CA exceptions (never certify prices)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_ca_primary_evidence.py \
+              --review output/daily20/research/corporate_action_forensics/review_queue.csv \
+              --out-dir output/daily20/research/issuer_ca_primary \
+              --offline
+          else
+            python research/kalman_daily20/issuer_ca_primary_evidence.py \
+              --review output/daily20/research/corporate_action_forensics/review_queue.csv \
+              --out-dir output/daily20/research/issuer_ca_primary
+          fi
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          root=Path("output/daily20/research/issuer_ca_primary")
+          report=json.loads((root/"report.json").read_text())
+          with (root/"unresolved_review.csv").open(newline="") as stream:
+            cases=list(csv.DictReader(stream))
+          assert report["version"] == "daily20-issuer-ca-primary-evidence-v1"
+          assert report["research_only"] is True
+          assert report["production_writes"] is False
+          assert report["strategy_promoted"] is False
+          assert report["source_finality_verified"] == 0
+          assert report["factor_certified"] == 0
+          assert report["issuer_action_payments_certified"] == 0
+          assert report["issuer_identities_certified"] == 0
+          assert report["remaining_review_case_count"] == len(cases)
+          assert len(cases) == report["unresolved_cases_analyzed"]
+          assert report["curated_official_leads"] == 7
+          assert all(r["independent_adjustment_factor_certified"] == "False" for r in cases)
+          print("DAILY20_CA_PRIMARY_HOLD",report["unresolved_cases_analyzed"],
+                "pending",report["official_leads_applicable"],"issuer leads",
+                report["live_source_anchor_supported_cases"],"live anchors",
+                report["raw_source_fetch_success"],"source bodies; certified 0/26")
+          PY
       - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
         run: |
           python research/kalman_daily20/listing_asof.py \
