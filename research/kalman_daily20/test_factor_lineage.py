@@ -49,7 +49,7 @@ class FactorLineageTests(unittest.TestCase):
         cached = cache_fixture()
         cached.loc[0, "close"] = 86.
         row, _ = diagnose("QQQ", yahoo_fixture(), cached, "2026-11-20")
-        self.assertEqual(row["status"], "YAHOO_ADJUSTED_REPLAY_DRIFT_HOLD")
+        self.assertEqual(row["status"], "YAHOO_ADJUSTED_COMPARISON_DIFFERENCE_HOLD")
         self.assertEqual(row["mismatch_gt_half_cent_days"], 1)
         self.assertEqual(row["mismatch_examples"], ["2026-11-18"])
 
