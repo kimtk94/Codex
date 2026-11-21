@@ -109,7 +109,10 @@ class Daily20SourceFinalityTests(unittest.TestCase):
             self.assertTrue(all(not row["finality_verified"] for row in report["symbols"]))
             self.assertEqual(sum(row["group"]=="CORE_20" for row in report["symbols"]),20)
             self.assertEqual(sum(row["group"]=="CONTEXT_6" for row in report["symbols"]),6)
-            self.assertEqual(len({row["source_parquet_sha256"] for row in report["symbols"]}),1)
+            # VIX is unadjusted, while 25 stocks/ETFs use Yahoo auto-adjusted bars.
+            # Their bytes and therefore SHA256 differ even with identical OHLCV.
+            self.assertEqual(len({row["source_parquet_sha256"] for row in report["symbols"]}),2)
+            self.assertEqual(sum(row["yahoo_is_adjusted"] for row in report["symbols"]),25)
             self.assertFalse(report["strategy_promoted"])
 
 
