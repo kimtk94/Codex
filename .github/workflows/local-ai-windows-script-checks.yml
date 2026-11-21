@@ -31,7 +31,8 @@ jobs:
             "local_ai\compare-local-coding-models.ps1",
             "local_ai\preflight-agent-tool.ps1",
             "local_ai\repair-ollama-cli.ps1",
-            "local_ai\verify-git-drive-local.ps1"
+            "local_ai\verify-git-drive-local.ps1",
+            "local_ai\setup-drive-desktop.ps1"
           )
           foreach ($file in $scripts) {
             $tokens = $null
@@ -104,6 +105,18 @@ jobs:
           # Reset the CI step exit status after validating it was the expected 2.
           exit 0
 
+      - name: Windows Drive Desktop setup missing-folder smoke test
+        shell: pwsh
+        run: |
+          # Deliberately do NOT pass -InstallIfMissing on a hosted runner.
+          $missing = Join-Path $env:RUNNER_TEMP "no-drive-mount-here"
+          $out = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\local_ai\setup-drive-desktop.ps1" -DriveWorkspace $missing 2>&1
+          $exit = $LASTEXITCODE
+          if ($exit -ne 2) { throw "Expected missing Drive folder -> exit 2, got $exit : $($out | Out-String)" }
+          if (($out | Out-String) -notmatch "LocalAI_Workspace") { throw "Missing actionable Drive Desktop guidance" }
+          Write-Host "PASS: missing Drive Desktop folder diagnosed without install or credentials"
+          exit 0
+
       - name: Validate one-click launchers and local-only defaults
         shell: pwsh
         run: |
@@ -120,12 +133,13 @@ jobs:
             "local_ai\Compare-Local-Coding-Models.cmd",
             "local_ai\Preflight-Codex-Tool-Use.cmd",
             "local_ai\Repair-Ollama-Command.cmd",
-            "local_ai\Verify-Git-Drive-Local.cmd"
+            "local_ai\Verify-Git-Drive-Local.cmd",
+            "local_ai\Setup-Drive-Desktop.cmd"
           )
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
             $cmd = Get-Content $file -Raw
-            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } elseif ($file -like "*Preflight-Codex-Tool-Use.cmd") { "preflight-agent-tool.ps1" } elseif ($file -like "*Repair-Ollama-Command.cmd") { "repair-ollama-cli.ps1" } elseif ($file -like "*Verify-Git-Drive-Local.cmd") { "verify-git-drive-local.ps1" } else { "local-codex.ps1" }
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } elseif ($file -like "*Preflight-Codex-Tool-Use.cmd") { "preflight-agent-tool.ps1" } elseif ($file -like "*Repair-Ollama-Command.cmd") { "repair-ollama-cli.ps1" } elseif ($file -like "*Verify-Git-Drive-Local.cmd") { "verify-git-drive-local.ps1" } elseif ($file -like "*Setup-Drive-Desktop.cmd") { "setup-drive-desktop.ps1" } else { "local-codex.ps1" }
             if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
@@ -222,6 +236,11 @@ jobs:
             if (!$driveCheck.Contains($token)) { throw "Local Drive check missing: $token" }
           }
           Write-Host "Local GitHub + Drive health check syntax/static tests PASS."
+          $driveSetup = Get-Content "local_ai\setup-drive-desktop.ps1" -Raw
+          foreach ($term in @("Google.GoogleDrive", "InstallIfMissing", "LocalAI_Workspace", "inbox", "results", "drive_workspace_path")) {
+            if (!$driveSetup.Contains($term)) { throw "Drive Desktop setup missing: $term" }
+          }
+          Write-Host "Guided Google Drive desktop setup static checks PASS."
 
 
 
