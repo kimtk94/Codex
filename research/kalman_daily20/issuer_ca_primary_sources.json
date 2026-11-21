@@ -239,11 +239,11 @@
       "source_id": "QQQ_2018_SEC_2020_Q3_TABLE",
       "claim_type": "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
       "reported_amount_usd": "0.37837",
-      "anchor_a": "07/02/18",
+      "anchor_a": "2018 First Quarter $174.08 $153.45",
       "anchor_b": "0.37837",
       "exdate_explicitly_issuer_published": false,
       "claim_amount_exact": true,
-      "notes": "SEC-hosted 2020 structured note (not issuer-filed) reports QQQ 2018 THIRD QUARTER cash $0.37837, by PAYMENT quarter (July31), not June 18 ex-date explicitly. Separate secondary ex-date joins required. Yahoo .378 rounded; Alpaca .37638 unresolved."
+      "notes": "SEC-hosted 2020 structured note (not issuer-filed) reports QQQ 2018 THIRD QUARTER cash $0.37837, by PAYMENT quarter (July31), not June 18 ex-date explicitly. Separate secondary ex-date joins required. Yahoo .378 rounded; Alpaca .37638 unresolved. Live SEC original source presents 2018 quarterly table with a preceding '2018 First Quarter' entry and Q3 0.37837, not the fictitious literal 07/02/18 anchor; exact June ex-date NOT in this filing."
     },
     {
       "symbol": "QLD",
