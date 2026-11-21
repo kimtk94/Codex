@@ -14,8 +14,10 @@ import json
 from pathlib import Path
 from zipfile import ZipFile
 
-EXPECTED_DRIVE_RESULTS_ID = "1l-e4OLKS4qlDjNsf8TdkMsd5w3QouF4w"
-EXPECTED_DRIVE_RESULTS_NAME = "daily20_results_latest.zip"
+# Reuse the exact uploader pin. Never maintain a second mutable copy.
+from publish_drive import EXPECTED_TARGETS
+
+EXPECTED_DRIVE_RESULTS_ID, EXPECTED_DRIVE_RESULTS_NAME = EXPECTED_TARGETS["results"]
 EXPECTED_STABILITY_VERSION = "daily20-prospective-stability-v1"
 MAX_RESULTS_SIZE = 50_000_000
 SNAPSHOT_PREFIX = "research/stability/snapshots/"
