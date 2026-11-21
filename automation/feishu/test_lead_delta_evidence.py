@@ -116,5 +116,25 @@ class EvidenceTests(unittest.TestCase):
             'LEAD_DELTA_NO_NEW_DATA=1 {"checked":1050,"views_verified":2,"writes":0}')
         self.assertEqual(result["result"],"BLOCK")
 
+    def test_simulated_change_is_separate_from_actual_pass(self):
+        sim=('LEAD_DELTA_SIMULATED_ONE_CHANGE_PASS={"mode":"SIMULATION_ONLY",'
+             '"source_records":1050,"simulated_checkbox_flips":1,'
+             '"expected_derived_field_updates":1,"real_feishu_writes":0,'
+             '"manual_selection_preserved":true,'
+             '"Lead ID":"should-not-be-exported"}')
+        result=e.evidence(SOURCE+"\n"+PLAN+"\nLEAD_DELTA_READ_ONLY_PASS=1",
+                          SOURCE+"\n"+PLAN+"\n"+NO_CHANGE,
+                          simulation_log=sim)
+        self.assertEqual(result["result"],"NO_NEW_DATA")
+        self.assertEqual(result["simulated_one_checkbox"]["result"],"SIMULATION_PASS")
+        self.assertNotIn("should-not-be-exported",str(result))
+        self.assertIn("실제 Feishu 쓰기 0건",e.render_summary(result))
+
+    def test_invalid_canary_cannot_be_called_simulation_pass(self):
+        sim=('LEAD_DELTA_SIMULATED_ONE_CHANGE_PASS={"mode":"SIMULATION_ONLY",'
+             '"simulated_checkbox_flips":1,"expected_derived_field_updates":1,'
+             '"real_feishu_writes":1,"manual_selection_preserved":true}')
+        self.assertEqual(e.parse_simulation(sim)["result"],"BLOCK")
+
 if __name__=="__main__":
     unittest.main()
