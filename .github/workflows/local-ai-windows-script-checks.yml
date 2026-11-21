@@ -65,7 +65,7 @@ jobs:
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
           $src = Get-Content "local_ai\local-codex.ps1" -Raw
-          foreach ($requiredString in @("npm.cmd", "codex.cmd", "--oss", "127.0.0.1:11434", "qwen3:4b")) {
+          foreach ($requiredString in @("npm.cmd", "codex.cmd", "--oss", "127.0.0.1:11434", "qwen2.5-coder:3b", "qwen25coder3b-16k")) {
             if (!$src.Contains($requiredString)) { throw "Missing required safety/config setting: $requiredString" }
           }
           Write-Host "Windows launchers and local-only checks PASS."
@@ -104,12 +104,12 @@ jobs:
           }
           $start = Get-Content "local_ai\Start-Local-Codex.cmd" -Raw
           $verify = Get-Content "local_ai\Verify-Local-Codex-16K.cmd" -Raw
-          if (!$start.Contains("qwen3-codex16k") -or !$verify.Contains("qwen3-codex16k")) {
-            throw "Start/Verify must use persistent custom model, not base qwen3:4b."
+          if (!$start.Contains("qwen25coder3b-16k") -or !$verify.Contains("qwen25coder3b-16k")) {
+            throw "Start/Verify must use the measured Qwen2.5-Coder 3B 16K alias."
           }
           Write-Host "Custom Ollama model static checks PASS."
           $launcher = Get-Content "local_ai\local-codex.ps1" -Raw
-          foreach ($part in @("create-codex16k.ps1", "Local qwen3-codex16k not found", "Require-Ollama", 'if (-not $modelAvailable)')) {
+          foreach ($part in @("create-codex16k.ps1", "customBaseModels", "qwen2.5-coder:3b", "Require-Ollama", 'if (-not $modelAvailable)')) {
             if (!$launcher.Contains($part)) { throw "Automatic local model bootstrap missing: $part" }
           }
           Write-Host "Automatic missing-model bootstrap static checks PASS."
@@ -126,5 +126,16 @@ jobs:
             if (!$compare.Contains($requiredString)) { throw "Model comparison missing: $requiredString" }
           }
           Write-Host "Local comparative screening script static checks PASS."
+
+          $setup = Get-Content "local_ai\Setup-Local-Codex.cmd" -Raw
+          $check = Get-Content "local_ai\Check-Local-Codex.cmd" -Raw
+          if (!$setup.Contains("qwen2.5-coder:3b") -or !$check.Contains("qwen2.5-coder:3b")) {
+            throw "Installer and diagnostic must target the 3B base model."
+          }
+          if ($start.Contains("-Model qwen3-codex16k") -or $verify.Contains("-Model qwen3-codex16k")) {
+            throw "Stale Qwen3 default found in launcher or verifier."
+          }
+          Write-Host "Measured Qwen2.5-Coder 3B selected as default PASS."
+
 
 
