@@ -74,7 +74,7 @@ class GatePolicyTests(unittest.TestCase):
             "local_ai/secret_config.json",
             "local_ai/auth_password.txt",
             "local_ai/app.sqlite",
-            "local_ai/hello\\nworld.py".replace("\\\\n", "\\n"),
+            "local_ai/hello" + chr(10) + "world.py",
         ):
             with self.subTest(path=name):
                 self.assertFalse(allowed_path(name))
@@ -92,7 +92,7 @@ class GatePolicyTests(unittest.TestCase):
             git(root, "init", "-q")
             old = root / "css" / "quote.py"
             old.parent.mkdir(parents=True)
-            old.write_text("def invoice(): return 1\\n".replace("\\\\n", "\\n"), encoding="utf-8")
+            old.write_text("def invoice(): return 1" + chr(10), encoding="utf-8")
             git(root, "add", ".")
             git(root, "-c", "user.email=ci@example.com", "-c", "user.name=CI",
                 "commit", "-qm", "base")
@@ -123,13 +123,13 @@ class GatePolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             git(root, "init", "-q")
-            (root / "README.md").write_text("base\\n".replace("\\\\n", "\\n"), encoding="utf-8")
+            (root / "README.md").write_text("base" + chr(10), encoding="utf-8")
             git(root, "add", ".")
             git(root, "-c", "user.email=ci@example.com", "-c", "user.name=CI",
                 "commit", "-qm", "base")
             base = git(root, "rev-parse", "HEAD")
             (root / "local_ai").mkdir()
-            (root / "local_ai" / "model.bin").write_bytes(b"\\x00\\x01BINARY".replace(b"\\\\x00", b"\\x00"))
+            (root / "local_ai" / "model.bin").write_bytes(bytes([0, 1]) + b"BINARY")
             git(root, "add", ".")
             git(root, "-c", "user.email=ci@example.com", "-c", "user.name=CI",
                 "commit", "-qm", "binary")
