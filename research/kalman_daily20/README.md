@@ -284,3 +284,40 @@ changed fields and the original frozen event hash. The Drive publisher verifies
 these audit references, and the 4-session outcome remains tied to the **first
 captured candidate flag**. Historical replay comparisons are diagnostics, not
 additional prospective forecasts.
+
+
+## P0 point-in-time price and fitted-score replay provenance
+
+Separate read-only [GitHub Actions workflow \`kalman-daily20-provenance.yml\`]
+investigates same-date model-replay drift described in issue #884.
+
+- Replays the exact fixed 2026-11-20 signal day across **three stored
+  immutable Actions market+feature archives**: runs \`44853890794\`,
+  \`44856445903\`, \`44858008175\`. These all terminate on the same US
+  session. Uses the original frozen Bull signal journal as an external
+  comparison anchor; never revises its event hash/probability.
+- Computes **semantic OHLCV value differences by historical date** (not
+  merely different Parquet SHA256), provider-adjusted volume differences,
+  date omissions, technical-indicator differences, and current 21-feature
+  row digest. Repeats the fixed annual training sample selection and
+  single-date fitted Logistic predictions for both incumbent Bull and
+  research-only Bear models: 40 model comparisons per pair of snapshots.
+- Archives exact hashes for labeled training rows, signal-day 21-feature
+  vectors, fitted imputer/scaler/logistic coefficients, package versions,
+  and attribution \`HISTORICAL_TRAINING_INPUT_CHANGED\` vs
+  \`SIGNAL_FEATURE_CHANGED\` vs
+  \`INPUTS_IDENTICAL_MODEL_NUMERIC_NONDETERMINISM\`.
+- Produces two \`lineage_summary.json\` evidence files and CSVs
+  \`price_column_diff.csv\`, \`technical_column_diff.csv\`,
+  \`revised_sessions.csv\`, \`model_replay.csv\` into the short-lived
+  **90-day GitHub Actions artifact**. This is a separate P0 research audit
+  and does not alter the two existing pinned Drive ZIPs, any trading rules,
+  or any existing frozen forecast event.
+- This can isolate **observed raw/technical input changes** and fit
+  reproducibility under one pinned CI run. It cannot prove Yahoo's original
+  point-in-time market truth or secondary-provider independence. No
+  candidate threshold changes, OOS performance claims, or model promotion.
+
+In particular, a different Parquet file hash is not necessarily a
+different OHLCV value. This workflow checks both and requires matched
+US-session dates before inferring source-driven model drift.
