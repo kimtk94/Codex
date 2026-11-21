@@ -89,6 +89,7 @@ def seed(root):
         "historical_oos_2024_26_promoted": False,
         "retrospective_backfill": False,
         "last_completed_session": "2026-11-20",
+        "source_run_id": os.environ.get("GITHUB_RUN_ID", "test-run"),
         "first_admitted_session": "2026-11-20",
         "signal_events": 20, "settled_events": 0,
         "pending_events": 20, "journal_hash_tip": journal[-1]["hash"],
