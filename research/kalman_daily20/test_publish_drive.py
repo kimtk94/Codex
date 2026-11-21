@@ -1,6 +1,8 @@
 """Offline Drive persistence checks: no OAuth calls, no secrets."""
 import json
 import os
+import hashlib
+from forward_shadow import chain_append, journal_bytes
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -68,6 +70,36 @@ def seed(root):
                      "bear_model_coverage.csv", "bear_oos_trades.csv",
                      "baseline_loss_attribution.csv"):
         (bear / filename).write_text("column1,column2\\nvalue1,value2\\n")
+    future = r / "research/forward_shadow"
+    future.mkdir(parents=True)
+    journal = []
+    for symbol in symbols[:20]:
+        chain_append(journal, {
+            "kind": "SIGNAL", "research_only": True,
+            "signal_date": "2026-11-20", "symbol": symbol,
+            "probability": 0.7, "candidate": True,
+            "shadow_only": symbol in {"QLD", "IONQ", "COIN", "MSTR"},
+        })
+    payload = journal_bytes(journal)
+    (future / "journal.jsonl").write_bytes(payload)
+    (future / "report.json").write_text(json.dumps({
+        "version": "daily20-forward-shadow-v1",
+        "status": "RESEARCH_ONLY", "research_only": True,
+        "live_execution": False, "approved_live": False,
+        "historical_oos_2024_26_promoted": False,
+        "retrospective_backfill": False,
+        "last_completed_session": "2026-11-20",
+        "first_admitted_session": "2026-11-20",
+        "signal_events": 20, "settled_events": 0,
+        "pending_events": 20, "journal_hash_tip": journal[-1]["hash"],
+        "journal_sha256": hashlib.sha256(payload).hexdigest(),
+    }))
+    (future / "snapshots.csv").write_text(
+        "symbol,probability\n" + "\n".join(f"{s},0.7" for s in symbols[:20]) + "\n"
+    )
+    (future / "outcomes.csv").write_text(
+        "signal_date,symbol,exit_date\n"
+    )
     return d, r
 
 
@@ -152,6 +184,37 @@ class DrivePublisherTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "BEAR_RESEARCH_GOVERNANCE"):
                 inspect_payload(data, results)
 
+
+    def test_missing_prospective_journal_blocks_upload(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            (results / "research/forward_shadow/journal.jsonl").unlink()
+            with self.assertRaisesRegex(RuntimeError, "MISSING_SEALED_FORWARD"):
+                inspect_payload(data, results)
+
+    def test_modified_prospective_event_blocks_upload(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            journal = results / "research/forward_shadow/journal.jsonl"
+            altered = journal.read_text().replace('"probability":0.7', '"probability":0.4')
+            journal.write_text(altered)
+            # Even if a manifest/report were changed, the inner chain must still match.
+            report_file = results / "research/forward_shadow/report.json"
+            report = json.loads(report_file.read_text())
+            report["journal_sha256"] = hashlib.sha256(journal.read_bytes()).hexdigest()
+            report_file.write_text(json.dumps(report))
+            with self.assertRaisesRegex(RuntimeError, "FORWARD_SHADOW_EVENT_CHAIN"):
+                inspect_payload(data, results)
+
+    def test_prospective_governance_never_approves_live(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            p = results / "research/forward_shadow/report.json"
+            x = json.loads(p.read_text())
+            x["approved_live"] = True
+            p.write_text(json.dumps(x))
+            with self.assertRaisesRegex(RuntimeError, "FORWARD_SHADOW_PUBLISH_GOVERNANCE"):
+                inspect_payload(data, results)
 
 
 if __name__ == "__main__":
