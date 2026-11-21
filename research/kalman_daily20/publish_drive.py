@@ -90,6 +90,7 @@ def inspect_payload(data_root, results_root):
         "regime_annual.csv", "regime_year_coverage.csv",
         "regime_session_context.csv", "bear_model_coverage.csv",
         "bear_oos_trades.csv",
+        "baseline_loss_attribution.csv", "baseline_loss_attribution.json",
     ]
     if not all((bear_dir / name).is_file() and (bear_dir / name).stat().st_size > 10
                for name in files):
