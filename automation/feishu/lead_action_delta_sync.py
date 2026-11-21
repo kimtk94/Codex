@@ -16,6 +16,7 @@ import sys
 import lead_action_queue_views as queue
 import lead_mail_description_sync as lead
 import lead_manual_checkboxes as manual
+import lead_eligibility as age
 from lead_mail_views_sync import CHECK_FIELDS, get_one_view, filter_matches
 from sales_home_links import API, pages, request, require_success
 
@@ -48,8 +49,9 @@ def source_stamps_fresh(records, now=None):
 
 def schema_check(fields):
     required = {
-        "Lead ID": 1, "Lead Status": 1, "연락 구분": 1,
-        "메일 원본 확인시각": 1, queue.QUEUE_FIELD: 1,
+        "Lead ID": 1, "Lead Status": 1, "Lead Created": 1,
+        "연락 구분": 1, "메일 원본 확인시각": 1,
+        queue.QUEUE_FIELD: 1, age.ELIGIBILITY_FIELD: 1,
         **{name: 7 for name in manual.MANUAL},
     }
     names = {}
@@ -67,12 +69,18 @@ def plan_changes(records):
     if len(records) < 450:
         raise RuntimeError("LEAD_DELTA_UNEXPECTED_LEAD_COUNT")
     changes = []
+    today = age.today_kst()
     for key, record in records.items():
         row = record["fields"]
-        expected = queue.QUEUE_LABELS[queue.classify(row)]
+        expected = queue.QUEUE_LABELS[queue.classify(row, today)]
+        eligible = age.label(row, today)
+        altered = {}
         if lead.norm(row.get(queue.QUEUE_FIELD)) != expected:
-            changes.append({"record_id": record["record_id"],
-                            "fields": {queue.QUEUE_FIELD: expected}})
+            altered[queue.QUEUE_FIELD] = expected
+        if lead.norm(row.get(age.ELIGIBILITY_FIELD)) != eligible:
+            altered[age.ELIGIBILITY_FIELD] = eligible
+        if altered:
+            changes.append({"record_id": record["record_id"], "fields": altered})
     return changes
 
 def simulate_single_manual_change(records):
@@ -139,6 +147,8 @@ def check_preservation(old, new):
         desired = queue.QUEUE_LABELS[queue.classify(fields)]
         if lead.norm(fields.get(queue.QUEUE_FIELD)) != desired:
             raise RuntimeError("LEAD_DELTA_PRIORITY_READBACK_MISMATCH")
+        if lead.norm(fields.get(age.ELIGIBILITY_FIELD)) != age.label(fields):
+            raise RuntimeError("LEAD_DELTA_ELIGIBILITY_READBACK_MISMATCH")
     return after
 
 def validate_prewrite_snapshot(previous, latest):
@@ -207,9 +217,12 @@ def main(apply=False, simulate_one=False):
     changes = plan_changes(old)
     max_changed = guard_delta_size(changes, len(old))
     before = queue.partition(old_fields)
+    eligibility_counts = age.stats(old_fields.values())
     print("LEAD_DELTA_PLAN=" + json.dumps({
         "records": len(old), "source_stamps": stamps,
         "pending_updates": len(changes), "allowed_max": max_changed,
+        "cutoff_kst": eligibility_counts["cutoff"],
+        "eligibility": eligibility_counts["counts"],
         "counts_before": {k: len(v) for k, v in before.items()},
         "apply": apply
     }, ensure_ascii=False), flush=True)
