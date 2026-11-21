@@ -401,16 +401,56 @@ def run(spec, prior_zip, market, features, qc_path, baseline_journal,
     return report
 
 
+def run_pr_asof_smoke(spec, market, features, qc_path, out):
+    """Regression smoke only: PR previews are NEVER admitted forward signals."""
+    qc = json.loads(Path(qc_path).read_text())
+    if qc.get("status") != "READY" or qc.get("ready") != 26:
+        raise RuntimeError("BEAR_PR_SMOKE_REQUIRES_MARKET_QC")
+    session = str(qc["expected_session"])
+    scored = score_bear_asof(spec, market, features, session)
+    rows = list(scored.items())
+    if len(rows) != 40 or any(not isinstance(row["candidate"], bool)
+                              for (_, row) in rows):
+        raise RuntimeError("BEAR_PR_SMOKE_INCOMPLETE")
+    diagnostics = {
+        "status": "PR_RETROSPECTIVE_SCORER_CHECK_NOT_FORWARD_EVIDENCE",
+        "research_only": True, "forward_signal_events": 0,
+        "asof_session": session, "scored_rows": len(rows),
+        "candidate_counts": {
+            fam: sum(v["candidate"] for (sym, family), v in rows if family == fam)
+            for fam in FAMILIES
+        },
+        "eligible_bear_symbols": sum(
+            scored[(symbol, "BEAR_RULE")]["eligible"] for symbol in spec["core"]
+        ),
+        "bear_logistic_available": sum(
+            scored[(symbol, "BEAR_LOGISTIC")]["probability"] is not None
+            for symbol in spec["core"]
+        ),
+        "not_prospective_evidence": True, "no_broker_order": True,
+    }
+    write_json(Path(out) / "pr_asof_smoke.json", diagnostics)
+    print(json.dumps({"DAILY20_BEAR_PR_SCORER": diagnostics}))
+    return diagnostics
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--config", default="research/kalman_daily20/universe.json")
-    p.add_argument("--prior-zip", required=True)
+    p.add_argument("--prior-zip")
     p.add_argument("--market", required=True)
     p.add_argument("--features", required=True)
     p.add_argument("--qc", required=True)
-    p.add_argument("--baseline-journal", required=True)
+    p.add_argument("--pr-asof-smoke", action="store_true")
+    p.add_argument("--baseline-journal")
     p.add_argument("--out", required=True)
     args = p.parse_args()
+    if args.pr_asof_smoke:
+        run_pr_asof_smoke(load_spec(args.config), args.market, args.features,
+                          args.qc, args.out)
+        return
+    if not args.prior_zip or not args.baseline_journal:
+        raise RuntimeError("BEAR_FORWARD_REQUIRES_PRIOR_DRIVE_AND_FROZEN_BASELINE")
     run(load_spec(args.config), args.prior_zip, args.market, args.features,
         args.qc, args.baseline_journal, args.out)
 
