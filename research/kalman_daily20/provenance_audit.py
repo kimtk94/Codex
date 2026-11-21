@@ -109,8 +109,7 @@ def compare_numeric_frames(old, new, symbol, kind, *, expected_date):
         relative[finite] = np.abs(b[finite] / a[finite] - 1.0)
         indices = np.flatnonzero(mask)
         dates = [str(common[i].date()) for i in indices]
-        for i in indices:
-            key = dates[list(indices).index(i)]
+        for i, key in zip(indices, dates):
             daily.setdefault(key, []).append(col)
         same &= len(indices) == 0
         ix = np.flatnonzero(common == pd.Timestamp(expected_date))
@@ -137,7 +136,7 @@ def compare_numeric_frames(old, new, symbol, kind, *, expected_date):
         "changed_columns": ";".join(sorted(values)),
         "changed_column_count": len(values),
     } for date, values in sorted(daily.items())]
-    if missing_old.any() or missing_new.any():
+    if len(missing_old) or len(missing_new):
         same = False
     return detail, sessions, same
 
