@@ -134,6 +134,13 @@ jobs:
       - name: Out-of-sample annual baseline (no broker, no production writes)
         run: |
           python research/kalman_daily20/daily20.py train --config research/kalman_daily20/universe.json --market output/daily20/market --features output/daily20/features --out output/daily20/research
+      - name: Aggregate cash-constrained OOS portfolio and Regime diagnostics
+        run: |
+          python research/kalman_daily20/portfolio.py \
+            --config research/kalman_daily20/universe.json \
+            --market output/daily20/market \
+            --trades output/daily20/research/oos_trades.csv \
+            --out output/daily20/research
       - name: Publish reproducible research evidence
         if: always()
         uses: actions/upload-artifact@v4
