@@ -25,6 +25,7 @@ from zipfile import ZipFile
 from zoneinfo import ZoneInfo
 
 from daily20 import load_spec, write_json
+from official_directory_history import preserve as preserve_full_source_history
 
 VERSION = "daily20-official-directory-snapshot-v1"
 URLS = {
@@ -266,6 +267,7 @@ def run(spec, out_dir, *, fetcher=fetch_url, stamp=None,
         "finality_verified": 0, "required": 25, "status": "OFFICIAL_DIRECTORY_FETCH_HOLD",
         "source_snapshot_is_historical_asof_evidence": False,
     }
+    responses = None
     try:
         responses = {key: fetcher(url) for key, url in URLS.items()}
         result = one_snapshot(spec, responses, fetched_at=stamp, current_venue=current_venue)
@@ -278,17 +280,41 @@ def run(spec, out_dir, *, fetcher=fetch_url, stamp=None,
         result["error_class"] = (
             "HTTP_" + str(exc.code) if isinstance(exc, HTTPError) else type(exc).__name__)
         result["status"] = "OFFICIAL_DIRECTORY_SOURCE_UNAVAILABLE_HOLD"
-    if result.get("sources") and not preview:
+    if (result.get("sources") and not preview
+            and prior_status != "PRIOR_DRIVE_ARCHIVE_MISSING_HOLD"):
         journal, evidence = save_journal(prior, result, prior_status=prior_status)
     else:
         journal = prior
         evidence = {
-            "status": "PR_PREVIEW_NO_SEAL" if preview else "NO_SOURCE_SNAPSHOT_APPEND_HOLD",
+            "status": ("PR_PREVIEW_NO_SEAL" if preview
+                       else "PRIOR_DRIVE_ARCHIVE_MISSING_HOLD"
+                       if prior_status == "PRIOR_DRIVE_ARCHIVE_MISSING_HOLD"
+                       else "NO_SOURCE_SNAPSHOT_APPEND_HOLD"),
             "previous_archive_status": prior_status, "journal_events": len(journal),
             "journal_tip_sha256": journal[-1]["hash"] if journal else None,
             "earlier_full_source_bytes_preserved": False,
             "current_snapshot_not_retrojected": True,
         }
+    # Existing journal is verified before any source bytes are replayed.
+    # A transient fetch failure still copies the old sealed raw bodies forward.
+    if preview:
+        result["source_history"] = {
+            "status": "PR_PREVIEW_UNSEALED",
+            "all_journal_digests_attested_by_raw_bytes": False,
+            "raw_body_history_preserved_in_pinned_drive_zip": False,
+            "regular_close_or_point_in_time_listing_certified": False,
+        }
+    else:
+        result["source_history"] = preserve_full_source_history(
+            prior_zip, journal,
+            responses if (result.get("sources") and
+                          prior_status != "PRIOR_DRIVE_ARCHIVE_MISSING_HOLD") else None,
+            out)
+        evidence["earlier_full_source_bytes_preserved"] = result[
+            "source_history"]["all_journal_digests_attested_by_raw_bytes"]
+        if (result["source_history"]["status"] != "FULL_SOURCE_BYTES_VERIFIED"
+                or prior_status == "PRIOR_DRIVE_ARCHIVE_MISSING_HOLD"):
+            result["status"] = "OFFICIAL_DIRECTORY_SOURCE_HISTORY_INCOMPLETE_HOLD"
     result["journal"] = evidence
     if not preview:
         (out / "snapshot_journal.jsonl").write_text(
@@ -312,7 +338,9 @@ def main():
     print("DAILY20_OFFICIAL_DIRECTORY", result["status"],
           result.get("research_listing_observed", 0), "/25 venue snapshot observed;",
           "historical certified 0; finality 0/26; journal",
-          result["journal"]["status"])
+          result["journal"]["status"], "full source",
+          result["source_history"]["status"],
+          result["source_history"].get("raw_source_blob_count", 0))
 
 
 if __name__ == "__main__":
