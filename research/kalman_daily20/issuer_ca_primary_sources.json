@@ -252,7 +252,7 @@
       "claim_type": "ISSUER_SPLIT_CONTEXT_ONLY",
       "reported_amount_usd": null,
       "anchor_a": "November 19, 2025",
-      "anchor_b": "2:1",
+      "anchor_b": "2:1 share split",
       "exdate_explicitly_issuer_published": false,
       "claim_amount_exact": false,
       "split_event_date": "2025-11-20",
