@@ -265,6 +265,12 @@ def decay_table(baseline_trades, state, sessions, bear_coverage):
 
 
 def run(spec, market, features, base_trades, portfolio_summary, out):
+    # Prevent implicit tuning of this predeclared OOS study when upstream
+    # baseline risk parameters are changed independently.
+    if (spec["round_trip_cost_bps"] != 20
+            or spec["first_test_year"] != 2024
+            or spec["probability_threshold"] != 0.60):
+        raise RuntimeError("BEAR_STUDY_REQUIRES_FROZEN_DAILY20_BASELINE")
     output = Path(out)
     output.mkdir(parents=True, exist_ok=True)
     bear_trades, coverage, folds = make_bear_candidates(spec, market, features)
