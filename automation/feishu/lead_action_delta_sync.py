@@ -150,6 +150,15 @@ def main(apply=False):
     old = queue.load_records(root, token)
     old_fields = {key: rec["fields"] for key, rec in old.items()}
     stamps = source_stamps_fresh(old_fields)
+    source_times = sorted(dt.datetime.fromisoformat(
+        lead.norm(row["메일 원본 확인시각"]).replace("Z", "+00:00")
+    ).astimezone(dt.timezone.utc) for row in old_fields.values())
+    print("LEAD_DELTA_SOURCE_EVIDENCE=" + json.dumps({
+        "earliest_mail_checked_at": source_times[0].isoformat(),
+        "latest_mail_checked_at": source_times[-1].isoformat(),
+        "feishu_snapshot_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "records": len(old_fields), "distinct_source_stamps": stamps,
+    }, ensure_ascii=False), flush=True)
     views = validate_views(root, token, field_id)
     changes = plan_changes(old)
     max_changed = guard_delta_size(changes, len(old))
