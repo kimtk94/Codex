@@ -108,11 +108,13 @@ def sample_joint_indices(rng, dates, *, block, size, stratify_year=True):
         m = len(part)
         if not m:
             continue
-        if block > m:
-            raise RuntimeError("MC_BLOCK_EXCEEDS_PARTITION")
-        starts = rng.integers(0, m, size=(size, (m + block - 1) // block))
+        # Partial first/last calendar years can have fewer sessions than
+        # the requested block. Preserve their actual sample counts instead
+        # of failing the daily pipeline; disclose truncation in the report.
+        effective_block = min(block, m)
+        starts = rng.integers(0, m, size=(size, (m + effective_block - 1) // effective_block))
         within = (starts[:, :, None] +
-                  np.arange(block, dtype=np.int32)[None, None, :]) % m
+                  np.arange(effective_block, dtype=np.int32)[None, None, :]) % m
         sampled = part[within.reshape(size, -1)[:, :m]]
         out[:, offset:offset + m] = sampled
         offset += m
@@ -239,6 +241,11 @@ def run(config, market, portfolio_csv, regime_csv, out,
         "not_a_forecast_probability": True,
         "sampling_method": "paired_circular_moving_block_bootstrap_year_stratified",
         "block_lengths": list(BLOCKS),
+        "partial_year_block_truncation": {
+            str(y): {str(block): int(min(block, (wide.index.year == y).sum()))
+                     for block in BLOCKS}
+            for y in sorted(set(wide.index.year))
+        },
         "iid_diagnostic_block_length": 1,
         "replications_per_block": repetitions,
         "seed": seed,
@@ -254,6 +261,7 @@ def run(config, market, portfolio_csv, regime_csv, out,
             "Resamples preserve same-day joint market/strategy movement and within-block clusters, but break longer dependence.",
             "Year-stratified returns condition on observed years and are NOT a probability for future independent years.",
             "Block length 1 is IID diagnostic and may underestimate long-horizon drawdowns.",
+            "Blocks are truncated to available sessions in partial calendar years; consult partial_year_block_truncation.",
             "Daily equity returns reflect frozen finite-cash portfolio, yet resampling does NOT rerun path-dependent position sizing.",
             "Existing Yahoo adjusted daily prices, not SIP, and broker execution is hypothetical.",
             "No live order, no strategy auto-promotion, no proof of positive expected return.",
