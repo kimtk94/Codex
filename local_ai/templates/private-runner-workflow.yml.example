@@ -1,0 +1,31 @@
+# EXAMPLE ONLY: move to .github/workflows/local-ai-smoke.yml in a PRIVATE repo.
+# NEVER activate a self-hosted runner workflow in the public Codex repository.
+name: Local AI synthetic smoke - private runner only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-smoke:
+    if: ${{ github.event.repository.private }}
+    runs-on: [self-hosted, Windows, X64, local-ai]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify local Ollama endpoint and model
+        shell: pwsh
+        run: |
+          python .\local_ai\ollama_client.py --check
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Analyze synthetic fixture (no remote output)
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP "local-ai-synthetic-result.json"
+          python .\local_ai\ollama_client.py --input .\local_ai\demo_inputs\synthetic_lead.txt --task lead_triage --output $output
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (!(Test-Path $output)) { exit 1 }
+          Remove-Item $output -Force
+          Write-Host "Synthetic Local AI smoke PASS (content not uploaded)."

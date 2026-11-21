@@ -1,0 +1,274 @@
+name: Local AI - Windows launcher syntax checks
+
+on:
+  pull_request:
+    paths:
+      - "local_ai/**"
+      - ".github/workflows/local-ai-windows-script-checks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  powershell-script-check:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows PowerShell launcher without executing installs
+        shell: pwsh
+        run: |
+          $scripts = @(
+            "local_ai\local-codex.ps1",
+            "local_ai\bootstrap.ps1",
+            "local_ai\connect-workspaces.ps1",
+            "local_ai\drive-staging.ps1",
+            "local_ai\set-ollama-context.ps1",
+            "local_ai\verify-ollama-context.ps1",
+            "local_ai\create-codex16k.ps1",
+            "local_ai\diagnose-local-ollama-speed.ps1",
+            "local_ai\compare-local-coding-models.ps1",
+            "local_ai\preflight-agent-tool.ps1",
+            "local_ai\repair-ollama-cli.ps1",
+            "local_ai\verify-git-drive-local.ps1",
+            "local_ai\setup-drive-desktop.ps1",
+            "local_ai\diagnose-drive-install.ps1"
+          )
+          foreach ($file in $scripts) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file).Path, [ref]$tokens, [ref]$parseErrors
+            ) | Out-Null
+            if (@($parseErrors).Count -gt 0) {
+              $parseErrors | Format-List | Out-String | Write-Error
+              throw "PowerShell parse failed: $file"
+            }
+            Write-Host "PowerShell parse PASS: $file"
+          }
+      - name: Windows integration tests - real synthetic Git file reading
+        shell: pwsh
+        run: |
+          python -m unittest discover -s local_ai/tests -v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          $testRoot = Join-Path $env:RUNNER_TEMP "local-ai-file-read-test"
+          New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+          git -C $testRoot init -q
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          "LOCAL_AI_WINDOWS_CI_MARKER" | Set-Content -LiteralPath (Join-Path $testRoot "marker.txt") -Encoding utf8
+          $result = python .\local_ai\repo_reader.py --repo $testRoot --file "marker.txt"
+          if ($LASTEXITCODE -ne 0) { throw "File reader failed on Windows runner" }
+          if (($result -join "`n") -notmatch "ACTUAL_FILE_READ:" -or ($result -join "`n") -notmatch "LOCAL_AI_WINDOWS_CI_MARKER") {
+            throw "Real file content was not read"
+          }
+          $listed = python .\local_ai\repo_reader.py --repo $testRoot --list
+          if ($LASTEXITCODE -ne 0 -or $listed -notcontains "marker.txt") { throw "Git inventory failed" }
+          Write-Host "PASS: Real Windows Git file read and inventory, no Ollama model involved"
+
+      - name: Check scoped Windows PowerShell launcher policy
+        shell: pwsh
+        run: |
+          $launchers = @(Get-ChildItem "local_ai" -Filter "*.cmd" -File)
+          $usingPowerShell = 0
+          foreach ($file in $launchers) {
+            $body = Get-Content -LiteralPath $file.FullName -Raw
+            if ($body -match '(?i)powershell\.exe\s+-NoProfile\s+-File') {
+              throw "Unscoped PowerShell launcher found: $($file.Name)"
+            }
+            if ($body -match '(?i)powershell\.exe') {
+              $usingPowerShell++
+              if ($body -notmatch '(?i)powershell\.exe\s+-NoProfile\s+-ExecutionPolicy\s+RemoteSigned\s+-File') {
+                throw "Expected process-scoped RemoteSigned policy: $($file.Name)"
+              }
+            }
+          }
+          Write-Host "PASS: $usingPowerShell trusted launcher(s) have process-scoped RemoteSigned"
+      - name: Windows real script launch under process-scoped RemoteSigned
+        shell: pwsh
+        run: |
+          $testRepo = Join-Path $env:RUNNER_TEMP "local-ai-health-script-test"
+          New-Item -ItemType Directory -Path $testRepo -Force | Out-Null
+          git -C $testRepo init -q
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $output = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\local_ai\verify-git-drive-local.ps1" -Repo $testRepo 2>&1
+          $code = $LASTEXITCODE
+          $txt = $output | Out-String
+          if ($txt -notmatch 'Local AI / GitHub / Drive read-only check') {
+            throw "PowerShell health-check did not start correctly: $txt"
+          }
+          if ($code -notin @(0, 2)) {
+            throw "Unexpected diagnostic exit code $code : $txt"
+          }
+          Write-Host "PASS: read-only PowerShell script executed; expected missing Drive on hosted runner"
+          # The diagnostic deliberately exits 2 for missing Drive on a hosted runner.
+          # Reset the CI step exit status after validating it was the expected 2.
+          exit 0
+
+      - name: Windows Drive Desktop setup missing-folder smoke test
+        shell: pwsh
+        run: |
+          # Deliberately do NOT pass -InstallIfMissing on a hosted runner.
+          $missing = Join-Path $env:RUNNER_TEMP "no-drive-mount-here"
+          $out = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\local_ai\setup-drive-desktop.ps1" -DriveWorkspace $missing 2>&1
+          $exit = $LASTEXITCODE
+          if ($exit -ne 2) { throw "Expected missing Drive folder -> exit 2, got $exit : $($out | Out-String)" }
+          if (($out | Out-String) -notmatch "LocalAI_Workspace") { throw "Missing actionable Drive Desktop guidance" }
+          Write-Host "PASS: missing Drive Desktop folder diagnosed without install or credentials"
+          exit 0
+
+      - name: Windows Drive installer 1603 read-only diagnostics smoke
+        shell: pwsh
+        run: |
+          $output = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\local_ai\diagnose-drive-install.ps1" 2>&1
+          $code = $LASTEXITCODE
+          $txt = $output | Out-String
+          if ($code -ne 0) { throw "Drive installer diagnostic failed: $txt" }
+          if ($txt -notmatch "Drive for desktop install 1603 diagnostics" -or
+              $txt -notmatch "Diagnosis complete") {
+            throw "Read-only 1603 diagnostic output missing"
+          }
+          Write-Host "PASS: Windows Google Drive 1603 diagnostic executed read-only"
+
+      - name: Validate one-click launchers and local-only defaults
+        shell: pwsh
+        run: |
+          $required = @(
+            "local_ai\Setup-Local-Codex.cmd",
+            "local_ai\Start-Local-Codex.cmd",
+            "local_ai\Check-Local-Codex.cmd",
+            "local_ai\Setup-Git-Drive.cmd",
+            "local_ai\Check-Git-Drive.cmd",
+            "local_ai\Set-Ollama-Context-16K.cmd",
+            "local_ai\Verify-Local-Codex-16K.cmd",
+            "local_ai\Fix-Codex-4096.cmd",
+            "local_ai\Diagnose-Local-Codex-Speed.cmd",
+            "local_ai\Compare-Local-Coding-Models.cmd",
+            "local_ai\Preflight-Codex-Tool-Use.cmd",
+            "local_ai\Repair-Ollama-Command.cmd",
+            "local_ai\Verify-Git-Drive-Local.cmd",
+            "local_ai\Setup-Drive-Desktop.cmd",
+            "local_ai\Diagnose-Drive-Install.cmd"
+          )
+          foreach ($file in $required) {
+            if (!(Test-Path $file)) { throw "Missing launcher: $file" }
+            $cmd = Get-Content $file -Raw
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } elseif ($file -like "*Preflight-Codex-Tool-Use.cmd") { "preflight-agent-tool.ps1" } elseif ($file -like "*Repair-Ollama-Command.cmd") { "repair-ollama-cli.ps1" } elseif ($file -like "*Verify-Git-Drive-Local.cmd") { "verify-git-drive-local.ps1" } elseif ($file -like "*Setup-Drive-Desktop.cmd") { "setup-drive-desktop.ps1" } elseif ($file -like "*Diagnose-Drive-Install.cmd") { "diagnose-drive-install.ps1" } else { "local-codex.ps1" }
+            if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
+            if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
+          }
+          $src = Get-Content "local_ai\local-codex.ps1" -Raw
+          foreach ($requiredString in @("npm.cmd", "codex.cmd", "--oss", "127.0.0.1:11434", "qwen2.5-coder:3b", "qwen25coder3b-16k")) {
+            if (!$src.Contains($requiredString)) { throw "Missing required safety/config setting: $requiredString" }
+          }
+          Write-Host "Windows launchers and local-only checks PASS."
+          $bridge = Get-Content "local_ai\connect-workspaces.ps1" -Raw
+          foreach ($requiredString in @("Git.Git", "GitHub.cli", "gh.exe auth login", "gh.exe repo clone", "LocalAI_Workspace", "info\exclude")) {
+            if (!$bridge.Contains($requiredString)) { throw "Workspace setup missing: $requiredString" }
+          }
+          $transfer = Get-Content "local_ai\drive-staging.ps1" -Raw
+          foreach ($requiredString in @("Import", "Export", "FileName", ".local_ai_data", "Destination already exists")) {
+            if (!$transfer.Contains($requiredString)) { throw "Drive transfer missing: $requiredString" }
+          }
+          Write-Host "GitHub + Drive bridge static checks PASS."
+          $ctx = Get-Content "local_ai\set-ollama-context.ps1" -Raw
+          foreach ($requiredString in @("OLLAMA_CONTEXT_LENGTH", "16384", "User", "ollama.exe ps")) {
+            if (!$ctx.Contains($requiredString)) { throw "Context setup missing: $requiredString" }
+          }
+          if (!$src.Contains("model_context_window=16384")) {
+            throw "Codex context setting is not aligned to Ollama 16K"
+          }
+          Write-Host "Ollama 16K Windows context configuration static checks PASS."
+          $verification = Get-Content "local_ai\verify-ollama-context.ps1" -Raw
+          foreach ($check in @("/api/generate", "/api/ps", "context_length", "16384", "localhost", "num_predict")) {
+            if ($check -eq "localhost") {
+              if (!$verification.Contains("127.0.0.1")) { throw "Verifier must only call localhost" }
+            } elseif (!$verification.Contains($check)) {
+              throw "Ollama verification is missing: $check"
+            }
+          }
+          if ($verification -match '(?s)options\s*=\s*@\{[^}]*num_ctx') {
+            throw "Real context smoke must not override num_ctx, so it can check server allocation"
+          }
+          Write-Host "Ollama context smoke static checks PASS."
+          $customModel = Get-Content "local_ai\create-codex16k.ps1" -Raw
+          foreach ($term in @("FROM", "PARAMETER num_ctx", "16384", "ollama.exe create", "ollama.exe show", "/api/generate", "/api/ps", "context_length")) {
+            if (!$customModel.Contains($term)) { throw "16K custom model setup missing: $term" }
+          }
+          $start = Get-Content "local_ai\Start-Local-Codex.cmd" -Raw
+          $verify = Get-Content "local_ai\Verify-Local-Codex-16K.cmd" -Raw
+          if (!$start.Contains("qwen25coder3b-16k") -or !$verify.Contains("qwen25coder3b-16k")) {
+            throw "Start/Verify must use the measured Qwen2.5-Coder 3B 16K alias."
+          }
+          Write-Host "Custom Ollama model static checks PASS."
+          $launcher = Get-Content "local_ai\local-codex.ps1" -Raw
+          foreach ($part in @("create-codex16k.ps1", "customBaseModels", "qwen2.5-coder:3b", "Require-Ollama", 'if (-not $modelAvailable)')) {
+            if (!$launcher.Contains($part)) { throw "Automatic local model bootstrap missing: $part" }
+          }
+          Write-Host "Automatic missing-model bootstrap static checks PASS."
+          $speed = Get-Content "local_ai\diagnose-local-ollama-speed.ps1" -Raw
+          foreach ($keyword in @("/api/ps", "/api/generate", "prompt_eval_count", "eval_duration", "eval_count", "127.0.0.1", 'think = $false')) {
+            if (!$speed.Contains($keyword)) { throw "Synthetic speed diagnostic missing: $keyword" }
+          }
+          foreach ($requiredString in @("prompt_eval_duration", "promptTps", "INSTRUCTION FAIL", "answerOk", "num_predict = 128")) {
+            if (!$speed.Contains($requiredString)) { throw "Answer quality / prompt speed check missing: $requiredString" }
+          }
+          Write-Host "Synthetic local speed diagnostic static checks PASS."
+          $compare = Get-Content "local_ai\compare-local-coding-models.ps1" -Raw
+          foreach ($requiredString in @("qwen2.5-coder:3b", "qwen3-codex16k:latest", "16384", "/api/generate", "PromptTPS", "OutputTPS", "InstallCandidate", "AnswerPreview")) {
+            if (!$compare.Contains($requiredString)) { throw "Model comparison missing: $requiredString" }
+          }
+          Write-Host "Local comparative screening script static checks PASS."
+
+          $setup = Get-Content "local_ai\Setup-Local-Codex.cmd" -Raw
+          $check = Get-Content "local_ai\Check-Local-Codex.cmd" -Raw
+          if (!$setup.Contains("qwen2.5-coder:3b") -or !$check.Contains("qwen2.5-coder:3b")) {
+            throw "Installer and diagnostic must target the 3B base model."
+          }
+          if ($start.Contains("-Model qwen3-codex16k") -or $verify.Contains("-Model qwen3-codex16k")) {
+            throw "Stale Qwen3 default found in launcher or verifier."
+          }
+          Write-Host "Measured Qwen2.5-Coder 3B selected as default PASS."
+          $agentPreflight = Get-Content "local_ai\preflight-agent-tool.ps1" -Raw
+          foreach ($kw in @("codex.cmd exec", "--sandbox read-only", "--json", "command_execution", "aggregated_output", "agent_message", "guid", "git.exe")) {
+            if (!$agentPreflight.Contains($kw)) { throw "Agent preflight missing: $kw" }
+          }
+          if ($agentPreflight -match "(?i)dangerously-bypass|--yolo") {
+            throw "Agent preflight must never bypass Codex sandbox."
+          }
+          Write-Host "Genuine tool event acceptance gate static checks PASS."
+          $pathFix = Get-Content "local_ai\repair-ollama-cli.ps1" -Raw
+          foreach ($part in @("Programs\Ollama\ollama.exe", "127.0.0.1:11434", "Get-Command ollama.exe", 'SetEnvironmentVariable("Path",$newPath,"User")')) {
+            if (!$pathFix.Contains($part)) { throw "Ollama CLI repair missing: $part" }
+          }
+          if (!$src.Contains("Ollama CLI is not on this terminal PATH")) {
+            throw "Local Codex launcher should not reject healthy Ollama API based solely on CLI PATH"
+          }
+          Write-Host "Windows Ollama CLI PATH repair static checks PASS."
+          $driveCheck = Get-Content "local_ai\verify-git-drive-local.ps1" -Raw
+          foreach ($token in @("GoogleDriveFS", "LocalAI\workspace.json", "inbox", "results", "gh auth status", "git.exe -C", "127.0.0.1:11434")) {
+            if (!$driveCheck.Contains($token)) { throw "Local Drive check missing: $token" }
+          }
+          Write-Host "Local GitHub + Drive health check syntax/static tests PASS."
+          $driveSetup = Get-Content "local_ai\setup-drive-desktop.ps1" -Raw
+          foreach ($term in @("Google.GoogleDrive", "InstallIfMissing", "LocalAI_Workspace", "inbox", "results", "drive_workspace_path")) {
+            if (!$driveSetup.Contains($term)) { throw "Drive Desktop setup missing: $term" }
+          }
+          Write-Host "Guided Google Drive desktop setup static checks PASS."
+          foreach ($term in @("WindowsIdentity", "WindowsPrincipal", "BuiltInRole", "not elevated", "Installation was NOT attempted")) {
+            if (!$driveSetup.Contains($term)) { throw "Drive 1603 no-admin safety gate missing: $term" }
+          }
+          Write-Host "No-admin Drive installer guard static checks PASS."
+          $installDiag = Get-Content "local_ai\diagnose-drive-install.ps1" -Raw
+          foreach ($word in @("MsiInstaller", "GoogleDriveFS", "WindowsPrincipal", "CurrentVersion\Uninstall", "WindowsIdentity", "GoogleDrive|DriveFS|GoogleUpdate")) {
+            if (!$installDiag.Contains($word)) { throw "Drive 1603 diagnostic missing: $word" }
+          }
+          if ($installDiag -match "(?i)Remove-Item|Set-ExecutionPolicy|takeown.exe|icacls.exe") {
+            throw "Drive install diagnostic must be read-only"
+          }
+          Write-Host "Google Drive installer 1603 diagnostic static checks PASS."
+
+
+
+

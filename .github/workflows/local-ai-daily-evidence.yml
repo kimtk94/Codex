@@ -1,0 +1,39 @@
+name: Local AI - daily evidence audit (hosted, read-only)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every day at 09:40 Asia/Seoul; schedules activate only on default branch.
+    - cron: "40 0 * * *"
+  pull_request:
+    paths:
+      - "local_ai/**"
+      - ".github/workflows/local-ai-daily-evidence.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-daily-evidence-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-evidence:
+    name: Offline tests and sanitized audit artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run offline tests and create non-sensitive evidence
+        run: python -m local_ai.ci.health_report --output "${{ runner.temp }}/local-ai-health.json"
+      - name: Upload sanitized audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-ai-health-${{ github.run_id }}
+          path: ${{ runner.temp }}/local-ai-health.json
+          if-no-files-found: warn
+          retention-days: 7
