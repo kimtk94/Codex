@@ -8,6 +8,8 @@ Default mode is audit only. Live application requires verified source parity and
 import argparse
 import json
 import sys
+import urllib.error
+import urllib.request
 from collections import Counter
 
 import lead_mail_description_sync as lead
@@ -88,6 +90,29 @@ def assert_queue_partition(records):
         raise RuntimeError("LEAD_QUEUE_PARTITION_COUNT_MISMATCH")
     return output
 
+def patch_view_filter(path, token, wanted):
+    """Patch only a managed view; report redacted Feishu API error codes."""
+    from base_readonly_probe import ROOT
+    body = json.dumps({"property": {"filter_info": wanted}},
+                      ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        ROOT + path, data=body, method="PATCH",
+        headers={"Authorization": "Bearer " + token,
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=25) as response:
+            result = json.load(response)
+    except urllib.error.HTTPError as exc:
+        try:
+            obj = json.loads(exc.read().decode("utf-8"))
+            code = obj.get("code", "unknown")
+            detail = str(obj.get("msg", ""))[:90]
+        except (ValueError, UnicodeError):
+            code, detail = "unknown", "unavailable"
+        raise RuntimeError(f"LEAD_QUEUE_FILTER_HTTP_{exc.code}_CODE_{code}_MSG_{detail}") from None
+    require_success(result, "SET_QUEUE_FILTER")
+    return result
+
 def read_ids(root, token, view_id):
     ids = set()
     for rec in pages(root + "/records", token, {"view_id": view_id}):
@@ -157,8 +182,7 @@ def main(apply=False):
             if not apply:
                 print("LEAD_QUEUE_FILTER_NEEDS_UPDATE="+title, flush=True)
                 continue
-            require_success(request("PATCH",root+"/views/"+view_id,token=token,
-                body={"property":{"filter_info":wanted}}), "SET_QUEUE_FILTER")
+            patch_view_filter(root+"/views/"+view_id,token,wanted)
             view = get_one_view(root, token, view_id)
             if not conditions_equal((view.get("property") or {}).get("filter_info"), wanted):
                 raise RuntimeError("LEAD_QUEUE_FILTER_READBACK_MISMATCH")
