@@ -1,5 +1,42 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Google Drive Desktop install 1603 + non-administrator account (2026-11-21)
+
+Actual Windows diagnostics: \`Current PowerShell elevated: False\`,
+\`GoogleDriveFS running: False\`, neither of the Program Files install
+locations exists, no registered Google Drive application, no matching
+logs in the current user's TEMP, and no recent readable MsiInstaller
+events. The \`winget\` download succeeded, but the installer exited 1603.
+
+**Do not retry installation repeatedly or disable endpoint security.**
+Google's Workspace administration instructions state that users need
+administrator privileges on their computer to install Drive for desktop.
+Error 1603 by itself is generic, so the underlying cause on this laptop
+is still not proven.
+
+Official organization setup docs:
+https://knowledge.workspace.google.com/admin/drive/set-up-drive-for-desktop-for-your-organization
+
+\`Setup-Drive-Desktop.cmd\` now checks elevation and **does not try to install**
+when run in an unelevated session. Request an authorized Windows administrator
+or corporate IT to install the official Drive for desktop software. After
+installation, sign in to the account holding the existing
+\`LocalAI_Workspace\` folder and run \`Verify-Git-Drive-Local.cmd\`.
+Confirm a non-sensitive file actually appears in both the Drive web UI and
+Windows before accepting sync as PASS.
+
+**Development can continue without Drive Desktop.** This laptop's local
+Git clone and GitHub authentication are already verified, and the existing
+cloud Drive \`LocalAI_Workspace\`, \`inbox\` and \`results\` are accessible from
+the connected ChatGPT Google Drive account. That connection does NOT
+automatically expose files to Codex CLI, GitHub Actions or the Windows
+filesystem. Keep code in GitHub; use authorized cloud Drive actions and
+manually approved file transfers until Desktop installation is permitted.
+An unattended GitHub Actions Drive sync would require a separately
+approved Google OAuth/service-account design and secure secrets handling;
+it is not configured by this PR.
+
+
 ## Drive Desktop PENDING after Git/Ollama PASS
 
 If `Verify-Git-Drive-Local.cmd` reports that Git, origin, GitHub authentication,
