@@ -228,7 +228,7 @@ def classify(frozen, current, *, threshold_pp=HOLD_THRESHOLD_PP):
                 changed = (old["feature_sha256"] != new["feature_sha256"]
                            or old["ohlcv"] != new["ohlcv"])
                 material = bool(flip or missing or
-                                (delta is not None and abs(delta) > threshold_pp))
+                                (delta is not None and abs(delta) > threshold_pp + 1e-10))
                 if material or changed or (delta is not None and abs(delta) > 1e-8):
                     events.append({
                         "symbol": symbol, "family": family,
@@ -306,7 +306,7 @@ def run(spec, prior_zip, market, features, score_path, bear_csv,
                          old_p is not None and new_p is not None else None)
                 bad = (event["candidate"] != now["candidate"] or
                        (old_p is None) != (new_p is None) or
-                       (delta is not None and abs(delta) > HOLD_THRESHOLD_PP))
+                       (delta is not None and abs(delta) > HOLD_THRESHOLD_PP + 1e-10))
                 if bad:
                     hold = True
                     incidents.append({
