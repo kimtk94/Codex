@@ -1,5 +1,29 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Default model decision — 2026-11-21 (measured on the Windows laptop)
+
+**Qwen2.5-Coder 3B 16K is now the default for `Start-Local-Codex.cmd`**. The existing Qwen3 4B models remain installed and available as fallbacks. This is a cautious test promotion based on a simple controlled instruction-following comparison — **NOT** authorization for autonomous commits, pushes, customer data use, SFDC writes or unsupervised PR merges.
+
+| Actual laptop metric | Qwen3 4B 16K | Qwen2.5-Coder 3B 16K |
+|---|---:|---:|
+| Prompt evaluation | 26.50 tok/s | **37.57 tok/s** |
+| Output generation | 7.26 tok/s | **21.39 tok/s** |
+| Exact single-word response | FAIL | **PASS** |
+| Stop reason | `length` | **`stop` |
+
+Measured output throughput improved **2.95×** and prompt throughput improved **1.42×** under this one synthetic prompt. Qwen3 4B did not finish within 128 generated tokens, so it was not accepted for automatic coding work.
+
+One-time setup (if needed): download the official `qwen2.5-coder:3b` base with `ollama pull qwen2.5-coder:3b`; the `Start-Local-Codex.cmd` launcher automatically creates `qwen25coder3b-16k` from the installed base when its 16K alias is missing. If already created, it reuses the alias without redownloading weights.
+
+Run directly in PowerShell from a **non-sensitive test Git repository**:
+
+    codex.cmd --oss -m qwen25coder3b-16k:latest -c 'model_context_window=16384'
+
+Then inspect `/status` and `/permissions`. Validate a small **read-only** repository question before allowing any file changes. Run `ollama ps` separately to verify the model has CONTEXT 16384.
+
+For any real work, use a dedicated Git branch with human approvals, review `git diff`, run tests, and commit only approved changes. Note that Ollama's Codex integration recommends >=64K context; at 16GB RAM with CPU-only inference a 16K test is resource-limited and may not handle extended agent interactions.
+
+
 ## 2026-11-21 measured CPU baseline and model comparison
 
 The Windows laptop measured `qwen3-codex16k:latest` at **27.09 prompt tokens/s**, **6.58 output tokens/s**, **16,384 allocated context**, **5.1 GB loaded model**, **100% CPU**, and `done_reason=length` plus failure to comply with `Reply with OK only`. This validates 16K allocation but **does not establish reliable agentic coding**.
@@ -161,7 +185,7 @@ The Windows Ollama app is already installed. No need to install Node.js/npm manu
 1. Get the reviewed local_ai folder from this branch/PR (or clone the repo).
 2. Double-click **Setup-Local-Codex.cmd** once. This checks Node/npm, installs Node.js LTS through winget only when missing, installs/updates @openai/codex with npm.cmd, checks Ollama localhost, and pulls qwen3:4b if missing. Confirm any installation prompts.
 3. Double-click **Check-Local-Codex.cmd** to verify local dependencies.
-4. For future coding sessions double-click **Start-Local-Codex.cmd**. It starts Codex CLI in the repository root with an explicitly selected **local** Ollama model. Drag another project folder onto this .cmd file if you want to work in that project.
+4. For future coding sessions double-click **Start-Local-Codex.cmd**. It starts Codex CLI with the **measured Qwen2.5-Coder 3B local model** in the saved repository root. Drag another project folder onto this .cmd file if you want to work in that project.
 5. Do not use automatic approvals or the "dangerously bypass" flags. Review generated code and diffs before committing.
 
 To use a different local model from PowerShell (after downloading it with ollama pull):
@@ -180,8 +204,8 @@ If PowerShell execution policy blocks the script, verify its contents, then use 
 ## Suggested setup
 
 - Windows 16 GB RAM; GPU not yet identified.
-- Initial model: qwen3:4b (official registry, ~2.5 GB download, Q4_K_M). Can run on CPU, but speed may be slow.
-- Fallback: qwen3:1.7b (~1.4 GB); upgrade later: qwen3:8b (~5.2 GB) only after checking resources.
+- **Current default:** qwen25coder3b-16k (from official qwen2.5-coder:3b, ~1.9 GB download), measured on this user's CPU laptop.
+- Previous benchmark baseline: qwen3-codex16k (from qwen3:4b, 4B). Keep for comparison, not current default.
 - Install Ollama from https://ollama.com/download/windows
 - Keep Ollama bound to localhost 127.0.0.1:11434. Do not expose it with OLLAMA_HOST=0.0.0.0, public forwarding or firewall rules.
 
