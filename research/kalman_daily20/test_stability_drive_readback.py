@@ -69,7 +69,8 @@ class DriveReadbackTests(unittest.TestCase):
     def test_byte_identical_remote_archive_passes(self):
         data = signed_archive()
         report = compare_local_remote(data, data, remote_md5=md5(data).hexdigest())
-        self.assertEqual(report["status"], "SEALED_NEW_SESSION")
+        self.assertEqual(report["status"], "READBACK_VERIFIED")
+        self.assertEqual(report["stability_status"], "SEALED_NEW_SESSION")
         self.assertEqual(report["snapshot_count"], 1)
         self.assertEqual(report["archive_sha256"], sha256(data).hexdigest())
         self.assertFalse(report["remote_write"])
