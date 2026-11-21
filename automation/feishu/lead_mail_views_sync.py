@@ -11,6 +11,7 @@ import sys
 from collections import Counter
 
 import lead_mail_description_sync as lead
+import lead_eligibility as age
 from sales_home_links import API, BASE, pages, request, require_success
 
 TABLE = lead.TABLE
@@ -28,9 +29,11 @@ CHECK_FIELDS = (
 )
 
 def expected_ids(rows, description):
+    today=age.today_kst()
     return {key for key, fields in rows.items()
             if fields["연락 구분"] == MAIL_CLASS
-            and fields["Description 있음"] == description}
+            and fields["Description 있음"] == description
+            and age.eligibility(fields,today) == "eligible"}
 
 def filter_definition(field_ids, description):
     return {"conjunction": "and", "conditions": [
@@ -38,6 +41,8 @@ def filter_definition(field_ids, description):
          "value": json.dumps([MAIL_CLASS], ensure_ascii=False)},
         {"field_id": field_ids["Description 있음"], "operator": "is",
          "value": json.dumps([description], ensure_ascii=False)},
+        {"field_id": field_ids[age.ELIGIBILITY_FIELD], "operator": "is",
+         "value": json.dumps([age.LABELS["eligible"]], ensure_ascii=False)},
     ]}
 
 def filter_matches(observed, wanted):
@@ -91,7 +96,7 @@ def main(apply=False):
     fields = list(pages(root + "/fields", token))
     ids = {f.get("field_name"): f.get("field_id") for f in fields
            if f.get("type") == 1 and f.get("field_id")}
-    if not {"연락 구분", "Description 있음"} <= set(ids):
+    if not {"연락 구분", "Description 있음", age.ELIGIBILITY_FIELD} <= set(ids):
         raise RuntimeError("LEAD_FILTER_FIELDS_MISSING_OR_WRONG_TYPE")
 
     originals = list(pages(root + "/records", token))
@@ -103,6 +108,12 @@ def main(apply=False):
             raise RuntimeError("FEISHU_LEAD_KEY_DUPLICATED_OR_MISSING")
         observed[key] = row
     counts = check_parity(source, observed)
+    today=age.today_kst()
+    for key,row in source.items():
+        if lead.norm(observed[key].get(age.ELIGIBILITY_FIELD)) != age.label(row,today):
+            raise RuntimeError("LEAD_CONTACT_ELIGIBILITY_SINK_MISMATCH")
+    current_eligibility=age.stats(source.values(),today)
+    print("LEAD_CONTACT_AGE_WINDOW="+json.dumps(current_eligibility,ensure_ascii=False),flush=True)
     print("LEAD_VIEWS_SOURCE_SINK_PARITY_PASS=" +
           json.dumps({"records": len(source),
             "mail_no_evidence_desc_present": counts[(MAIL_CLASS, "있음")],
