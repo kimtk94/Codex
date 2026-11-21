@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Idempotent, isolated Feishu Lead views with source/sink parity checks.
 
-Only two explicitly managed, source-verified grid views in the existing dedicated Lead table.
+Only two explicitly managed, source-verified grid views, filtered to recent-year eligible Leads.
 Never sends email, edits SFDC/QQ, creates an Account, deletes records, or
 modifies other Feishu tables/views. Safe read-only mode by default.
 """
