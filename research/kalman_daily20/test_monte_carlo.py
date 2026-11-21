@@ -47,6 +47,15 @@ class MonteCarloContracts(unittest.TestCase):
                     self.assertGreater(continuous.mean(), .50)
         self.assertEqual(BLOCKS, (1, 5, 20))
 
+    def test_short_partial_year_truncates_requested_block_safely(self):
+        days = pd.bdate_range("2024-12-30", periods=7)
+        samples = sample_joint_indices(
+            np.random.default_rng(93), days, block=20, size=30
+        )
+        self.assertEqual(samples.shape, (30, 7))
+        self.assertTrue((samples[:, :2] < 2).all())
+        self.assertTrue((samples[:, 2:] >= 2).all())
+
     def test_path_mdd_includes_starting_equity_and_never_positive(self):
         x = np.array([[[.10, .00], [-.50, -.10], [.10, .02]]], dtype=float)
         returns, worst = portfolio_path_metrics(x)
