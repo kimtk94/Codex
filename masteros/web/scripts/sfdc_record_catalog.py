@@ -380,10 +380,23 @@ def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_ne
         # Playwright trial click performs actionability checks without clicking.
         try:
             add.click(trial=True,timeout=6500)
+            # Salesforce may re-render the button disabled after the trial.
+            # Never force-click or remove the disabled attribute.
+            if not add.is_enabled():
+                raise ValueError("SOURCE_ADD_EDIT_DISABLED")
             add.click(timeout=9500)
         except Exception as exc:
-            # Keep offline CI independent of the optional browser package.
+            # The original Add/Edit may be disabled due to source record
+            # status, permissions or an asynchronous Salesforce rerender.
+            # Distinguish this from a clickable button covered by another UI.
             if type(exc).__name__=="TimeoutError":
+                try:
+                    if add.count()==1 and not add.is_enabled():
+                        raise ValueError("SOURCE_ADD_EDIT_DISABLED") from exc
+                except ValueError:
+                    raise
+                except Exception:
+                    pass
                 raise ValueError("SOURCE_ADD_EDIT_NOT_INTERACTABLE") from exc
             raise
         dialog=page.get_by_role("dialog").last
