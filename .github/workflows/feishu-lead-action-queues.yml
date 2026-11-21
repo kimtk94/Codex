@@ -13,11 +13,13 @@ on:
     branches: [main]
     paths:
       - 'automation/feishu/lead_action_queue_views.py'
+      - 'automation/feishu/lead_eligibility.py'
       - 'automation/feishu/test_lead_action_queue_views.py'
       - '.github/workflows/feishu-lead-action-queues.yml'
   pull_request:
     paths:
       - 'automation/feishu/lead_action_queue_views.py'
+      - 'automation/feishu/lead_eligibility.py'
       - 'automation/feishu/test_lead_action_queue_views.py'
       - '.github/workflows/feishu-lead-action-queues.yml'
 permissions:
