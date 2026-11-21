@@ -1,0 +1,40 @@
+name: Audit GitHub Actions direct main writes (read-only)
+
+on:
+  pull_request:
+    paths:
+      - "automation/ops/audit_main_writes.py"
+      - "automation/ops/test_audit_main_writes.py"
+      - ".github/workflows/audit-main-writes.yml"
+  workflow_dispatch:
+  schedule:
+    # Daily 10:15 Asia/Seoul after this workflow reaches main.
+    - cron: "15 1 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-inventory:
+    name: Inventory direct-main / unknown Git pushes
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test scanner against isolated synthetic workflows
+        run: python -m unittest discover -s automation/ops -p "test_audit_main_writes.py" -v
+      - name: Scan all checked-in GitHub workflow files
+        run: python automation/ops/audit_main_writes.py --root . --output "$RUNNER_TEMP/main-write-inventory.json"
+      - name: Save metadata-only audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-write-inventory-${{ github.run_id }}
+          path: ${{ runner.temp }}/main-write-inventory.json
+          if-no-files-found: warn
+          retention-days: 14
