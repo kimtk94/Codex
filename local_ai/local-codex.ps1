@@ -90,7 +90,9 @@ try {
     Write-Host "Codex: $(& codex.cmd --version)"
 
     $models = @(Require-Ollama)
-    if ($models -notcontains $Model) {
+    # Ollama lists untagged custom aliases as name:latest.
+    $modelAvailable = ($models -contains $Model) -or ($models -contains ($Model + ":latest"))
+    if (-not $modelAvailable) {
         if ($Mode -eq "Setup") {
             Write-Host "Downloading local Ollama model: $Model"
             & ollama.exe pull $Model
