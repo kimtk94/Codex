@@ -15,7 +15,7 @@ def snapshot(*, bull=.72, bear=.34, rule=False, feature="a" * 64):
             "feature_sha256": feature,
             "scored": {
                 "BULL_LOGISTIC": model(bull, bull >= .7),
-                "BEAR_LOGISTIC": model(bear, bear >= .7),
+                "BEAR_LOGISTIC": model(bear, bear is not None and bear >= .7),
                 "BEAR_RULE": model(None, rule),
             },
             "models": {
