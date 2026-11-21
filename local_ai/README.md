@@ -1,5 +1,57 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Workaround for fake Codex tool calls: deterministic Git file reader
+
+On 2026-11-21 the Qwen2.5-Coder 3B model again returned a *printed* fake tool call
+(\`read_mcp_resource\` with \`server:""\` and \`uri:"test.txt"\`) after ~4m58s.
+This did NOT read the file. Do not continue retrying the same Codex agent tool prompt.
+
+Instead, \`repo_reader.py\` uses **Python + the local Git executable** to read the
+actual UTF-8 file deterministically. It does not ask the model to operate tools,
+has no write methods, and rejects traversal, symlinks, files in ignored/sensitive
+paths, and common credential file names/extensions.
+
+From Windows PowerShell in your repository:
+
+    cd "C:\Users\KimTaeHoon\Projects\Codex"
+    python .\local_ai\repo_reader.py --repo . --list
+    python .\local_ai\repo_reader.py --repo . --file README.md
+
+For the earlier synthetic test file (if it still exists locally):
+
+    python .\local_ai\repo_reader.py --repo "$env:TEMP\codex-local-test" --file test.txt
+
+The output starts with \`ACTUAL_FILE_READ:\` and the real path and prints the
+actual file contents; no AI involvement is needed to prove a file read.
+
+**Optional** controlled local AI summarization of a SHORT APPROVED file:
+
+    python .\local_ai\repo_reader.py --repo . --file README.md --analyze
+
+The selected content (at most 2400 characters; longer files are rejected for
+analysis) goes only to the existing local Ollama endpoint at 127.0.0.1:11434,
+using \`qwen25coder3b-16k:latest\`. Model analysis is explicitly labeled DRAFT
+and REVIEW_REQUIRED. It cannot issue tool calls or modify any file. Confirm
+organization data policy before locally analyzing sensitive information; this
+is designed for non-sensitive text only.
+
+The helper has an independent GitHub Actions unittest suite under
+\`local_ai/tests/test_repo_reader.py\`. A green suite confirms local file read,
+traversal restrictions and CLI behavior; it does NOT imply the 3B model is ready
+for autonomous code editing.
+
+**Important:** This file was introduced in draft PR #903. Until that PR is
+merged, your local \`main\` clone will not contain \`local_ai/repo_reader.py\`.
+You can run the same simple read command *immediately* without checking out
+the draft branch:
+
+    Get-Content -LiteralPath "$env:TEMP\codex-local-test\test.txt"
+
+Do not merge PR #903 or execute third-party code before review. All genuine
+code changes and GitHub Actions should remain independent of the unreliable
+3B tool-calling model.
+
+
 ## VS Code PowerShell says "ollama is not recognized" while Codex is running
 
 The Windows terminal may have inherited an outdated PATH even while Ollama's localhost API and Codex TUI are working. The observed Git clone is `C:\Users\KimTaeHoon\Projects\Codex`, origin `https://github.com/kimtk94/Codex.git`, branch `main`, clean worktree, and `gh auth status` succeeds. Do **not** reinstall Ollama on the basis of a single PowerShell `CommandNotFoundException`.
