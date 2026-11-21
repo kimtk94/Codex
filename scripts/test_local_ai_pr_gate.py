@@ -82,6 +82,86 @@ class GatePolicyTests(unittest.TestCase):
         result = evaluate(["local_ai/a.py", "local_ai/a.py"], 2, BODY, True)
         self.assertIn("DUPLICATE_PATHS", result["failures"])
 
+    def test_sensitive_names_and_control_characters_are_rejected(self):
+        for name in (
+            "local_ai/.env",
+            "local_ai/.env.production",
+            "local_ai/credentials/key.json",
+            "local_ai/secrets/data.txt",
+            "local_ai/client.pem",
+            "local_ai/service.key",
+            "local_ai/secret_config.json",
+            "local_ai/auth_password.txt",
+            "local_ai/app.sqlite",
+            "local_ai/hello" + chr(10) + "world.py",
+        ):
+            with self.subTest(path=name):
+                self.assertFalse(allowed_path(name))
+        self.assertTrue(allowed_path("local_ai/tests/test_parser.py"))
+        self.assertTrue(allowed_path("local_ai/model_token_counter.py"))
+
+    def test_cross_scope_rename_reports_original_path(self):
+        def git(directory, *args):
+            return subprocess.check_output(
+                ["git", "-C", str(directory), *args], stderr=subprocess.PIPE
+            ).decode().strip()
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            git(root, "init", "-q")
+            old = root / "css" / "quote.py"
+            old.parent.mkdir(parents=True)
+            old.write_text("def invoice(): return 1" + chr(10), encoding="utf-8")
+            git(root, "add", ".")
+            git(root, "-c", "user.email=ci@example.com", "-c", "user.name=CI",
+                "commit", "-qm", "base")
+            base = git(root, "rev-parse", "HEAD")
+            (root / "local_ai").mkdir()
+            git(root, "mv", "css/quote.py", "local_ai/quote.py")
+            git(root, "-c", "user.email=ci@example.com", "-c", "user.name=CI",
+                "commit", "-qm", "move")
+            head = git(root, "rev-parse", "HEAD")
+            import os
+            cwd = os.getcwd()
+            try:
+                os.chdir(root)
+                paths, changed = actual_diff(base, head)
+            finally:
+                os.chdir(cwd)
+            self.assertIn("css/quote.py", paths)
+            self.assertIn("local_ai/quote.py", paths)
+            self.assertGreater(changed, 0)
+            self.assertIn("OUT_OF_SCOPE_PATH", evaluate(paths, changed, BODY, True)["failures"])
+
+    def test_binary_change_rejected_even_with_zero_line_count(self):
+        def git(directory, *args):
+            return subprocess.check_output(
+                ["git", "-C", str(directory), *args], stderr=subprocess.PIPE
+            ).decode().strip()
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            git(root, "init", "-q")
+            (root / "README.md").write_text("base" + chr(10), encoding="utf-8")
+            git(root, "add", ".")
+            git(root, "-c", "user.email=ci@example.com", "-c", "user.name=CI",
+                "commit", "-qm", "base")
+            base = git(root, "rev-parse", "HEAD")
+            (root / "local_ai").mkdir()
+            (root / "local_ai" / "model.bin").write_bytes(bytes([0, 1]) + b"BINARY")
+            git(root, "add", ".")
+            git(root, "-c", "user.email=ci@example.com", "-c", "user.name=CI",
+                "commit", "-qm", "binary")
+            head = git(root, "rev-parse", "HEAD")
+            import os
+            cwd = os.getcwd()
+            try:
+                os.chdir(root)
+                with self.assertRaisesRegex(ValueError, "Binary changes"):
+                    actual_diff(base, head)
+            finally:
+                os.chdir(cwd)
+
     def test_invalid_sha_rejected_before_git(self):
         with self.assertRaises(ValueError):
             actual_diff("main", "HEAD")
