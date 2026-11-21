@@ -97,6 +97,26 @@ def check_preservation(old, new):
             raise RuntimeError("LEAD_DELTA_PRIORITY_READBACK_MISMATCH")
     return after
 
+def validate_prewrite_snapshot(previous, latest):
+    """Fail closed if a human or another sync changed source inputs mid-run.
+
+    Never write from a stale view of manually selected follow-up flags.
+    The auto-owned priority label may change; the newest value is replanned.
+    """
+    if set(previous) != set(latest):
+        raise RuntimeError("LEAD_DELTA_CONCURRENT_RECORD_SET_CHANGE")
+    original = {key: rec["fields"] for key, rec in previous.items()}
+    updated = {key: rec["fields"] for key, rec in latest.items()}
+    if queue.manual_snapshot(original) != queue.manual_snapshot(updated):
+        raise RuntimeError("LEAD_DELTA_CONCURRENT_MANUAL_CHANGE")
+    for key in original:
+        if previous[key]["record_id"] != latest[key]["record_id"]:
+            raise RuntimeError("LEAD_DELTA_CONCURRENT_RECORD_ID_CHANGE")
+        for field in CHECK_FIELDS:
+            if lead.norm(original[key].get(field)) != lead.norm(updated[key].get(field)):
+                raise RuntimeError("LEAD_DELTA_CONCURRENT_SOURCE_CHANGE")
+    return len(latest)
+
 def validate_views(root, token, field_id):
     views = list(pages(root + "/views", token))
     names = [x.get("view_name") for x in views]
@@ -145,8 +165,30 @@ def main(apply=False):
         print("LEAD_DELTA_READ_ONLY_PASS=1", flush=True)
         return
     if not changes:
-        # No writes, but ensure that even a no-op run has a correct source/view basis.
-        print("LEAD_DELTA_NO_NEW_DATA=1 checked=" + str(len(old)), flush=True)
+        # NO_NEW_DATA is meaningful only after Feishu's filtered views are checked.
+        stats = verify_view_ids(root, token, old_fields, views)
+        print("LEAD_DELTA_NO_NEW_DATA=1 " + json.dumps({
+            "checked": len(old), "views_verified": len(queue.QUEUES),
+            "counts": stats, "writes": 0,
+        }, ensure_ascii=False), flush=True)
+        return
+    # Refetch user-owned checkboxes immediately before any write. If a user
+    # changed their Lead during this run, abort without writing stale labels.
+    latest = queue.load_records(root, token)
+    verified_prewrite = validate_prewrite_snapshot(old, latest)
+    latest_fields = {key: rec["fields"] for key, rec in latest.items()}
+    source_stamps_fresh(latest_fields)
+    changes = plan_changes(latest)
+    guard_delta_size(changes, len(latest))
+    print("LEAD_DELTA_PREWRITE_SNAPSHOT_PASS="+str(verified_prewrite)+
+          " pending="+str(len(changes)), flush=True)
+    old = latest
+    if not changes:
+        stats = verify_view_ids(root, token, latest_fields, views)
+        print("LEAD_DELTA_NO_NEW_DATA=1 " + json.dumps({
+            "checked": len(old), "views_verified": len(queue.QUEUES),
+            "counts": stats, "writes": 0,
+        }, ensure_ascii=False), flush=True)
         return
     for start in range(0, len(changes), 100):
         batch = changes[start:start+100]
