@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Idempotent, isolated Feishu Lead views with source/sink parity checks.
 
-Only two explicitly managed, source-verified grid views, filtered to recent-year eligible Leads.
+Four explicitly managed, source-verified grid views, filtered to recent-year eligible Leads.
 Never sends email, edits SFDC/QQ, creates an Account, deletes records, or
 modifies other Feishu tables/views. Safe read-only mode by default.
 """
@@ -15,11 +15,15 @@ import lead_eligibility as age
 from sales_home_links import API, BASE, pages, request, require_success
 
 TABLE = lead.TABLE
-VIEWS = (
-    ("01 · 발송 증거 없음 · Description 있음", "있음"),
-    ("02 · 발송 증거 없음 · Description 없음", "없음"),
-)
 MAIL_CLASS = "메일 발송 증거 없음"
+AFTER_CLASS = "발송 확인 (Lead 생성 후)"
+BEFORE_CLASS = "Lead 생성 전만 발송"
+VIEWS = (
+    ("01 · 발송 증거 없음 · Description 있음", MAIL_CLASS, "있음"),
+    ("02 · 발송 증거 없음 · Description 없음", MAIL_CLASS, "없음"),
+    ("06 · 최근 1년 · Lead 생성 후 발송 확인", AFTER_CLASS, None),
+    ("07 · 최근 1년 · Lead 생성 전만 발송", BEFORE_CLASS, None),
+)
 CHECK_FIELDS = (
     "Lead ID", "고객명", "Account (고객 입력 원문)", "Email",
     "Lead Created", "Lead Status", "Description", "Description 있음",
@@ -28,22 +32,26 @@ CHECK_FIELDS = (
     "메일 수신 유형", "처리 방향", "메일 원본 확인시각",
 )
 
-def expected_ids(rows, description):
+def expected_ids(rows, description, mail_class=MAIL_CLASS):
     today=age.today_kst()
     return {key for key, fields in rows.items()
-            if fields["연락 구분"] == MAIL_CLASS
-            and fields["Description 있음"] == description
+            if fields["연락 구분"] == mail_class
+            and (description is None or fields["Description 있음"] == description)
             and age.eligibility(fields,today) == "eligible"}
 
-def filter_definition(field_ids, description):
-    return {"conjunction": "and", "conditions": [
+def filter_definition(field_ids, description, mail_class=MAIL_CLASS):
+    conditions = [
         {"field_id": field_ids["연락 구분"], "operator": "is",
-         "value": json.dumps([MAIL_CLASS], ensure_ascii=False)},
-        {"field_id": field_ids["Description 있음"], "operator": "is",
-         "value": json.dumps([description], ensure_ascii=False)},
+         "value": json.dumps([mail_class], ensure_ascii=False)},
         {"field_id": field_ids[age.ELIGIBILITY_FIELD], "operator": "is",
          "value": json.dumps([age.LABELS["eligible"]], ensure_ascii=False)},
-    ]}
+    ]
+    if description is not None:
+        conditions.append({
+            "field_id": field_ids["Description 있음"], "operator": "is",
+            "value": json.dumps([description], ensure_ascii=False),
+        })
+    return {"conjunction": "and", "conditions": conditions}
 
 def filter_matches(observed, wanted):
     if not isinstance(observed, dict) or observed.get("conjunction") != "and":
@@ -122,12 +130,12 @@ def main(apply=False):
 
     views = list(pages(root + "/views", token))
     names = [v.get("view_name") for v in views]
-    for name, description in VIEWS:
+    for name, mail_class, description in VIEWS:
         if names.count(name) > 1:
             raise RuntimeError("DUPLICATE_MANAGED_LEAD_VIEW")
         matches = [v for v in views if v.get("view_name") == name]
         view_id = matches[0].get("view_id") if matches else None
-        wanted = filter_definition(ids, description)
+        wanted = filter_definition(ids, description, mail_class)
         if not view_id and not apply:
             print("LEAD_VIEW_MISSING_DRY_RUN=" + name, flush=True)
             continue
@@ -157,13 +165,14 @@ def main(apply=False):
             if not key or key in actual_ids:
                 raise RuntimeError("LEAD_VIEW_DUPLICATE_OR_MISSING_KEY")
             actual_ids.add(key)
-        expected = expected_ids(source, description)
+        expected = expected_ids(source, description, mail_class)
         if actual_ids != expected:
             raise RuntimeError("LEAD_VIEW_VISIBLE_RECORD_MISMATCH")
         print("LEAD_VIEW_VERIFIED=" + json.dumps({"view": name, "count": len(expected),
             "url": f"https://ocnz4cb25scn.feishu.cn/base/{BASE}?table={table_id}&view={view_id}"},
             ensure_ascii=False), flush=True)
     print("LEAD_VIEW_AUDIT_PASS=1 MODE=" + ("APPLY" if apply else "READ_ONLY"), flush=True)
+    print("LEAD_VIEW_COUNT_VERIFIED=" + str(len(VIEWS)), flush=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
