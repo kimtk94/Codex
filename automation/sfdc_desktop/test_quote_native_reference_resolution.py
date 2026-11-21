@@ -3,6 +3,7 @@ import unittest
 from quote_native_reference_resolution import (
     resolve_report_process_id, resolve_native_data_unit, resolve_product_service,
     resolve_reference_status, resolve_2026_native_krw_product_signature,
+    resolve_2026_native_krw_signature_by_report_geometry,
 )
 
 PID = "Process-2020-04-29-00039"
@@ -119,6 +120,98 @@ class NativeReferenceResolutionTests(unittest.TestCase):
         self.assertIsNone(resolve_2026_native_krw_product_signature("Synthetic Hi-C",[row]))
         row["currency"]="KRW";row["was_usd_converted"]=False;row["active"]=False
         self.assertIsNone(resolve_2026_native_krw_product_signature("Synthetic Hi-C",[row]))
+
+
+
+    def test_exact_service_plus_complete_process_geometry_resolves_variant(self):
+        release = "Process-2020-04-29-00034"
+        service = "Synthetic mRNA (WOBI)"
+        def row(qid,signature,process,size,product=service,unit="G raw data"):
+            return {"quote_id":qid,"product_signature":signature,
+                "product_name":product,"process_id":process,"data_unit":unit,
+                "data_size":size,"source_verified":True,
+                "source_kind":"VERIFIED_SFDC_KRW_PROCESS_PRICE",
+                "currency":"KRW","was_usd_converted":False,
+                "vat_basis":"VAT_EXCLUDED","approval_status":"APPROVED",
+                "active":True,"created_date":"2026-08-11"}
+        correct=[
+            row("Q-01","SRC-BASE",PID,"6"),
+            row("Q-01","SRC-BASE",OTHER,"6"),
+            row("Q-01","SRC-BASE",release,"1")
+        ]
+        other_size=[
+            row("Q-02","SRC-OTHER",PID,"10"),
+            row("Q-02","SRC-OTHER",OTHER,"10"),
+            row("Q-02","SRC-OTHER",release,"1")
+        ]
+        other_service=[
+            row("Q-03","SRC-WGS",PID,"6",product="Synthetic WGS"),
+            row("Q-03","SRC-WGS",OTHER,"6",product="Synthetic WGS"),
+            row("Q-03","SRC-WGS",release,"1",product="Synthetic WGS")
+        ]
+        report=[
+            {"process_id":PID,"data_unit":"G raw data","data_size":"6"},
+            {"process_id":OTHER,"data_unit":"Gb","data_size":"6.0"},
+            {"process_id":release,"data_unit":"G raw data","data_size":"1"}
+        ]
+        get=resolve_2026_native_krw_signature_by_report_geometry
+        self.assertEqual(get(service,report,correct+other_size+other_service),
+                         "SRC-BASE")
+        self.assertIsNone(get("Synthetic WGS Missing",report,correct))
+        self.assertIsNone(get(service,report,other_service))
+
+    def test_ambiguous_signatures_with_same_service_and_geometry_hold(self):
+        def entry(qid,signature):
+            return {"quote_id":qid,"product_signature":signature,
+                "product_name":"Synthetic mRNA", "process_id":PID,
+                "data_unit":"G raw data","data_size":"6",
+                "source_verified":True,
+                "source_kind":"VERIFIED_SFDC_KRW_PROCESS_PRICE",
+                "currency":"KRW","was_usd_converted":False,
+                "vat_basis":"VAT_EXCLUDED","approval_status":"APPROVED",
+                "active":True,"created_date":"2026-08-11"}
+        rows=[entry("Q-01","SRC-A"),entry("Q-02","SRC-B")]
+        report=[{"process_id":PID,"data_unit":"Gb","data_size":"6.0"}]
+        self.assertIsNone(resolve_2026_native_krw_signature_by_report_geometry(
+            "Synthetic mRNA",report,rows))
+
+    def test_invalid_process_units_or_ineligible_source_hold(self):
+        row={"quote_id":"Q-01","product_signature":"SRC-A",
+            "product_name":"Synthetic mRNA", "process_id":PID,
+            "data_unit":"G raw data","data_size":"6",
+            "source_verified":True,
+            "source_kind":"VERIFIED_SFDC_KRW_PROCESS_PRICE",
+            "currency":"KRW","was_usd_converted":False,
+            "vat_basis":"VAT_EXCLUDED","approval_status":"APPROVED",
+            "active":True,"created_date":"2026-08-11"}
+        get=resolve_2026_native_krw_signature_by_report_geometry
+        report=[{"process_id":PID,"data_unit":"Gb","data_size":"6"}]
+        self.assertEqual(get("Synthetic mRNA",report,[row]),"SRC-A")
+        for field,value in (("currency","USD"),("active",False),
+                            ("was_usd_converted",True),("source_verified",False),
+                            ("created_date","2025-08-11")):
+            invalid={**row,field:value}
+            self.assertIsNone(get("Synthetic mRNA",report,[invalid]))
+        self.assertIsNone(get("Synthetic mRNA",[
+            {"process_id":"GY0001","data_unit":"Gb","data_size":"6"}],[row]))
+        self.assertIsNone(get("Synthetic mRNA",[
+            {"process_id":PID,"data_unit":"4","data_size":"6"}],[row]))
+        self.assertIsNone(get("Synthetic mRNA",[
+            {"process_id":PID,"data_unit":"Gb","data_size":""}],[row]))
+
+    def test_full_quote_group_required_not_eligible_subset(self):
+        base={"quote_id":"Q-01","product_signature":"SRC-A",
+            "product_name":"Synthetic mRNA", "data_unit":"Gb","data_size":"6",
+            "source_verified":True,
+            "source_kind":"VERIFIED_SFDC_KRW_PROCESS_PRICE",
+            "currency":"KRW","was_usd_converted":False,
+            "vat_basis":"VAT_EXCLUDED","approval_status":"APPROVED",
+            "active":True,"created_date":"2026-08-11"}
+        good={**base,"process_id":PID}
+        extra={**base,"process_id":OTHER,"active":False}
+        report=[{"process_id":PID,"data_unit":"Gb","data_size":"6"}]
+        self.assertIsNone(resolve_2026_native_krw_signature_by_report_geometry(
+            "Synthetic mRNA",report,[good,extra]))
 
 
 
