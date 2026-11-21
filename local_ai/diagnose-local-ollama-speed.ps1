@@ -49,7 +49,7 @@ try {
     if ($r.response) { Write-Host "Response: $(([string]$r.response).Substring(0,[math]::Min(120,([string]$r.response).Length)))" }
     $loadedNow = Invoke-RestMethod -Uri "$base/api/ps" -TimeoutSec 10
     foreach ($item in @($loadedNow.models)) {
-        if ($item.name -eq $Model -or $item.name -eq $Model.Replace(":latest","") + ":latest") {
+        if (@($Model, (($Model -replace ":latest$","") + ":latest")) -contains $item.name) {
             Write-Host "Actual loaded context: $($item.context_length)"
         }
     }
