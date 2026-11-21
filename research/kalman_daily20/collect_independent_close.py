@@ -134,7 +134,10 @@ def _parse_timestamp(value, session):
     et=item.astimezone(NY)
     if et.date().isoformat()!=session:
         raise RuntimeError("AUCTION_WRONG_SESSION_TIMESTAMP")
-    if not (15 <= et.hour <= 16):
+    # Accept only the closing-cross timing window. A late 16:30 ET trade
+    # bearing an unexpected condition must never become a closing reference.
+    minutes = et.hour * 60 + et.minute
+    if not (15 * 60 + 59 <= minutes <= 16 * 60 + 5):
         raise RuntimeError("AUCTION_OUTSIDE_REGULAR_CLOSE_WINDOW")
     return item.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z")
 
