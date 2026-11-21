@@ -117,7 +117,12 @@ The **baseline signals and real trading paths remain unchanged**. Daily20 now ru
   `bear_oos_trades.csv`, `bear_model_coverage.csv`,
   `regime_year_coverage.csv`, `regime_session_context.csv`,
   `regime_scenarios.csv`, `regime_daily_equity.csv`,
-  `regime_executions.csv`, `regime_annual.csv`. They are included in
+  `regime_executions.csv`, `regime_annual.csv`, plus observed
+  `baseline_loss_attribution.csv` and `baseline_loss_attribution.json`
+  covering the incumbent's actual realized PnL by exit year, symbol,
+  signal-day lagged VIX bucket and technology leadership. The attribution
+  is descriptive, not causal and not a parameter-selection dataset.
+  They are included in
   the unchanged pinned Google Drive research ZIP; Drive publication fails
   closed if any evidence is absent or declares LIVE eligibility.
 
