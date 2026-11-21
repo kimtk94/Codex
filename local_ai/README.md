@@ -1,5 +1,18 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Slow Codex response / "Working (4m 48s)" on 16GB Windows
+
+If Codex shows `Working` for several minutes and has not produced an answer:
+- This is **not yet a successful inference**. The selected `qwen3-codex16k:latest` model is being used, but the local AI may be waiting for slow CPU/GPU token processing.
+- Press **F2** inside Codex to view the 2 warnings. Record their text before treating them as harmless.
+- In another PowerShell run `ollama ps` to view the loaded model, actual CONTEXT and PROCESSOR/GPU allocation.
+- If Codex is not responding, press **Esc** to interrupt it before conducting the controlled test (do not kill other Windows apps).
+- In the reviewed local_ai folder, double-click **Diagnose-Local-Codex-Speed.cmd**. It runs a short *synthetic* Ollama request (without Codex's long agent prompt), prints available RAM, GPU name, actual allocated context, response latency, and output tokens/second. No work data, GitHub calls or Google Drive files are used.
+- If synthetic Ollama itself is slow, reduce context/model size or leave repeated builds/tests to GitHub Actions. If synthetic Ollama is fast but Codex is slow, its long agent prompt/tool loop on a 4B model is the likely bottleneck. Do not assume a smaller model will be capable of reliable agentic coding.
+
+The script has a 120-second diagnostic request timeout. On 16GB RAM, 16K may require considerable memory. Results are measured only when actually run on the Windows laptop; a GitHub Actions syntax PASS is **not** a benchmark.
+
+
 ### Missing model name: "pull model manifest: file does not exist"
 
 The model `qwen3-codex16k` is a LOCAL custom alias, **not** a registry model.
