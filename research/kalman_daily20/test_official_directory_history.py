@@ -13,7 +13,7 @@ from daily20 import load_spec
 from official_listing_directory import (
     JOURNAL_MEMBER, one_snapshot, run, save_journal, verify_chain,
 )
-from official_directory_history import member_for, preserve
+from official_directory_history import member_for, preserve, verify_results_zip
 from test_official_listing_directory import fixture, as_fetcher, STAMP
 
 SPEC=load_spec()
@@ -166,6 +166,62 @@ class OfficialDirectoryHistoryTests(unittest.TestCase):
                     z.writestr(member_for(key,digest),b"DELIBERATELY CORRUPTED")
             with self.assertRaisesRegex(ValueError,"DIGEST_MISMATCH"):
                 preserve(old,chain,None,root/"out")
+
+    def test_drive_results_zip_verifies_full_source_against_sealed_journal(self):
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            source=fixture()
+            old=root/"old.zip"
+            write_old_zip(old,from_first_snapshot(source),source)
+            run(SPEC,root/"out",fetcher=as_fetcher(source),
+                stamp=STAMP,prior_zip=old)
+            zipped_result(root/"result.zip",root/"out")
+            with ZipFile(root/"result.zip") as z:
+                checked=verify_results_zip(z)
+            self.assertEqual(checked["status"],"FULL_DIRECTORY_SOURCE_HISTORY_VERIFIED")
+            self.assertEqual(checked["source_blobs_verified"],2)
+            self.assertEqual(checked["journal_event_count"],1)
+            self.assertEqual(checked["close_finality_verified"],0)
+
+    def test_drive_zip_rejects_missing_replayed_source(self):
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            source=fixture()
+            old=root/"old.zip"
+            write_old_zip(old,from_first_snapshot(source),source)
+            run(SPEC,root/"out",fetcher=as_fetcher(source),
+                stamp=STAMP,prior_zip=old)
+            zipped_result(root/"result.zip",root/"out")
+            with ZipFile(root/"result.zip") as z:
+                removed=member_for("nasdaqlisted",sha256(source["nasdaqlisted"]).hexdigest())
+                paths={name:z.read(name) for name in z.namelist() if name != removed}
+            bad=root/"incomplete.zip"
+            with ZipFile(bad,"w") as z:
+                for name,data in paths.items():
+                    z.writestr(name,data)
+            with ZipFile(bad) as z:
+                with self.assertRaisesRegex(ValueError,"BLOB_MISSING"):
+                    verify_results_zip(z)
+
+    def test_drive_zip_rejects_broken_current_raw_even_with_valid_history(self):
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            source=fixture()
+            old=root/"old.zip"
+            write_old_zip(old,from_first_snapshot(source),source)
+            run(SPEC,root/"out",fetcher=as_fetcher(source),
+                stamp=STAMP,prior_zip=old)
+            zipped_result(root/"result.zip",root/"out")
+            with ZipFile(root/"result.zip") as z:
+                paths={name:z.read(name) for name in z.namelist()}
+            paths[ROOT+"raw/otherlisted.txt"]=b"tampered"
+            bad=root/"tampered.zip"
+            with ZipFile(bad,"w") as z:
+                for name,data in paths.items():
+                    z.writestr(name,data)
+            with ZipFile(bad) as z:
+                with self.assertRaisesRegex(ValueError,"DIGEST_MISMATCH"):
+                    verify_results_zip(z)
 
     def test_preview_makes_no_history_seals(self):
         with TemporaryDirectory() as tmp:
