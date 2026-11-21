@@ -19,12 +19,14 @@ on:
       - "kalman-toss-gateway/scripts/runtime_hotfix_v7420_decision_console.js"
       - "kalman-toss-gateway/scripts/apply_runtime_hotfix_v7420.py"
       - "automation/kalman/prepare_runtime_hotfix_pr.py"
+      - "automation/kalman/test_prepare_runtime_hotfix_pr.py"
       - ".github/workflows/apply-kalman-runtime-hotfix.yml"
   pull_request:
     paths:
       - "kalman-toss-gateway/scripts/runtime_hotfix_v7420_decision_console.js"
       - "kalman-toss-gateway/scripts/apply_runtime_hotfix_v7420.py"
       - "automation/kalman/prepare_runtime_hotfix_pr.py"
+      - "automation/kalman/test_prepare_runtime_hotfix_pr.py"
       - ".github/workflows/apply-kalman-runtime-hotfix.yml"
 
 # Preview is read-only. Proposal writes are granted only in a separate manual job.
@@ -53,6 +55,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Validate PR safety rules in synthetic fixtures
+        run: python -m unittest discover -s automation/kalman -p "test_prepare_runtime_hotfix_pr.py" -v
       - name: Generate patch and verify JavaScript syntax
         run: python automation/kalman/prepare_runtime_hotfix_pr.py --repo . --out-dir "$RUNNER_TEMP/kalman-hotfix-preview"
       - name: Upload review-only patch and metadata
