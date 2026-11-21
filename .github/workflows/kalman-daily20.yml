@@ -210,7 +210,6 @@ jobs:
             --market output/daily20/market \
             --features output/daily20/features \
             --scores output/daily20/research/latest_research_scores.csv \
-            --bear-csv output/daily20/research/bear_forward/latest_candidates.csv \
             --bull-journal output/daily20/research/forward_shadow/journal.jsonl \
             --bear-journal output/daily20/research/bear_forward/journal.jsonl \
             --bull-report output/daily20/research/forward_shadow/report.json \
