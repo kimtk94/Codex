@@ -13,16 +13,19 @@ from collections import Counter
 
 import lead_mail_description_sync as lead
 import lead_manual_checkboxes as manual
+import lead_eligibility as age
 from lead_mail_views_sync import check_parity, get_one_view, filter_matches
 from sales_home_links import API, BASE, pages, request, require_success
 
 EXPECTED_TABLE_ID = manual.EXPECTED_TABLE_ID
 QUEUE_FIELD = "Lead 업무 우선순위 (자동)"
+ELIGIBILITY_FIELD = age.ELIGIBILITY_FIELD
 QUEUE_LABELS = {
     "recontact": "01 · 재연락 필요",
     "planned": "02 · 메일 발송 예정",
     "review": "03 · 검토 대기",
     "none": "관리 제외 / 발송 확인",
+    "expired": "04 · 1년 초과 · 연락 대상 제외",
 }
 QUEUES = (
     ("03 · 최우선 · 재연락 필요", "recontact"),
@@ -32,6 +35,8 @@ QUEUES = (
 NO_EVIDENCE = "메일 발송 증거 없음"
 
 def classify(row):
+    if age.eligibility(row) == "expired":
+        return "expired"
     if manual.checked(row.get("재연락 필요")):
         return "recontact"
     if manual.checked(row.get("메일 발송 예정")):
@@ -72,6 +77,8 @@ def audit_snapshots(before, after, desired, source):
     for key, value in desired.items():
         if lead.norm(after[key].get(QUEUE_FIELD)) != value:
             raise RuntimeError("LEAD_QUEUE_DERIVED_FIELD_READBACK_MISMATCH")
+        if lead.norm(after[key].get(ELIGIBILITY_FIELD)) != age.label(before[key]):
+            raise RuntimeError("LEAD_QUEUE_ELIGIBILITY_FIELD_READBACK_MISMATCH")
     old_checks = manual_snapshot(before)
     if old_checks != manual_snapshot(after):
         raise RuntimeError("LEAD_QUEUE_MANUAL_FLAGS_CHANGED")
@@ -105,7 +112,10 @@ def main(apply=False):
     root=API+"/tables/"+EXPECTED_TABLE_ID
     fields=list(pages(root+"/fields",token))
     matched=[x for x in fields if x.get("field_name")==QUEUE_FIELD]
-    if len(matched)>1 or (matched and matched[0].get("type")!=1):
+    eligibility_matched=[x for x in fields if x.get("field_name")==ELIGIBILITY_FIELD]
+    if (len(matched)>1 or (matched and matched[0].get("type")!=1)
+            or len(eligibility_matched)>1
+            or (eligibility_matched and eligibility_matched[0].get("type")!=1)):
         raise RuntimeError("LEAD_QUEUE_FIELD_SCHEMA_INVALID")
     for name in manual.MANUAL:
         matches=[x for x in fields if x.get("field_name")==name]
@@ -114,15 +124,25 @@ def main(apply=False):
     old=load_records(root,token)
     old_fields={key:rec["fields"] for key,rec in old.items()}
     check_parity(source,old_fields)
+    today=age.today_kst()
     desired={key:QUEUE_LABELS[classify(row)] for key,row in old_fields.items()}
+    eligibility_values={key:age.label(row,today) for key,row in old_fields.items()}
     groups=partition(old_fields)
-    updates=[{"record_id":rec["record_id"],"fields":{QUEUE_FIELD:desired[key]}}
-             for key,rec in old.items()
-             if lead.norm(rec["fields"].get(QUEUE_FIELD))!=desired[key]]
+    updates=[]
+    for key,rec in old.items():
+        new_values={}
+        if lead.norm(rec["fields"].get(QUEUE_FIELD))!=desired[key]:
+            new_values[QUEUE_FIELD]=desired[key]
+        if lead.norm(rec["fields"].get(ELIGIBILITY_FIELD))!=eligibility_values[key]:
+            new_values[ELIGIBILITY_FIELD]=eligibility_values[key]
+        if new_values:
+            updates.append({"record_id":rec["record_id"],"fields":new_values})
     stats={k:len(v) for k,v in groups.items()}
+    eligibility_stats=age.stats(old_fields.values(),today)
     print("LEAD_QUEUE_PLAN="+json.dumps({
         "total":len(old),"changes":len(updates),
-        "queue_field_exists":bool(matched),"groups":stats,
+        "queue_field_exists":bool(matched),"eligibility_field_exists":bool(eligibility_matched),
+        "eligibility":eligibility_stats,"groups":stats,
         "mode":"APPLY" if apply else "READ_ONLY"
     },ensure_ascii=False),flush=True)
 
@@ -135,13 +155,24 @@ def main(apply=False):
             if len(current)!=1 or current[0].get("type")!=1:
                 raise RuntimeError("LEAD_QUEUE_FIELD_CREATE_READBACK_FAILED")
             matched=current
+        if not eligibility_matched:
+            require_success(request("POST",root+"/fields",token=token,
+                body={"field_name":ELIGIBILITY_FIELD,"type":1}),"CREATE_ELIGIBILITY_FIELD")
+            eligibility_matched=[x for x in pages(root+"/fields",token)
+                                 if x.get("field_name")==ELIGIBILITY_FIELD]
+            if len(eligibility_matched)!=1 or eligibility_matched[0].get("type")!=1:
+                raise RuntimeError("LEAD_ELIGIBILITY_FIELD_CREATE_READBACK_FAILED")
         for start in range(0,len(updates),100):
             require_success(request("POST",root+"/records/batch_update",token=token,
                 body={"records":updates[start:start+100]}),"UPSERT_QUEUE_LABELS")
-    if not matched:
+            print("LEAD_QUEUE_UPSERT_PROGRESS="+str(min(start+100,len(updates)))+
+                  "/"+str(len(updates)),flush=True)
+    if not matched or not eligibility_matched:
         print("LEAD_QUEUE_DRY_RUN_MISSING_FIELD=true",flush=True)
         return
     field_id=matched[0].get("field_id")
+    if not eligibility_matched[0].get("field_id"):
+        raise RuntimeError("LEAD_ELIGIBILITY_FIELD_ID_MISSING")
     if not field_id:
         raise RuntimeError("LEAD_QUEUE_FIELD_ID_MISSING")
     if apply:
