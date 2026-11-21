@@ -256,6 +256,10 @@ jobs:
             if (!$driveSetup.Contains($term)) { throw "Drive Desktop setup missing: $term" }
           }
           Write-Host "Guided Google Drive desktop setup static checks PASS."
+          foreach ($term in @("WindowsIdentity", "WindowsPrincipal", "BuiltInRole", "not elevated", "Installation was NOT attempted")) {
+            if (!$driveSetup.Contains($term)) { throw "Drive 1603 no-admin safety gate missing: $term" }
+          }
+          Write-Host "No-admin Drive installer guard static checks PASS."
           $installDiag = Get-Content "local_ai\diagnose-drive-install.ps1" -Raw
           foreach ($word in @("MsiInstaller", "GoogleDriveFS", "WindowsPrincipal", "CurrentVersion\Uninstall", "WindowsIdentity", "GoogleDrive|DriveFS|GoogleUpdate")) {
             if (!$installDiag.Contains($word)) { throw "Drive 1603 diagnostic missing: $word" }
