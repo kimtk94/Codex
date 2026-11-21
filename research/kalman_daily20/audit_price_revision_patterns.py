@@ -96,6 +96,7 @@ def summarize_pair(old, new, *, symbol, left, right):
     changed_mask = abs_rel > PRICE_REL_TOL
     nonterminal_changed = int((changed_mask & mask_nonterminal).sum())
     nonterminal_material = int((material_mask & mask_nonterminal).sum())
+    nonterminal_gt1bp = int(((abs_rel > .0001) & mask_nonterminal).sum())
     terminal_changed = bool(changed_mask[common.get_loc(asof)])
     terminal_material = bool(material_mask[common.get_loc(asof)])
     med = float(np.nanmedian(rel[mask_nonterminal])) if valid[mask_nonterminal].any() else None
@@ -130,10 +131,14 @@ def summarize_pair(old, new, *, symbol, left, right):
         classification = "TERMINAL_CLOSE_REVISION_ONLY"
     elif global_scale_candidate:
         classification = "GLOBAL_HISTORICAL_PRICE_SCALING_CANDIDATE"
+    elif terminal_changed and nonterminal_changed and not nonterminal_gt1bp:
+        classification = "TERMINAL_WITH_SUB_1BP_HISTORY_DRIFT"
+    elif not terminal_changed and nonterminal_changed and not nonterminal_gt1bp:
+        classification = "SUB_1BP_HISTORY_DRIFT_ONLY"
     elif terminal_changed and nonterminal_changed:
-        classification = "TERMINAL_AND_HISTORICAL_REVISIONS"
+        classification = "TERMINAL_AND_MATERIAL_HISTORICAL_REVISIONS"
     elif nonterminal_changed:
-        classification = "HISTORICAL_REVISIONS_WITHOUT_TERMINAL"
+        classification = "MATERIAL_HISTORICAL_REVISIONS_WITHOUT_TERMINAL"
     else:
         classification = "OTHER_OHLCV_OR_VOLUME_REVISION"
     return {
@@ -146,6 +151,7 @@ def summarize_pair(old, new, *, symbol, left, right):
         "terminal_changed":terminal_changed, "terminal_material_gt10bps":terminal_material,
         "nonterminal_close_changed":nonterminal_changed,
         "nonterminal_close_material_gt10bps":nonterminal_material,
+        "nonterminal_close_material_gt1bp":nonterminal_gt1bp,
         "nonterminal_median_scale_pct":med*100 if med is not None else None,
         "nonterminal_scale_residual_p95_pct":p95resid*100 if p95resid is not None else None,
         "nonterminal_close_max_abs_pct":float(np.nanmax(abs_rel[mask_nonterminal])*100)
@@ -217,6 +223,7 @@ def run(input_dir, output, spec):
             "terminal_changed":sum(r["terminal_changed"] for r in step),
             "nonterminal_any_changes":sum(r["nonterminal_close_changed"]>0 for r in step),
             "historical_10bps_any":sum(r["nonterminal_close_material_gt10bps"]>0 for r in step),
+            "historical_1bp_any":sum(r["nonterminal_close_material_gt1bp"]>0 for r in step),
             "global_scale_candidates":sum(r["global_scale_candidate"] for r in step),
             "volume_changed":sum(r["volume_changed"] for r in step),
             "classification_counts":dist,
@@ -241,6 +248,14 @@ def run(input_dir, output, spec):
                     if r["nonterminal_close_material_gt10bps"]>0],
         "first_vs_last_global_scaling_candidates":[r["symbol"] for r in terminal
                     if r["global_scale_candidate"]],
+        "first_vs_last_terminal_negative_count":sum(
+            r["terminal_close_change_pct"] is not None and
+            r["terminal_close_change_pct"] < -.000001 for r in terminal),
+        "first_vs_last_terminal_positive_count":sum(
+            r["terminal_close_change_pct"] is not None and
+            r["terminal_close_change_pct"] > .000001 for r in terminal),
+        "first_vs_last_historic_max_abs_pct":max(
+            (r["nonterminal_close_max_abs_pct"] or 0) for r in terminal),
         "largest_first_vs_last_terminal_abs_pct": sorted(
             [{"symbol":r["symbol"],"change_pct":r["terminal_close_change_pct"]}
              for r in terminal if r["terminal_close_change_pct"] is not None],
