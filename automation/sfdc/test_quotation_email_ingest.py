@@ -3,7 +3,7 @@
 import sys, pathlib, unittest, os, tempfile
 from unittest import mock
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
-from quotation_email_ingest import parse_attachment, publish_run_status
+from quotation_email_ingest import parse_attachment, publish_run_status, classify_report_schema
 class QuotationEmailTests(unittest.TestCase):
     def test_korean_html_xls(self):
         cols=["Quotation: SFDC Quotation ID","*Account Id","Account Name","Contact ID","Contact Name","Opportunity ID","Opportunity Name","Quotation: ID","Quotation Name","Active","Sync CMS","Exclude Tax After Discount USD","Quotation Create Date","Contract Creation"]
@@ -39,12 +39,39 @@ class QuotationEmailTests(unittest.TestCase):
         reasons={}
         rows=parse_attachment(b"Opportunity Name,Amount\nExample,10\n","no_report.csv",reasons)
         self.assertEqual(rows,[])
-        self.assertEqual(reasons,{"schema_mismatch":1})
+        self.assertEqual(reasons,{"schema_mismatch":1,
+                                 "schema_family_other_report":1})
         valid_headers=",".join(["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID","Quotation Name","Active","Exclude Tax After Discount USD"])
         reasons={}
         got=parse_attachment((valid_headers+"\nQ1,OPP,NOT_AN_ID,Test,1,10\n").encode(),"report.csv",reasons)
         self.assertEqual(got,[])
         self.assertEqual(reasons,{"no_valid_quote_rows":1})
+    def test_schema_families_never_treat_process_as_header(self):
+        processes=["SFDC Quotation ID", "Quotation Product ID",
+                   "Quotation Process Name", "Opportunity ID",
+                   "Active", "Total Price USD (converted)"]
+        self.assertEqual(classify_report_schema(processes),
+                         "QUOTATION_PROCESS_NOT_HEADER")
+        reasons={}
+        raw=(",".join(processes)+"\\n"+
+             "QID-2026-11-01-A,PR1,Library prep,OPP1,1,2500\\n").encode()
+        self.assertEqual(parse_attachment(raw,"process.csv",reasons),[])
+        self.assertEqual(reasons["schema_mismatch"],1)
+        self.assertEqual(reasons["schema_family_quotation_process_not_header"],1)
+        self.assertEqual(classify_report_schema(
+            ["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID",
+             "Quotation Name","Active","Other Amount"]),
+             "PARTIAL_QUOTE_HEADER_REVIEW")
+        self.assertEqual(classify_report_schema(
+            ["Opportunity Owner","Opportunity ID","Amount"]),
+             "OPPORTUNITY_REPORT")
+        self.assertEqual(classify_report_schema(["Lead ID","Lead Created Date"]),
+                         "LEAD_REPORT")
+        self.assertEqual(classify_report_schema(
+            ["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID",
+             "Quotation Name","Active","Exclude Tax After Discount USD"]),
+             "QUOTE_HEADER_EXACT")
+
     def test_github_output_and_summary_are_well_formed(self):
         with tempfile.TemporaryDirectory() as td:
             output=os.path.join(td,"output")
