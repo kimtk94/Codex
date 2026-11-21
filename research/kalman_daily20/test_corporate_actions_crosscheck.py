@@ -135,7 +135,10 @@ class CorporateActionCompareTests(unittest.TestCase):
         self.assertEqual(summary["split_normalized_candidate_count"],1)
         self.assertEqual(summary["candidate_numeric_match_count"],2)
         self.assertEqual(summary["status"],"ALL_OBSERVED_EVENTS_NUMERICALLY_MATCH_UNCERTIFIED")
-        self.assertTrue(all(x["status"]=="CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY" for x in records))
+        self.assertEqual(
+            {x["status"] for x in records},
+            {"CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY",
+             "SPLIT_NORMALIZED_AMOUNT_MATCH_RESEARCH_ONLY"})
         self.assertFalse(summary["factor_independently_certified"])
 
     def test_exdate_not_processdate(self):
