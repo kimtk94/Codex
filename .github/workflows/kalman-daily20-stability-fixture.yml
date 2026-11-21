@@ -1,0 +1,98 @@
+name: Kalman Daily20 Prospective Stability Historical Fixture (Read Only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research/kalman_daily20/stability_gate.py'
+      - 'research/kalman_daily20/stability_replay_fixture.py'
+      - '.github/workflows/kalman-daily20-stability-fixture.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: daily20-stability-fixture-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-real-archived-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install frozen-snapshot audit dependencies (no credentials)
+        run: |
+          python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<3' 'scikit-learn>=1.6,<2' 'pyarrow>=17' 'exchange-calendars>=4.7'
+      - name: Offline stability contract tests
+        run: |
+          python -m unittest discover -s research/kalman_daily20 -p 'test_stability_gate.py' -v
+          python -m compileall -q research/kalman_daily20/stability_replay_fixture.py
+      - name: Restore initial 2026-11-20 archived real OHLCV and features
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44853890794
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          name: kalman-daily20-data
+          path: evidence/first_data
+      - name: Restore first re-run's revised real OHLCV and features
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44856445903
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          name: kalman-daily20-data
+          path: evidence/revised_data
+      - name: Restore initial 2026-11-20 model score outputs
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44853890794
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          name: kalman-daily20-research
+          path: evidence/first_research
+      - name: Restore revised 2026-11-20 model score outputs
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44856445903
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          name: kalman-daily20-research
+          path: evidence/revised_research
+      - name: Retrospective real-data replay without writing a signal journal
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/stability_replay_fixture.py \
+            --left-data evidence/first_data \
+            --right-data evidence/revised_data \
+            --left-research evidence/first_research \
+            --right-research evidence/revised_research \
+            --session 2026-11-20 \
+            --out output/daily20/stability_fixture
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("output/daily20/stability_fixture/replay_fixture_report.json").read_text())
+          assert report["status"] == "REPLAY_DRIFT_RESEARCH_HOLD"
+          assert report["actual_model_count_per_archive"] == 40
+          assert report["event_anchors_are_synthetic_fixtures"] is True
+          assert report["strategy_promoted"] is False
+          assert report["live_execution"] is False
+          print("HISTORICAL_FIXTURE_HOLD_VERIFIED", report["material_incident_count"])
+          PY
+      - name: Publish read-only fixture result (never to Drive)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-stability-historical-fixture
+          path: output/daily20/stability_fixture/
+          if-no-files-found: warn
+          retention-days: 90
