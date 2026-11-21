@@ -1,5 +1,16 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Real Windows context/inference verification (after restarting Ollama)
+
+1. Run **Set-Ollama-Context-16K.cmd** once, if it was not run before.
+2. Fully quit Ollama from the Windows tray and relaunch it; close the previous Codex session.
+3. Run **Verify-Local-Codex-16K.cmd**. This sends **one synthetic prompt** only to `127.0.0.1:11434`, does not set `options.num_ctx`, and then reads the effective `context_length` from `/api/ps`.
+4. Expect **PASS** and `CONTEXT=16384` or greater. If it reports `4096`, check Ollama desktop Settings > Context length and restart Ollama fully, then run again.
+5. After PASS, run **Start-Local-Codex.cmd**, type `/status` and confirm the selected model and workspace. Test a short, read-only question.
+6. This verification does NOT prove that Codex agent's 5,875-token prompt or large tool-calling tasks are guaranteed to work: it validates the local model response and the loaded context allocation separately. Use a real Codex prompt as a separate acceptance test.
+
+The script performs no credential access, GitHub or Google Drive data transfers, and does not create files. Running an inference loads the model temporarily and may consume considerable RAM.
+
 ## Fix Codex's "request exceeds available context size (4096)" error
 
 On a 16GB RAM Windows laptop, Codex may send ~5,875 prompt tokens while Ollama allocates only 4,096. This is a **context-window mismatch**, not npm/Codex installation failure.
