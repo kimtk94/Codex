@@ -3,7 +3,7 @@
 
 Scope: exact Novogene sales Base + unique dedicated Lead table. No mutation
 outside missing checkbox field definitions. No record create/update/delete.
-Default: read-only; --apply adds missing checkbox columns idempotently.
+Default: read-only; --apply adds missing checkbox columns idempotently.\nLive field provisioning requires an explicit approved deployment gate.
 """
 import argparse
 import json
