@@ -1,5 +1,14 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Performance result, 2026-11-21 (user-provided Windows measurement)
+
+- Measured: 4.41 seconds total; 8.71 output tokens/s on `qwen3-codex16k:latest`.
+- The previous synthetic `num_predict=24` request returned text beginning with "Hmm, the user just asked..." instead of obeying "Reply with OK only." This is **incomplete instruction following**, not an accepted agent-quality PASS.
+- It did not measure long prompt processing (`prompt_eval_count / prompt_eval_duration`) nor GPU allocation. Codex's large system prompt and tool use may still be too slow.
+- New **Diagnose-Local-Codex-Speed.cmd** now checks prompt-eval speed, generation speed, final answer exactly `OK`, and thinking-field length, using a 128-token budget and `/no_think` plus `think=false`. It reports a failure if no exact OK is produced, instead of mislabeling mere generation as success.
+- After this test run `ollama ps` and review Codex's F2 warnings. Do not approve autonomous edits or merging until short non-sensitive tasks pass.
+
+
 ## Slow Codex response / "Working (4m 48s)" on 16GB Windows
 
 If Codex shows `Working` for several minutes and has not produced an answer:
