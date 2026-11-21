@@ -377,6 +377,38 @@ def inspect_payload(data_root, results_root):
     if len({x["symbol"] for x in qc.get("symbols", [])}) != 26:
         raise RuntimeError("QC_SYMBOL_KEYS_INCOMPLETE")
 
+    # Optional for pre-v1 fixture archives; mandatory in the live Daily20 CI
+    # path because the preceding job step creates this report. Never approve
+    # trading based on a healthy replay status.
+    stability_root = r / "research" / "stability"
+    stability_path = stability_root / "report.json"
+    stability = None
+    if stability_path.is_file():
+        stability = json.loads(stability_path.read_text())
+        if (stability.get("version") != "daily20-prospective-stability-v1"
+                or stability.get("session") != qc["expected_session"]
+                or stability.get("research_only") is not True
+                or stability.get("production_writes") is not False
+                or stability.get("strategy_promoted") is not False
+                or stability.get("promotional_attribution_allowed") is not False
+                or stability.get("no_live_orders") is not True
+                or stability.get("research_hold") not in (True, False)
+                or type(stability["research_hold"]) is not bool):
+            raise RuntimeError("STABILITY_GOVERNANCE_MISMATCH")
+        if stability["research_hold"] and stability.get("status") != "REPLAY_DRIFT_RESEARCH_HOLD":
+            raise RuntimeError("STABILITY_HOLD_CLASSIFICATION_MISMATCH")
+        frozen = sorted((stability_root / "snapshots").glob("*.json"))
+        if len(frozen) != stability.get("frozen_sessions_preserved"):
+            raise RuntimeError("STABILITY_ARCHIVE_COUNT_MISMATCH")
+        if stability.get("current_session_has_original_snapshot"):
+            target = stability_root / "snapshots" / (qc["expected_session"] + ".json")
+            if not target.is_file():
+                raise RuntimeError("STABILITY_FROZEN_INPUT_NOT_ARCHIVED")
+            if hashlib.sha256(target.read_bytes()).hexdigest() != stability.get("frozen_snapshot_sha256"):
+                raise RuntimeError("STABILITY_FROZEN_INPUT_CHECKSUM_MISMATCH")
+        elif stability.get("frozen_snapshot_sha256") is not None:
+            raise RuntimeError("STABILITY_LEGACY_SNAPSHOT_FALSELY_FROZEN")
+
     manifest = {
         "format": "kalman-daily20-drive-v1",
         "research_only": True,
@@ -406,6 +438,8 @@ def inspect_payload(data_root, results_root):
         "monte_carlo_block_lengths": mc["block_lengths"],
         "monte_carlo_repetitions": mc["replications_per_block"],
         "monte_carlo_approved_live": False,
+        "stability_status": stability["status"] if stability else "LEGACY_NO_STABILITY_REPORT",
+        "stability_research_hold": stability["research_hold"] if stability else None,
     }
     return manifest
 
