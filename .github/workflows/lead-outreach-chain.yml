@@ -3,6 +3,7 @@ name: Lead Outreach Source-to-Feishu Chain
 # Production deployment runs only when this exact verified release commit is used.
 # QQ personal sent evidence (Sheets) -> Feishu mirror -> age-aware priority
 # -> four eligible-only mail-evidence views -> Feishu delta readback and redacted artifact.
+# Sent-mail views are follow-up references only, never instructions to send customer mail.
 on:
   workflow_dispatch:
     inputs:
