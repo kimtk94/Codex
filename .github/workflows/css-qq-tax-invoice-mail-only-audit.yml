@@ -92,10 +92,10 @@ jobs:
                  "extract_metadata_hold","extract_verified","extract_review"}
           f=Path(os.environ["GITHUB_STEP_SUMMARY"])
           with f.open("a",encoding="utf-8") as stream:
-              stream.write("### QQ / CSS Invoice original-only audit (no business writes)\\n")
+              stream.write("### QQ / CSS Invoice original-only audit (no business writes)\n")
               for k in sorted(allow):
                   if k in data:
-                      stream.write(f"- {k}: {data[k]}\\n")
+                      stream.write(f"- {k}: {data[k]}\n")
           PY
       - name: Retain aggregate-only audit result for 7 days
         if: always()
