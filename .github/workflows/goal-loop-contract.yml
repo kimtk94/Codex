@@ -6,12 +6,14 @@ on:
     paths:
       - 'automation/goal_loop/**'
       - 'docs/automation/goal-loop-pilot.md'
+      - 'docs/automation/goal-loop-pilot-v2.md'
       - '.github/workflows/goal-loop-contract.yml'
   push:
     branches: [main]
     paths:
       - 'automation/goal_loop/**'
       - 'docs/automation/goal-loop-pilot.md'
+      - 'docs/automation/goal-loop-pilot-v2.md'
       - '.github/workflows/goal-loop-contract.yml'
   workflow_dispatch:
   schedule:
@@ -36,19 +38,23 @@ jobs:
         run: python -m compileall -q automation/goal_loop
       - name: Verify controller safety contract
         run: python -m unittest discover -s automation/goal_loop -p 'test_*.py' -v
-      - name: Verify goal JSON and document contract
+      - name: Verify V1 goal contract (historical, without running Ollama)
         run: python -m automation.goal_loop.controller --dry-run
+      - name: Verify V2 goal contract (separate checkpoint, no Ollama)
+        run: python -m automation.goal_loop.controller --goal automation/goal_loop/goals/pilot-status-v2.json --dry-run
       - name: Upload deterministic contract evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: goal-loop-contract-${{ github.run_id }}
-          path: automation/goal_loop/goals/pilot-status.json
+          path: |
+            automation/goal_loop/goals/pilot-status.json
+            automation/goal_loop/goals/pilot-status-v2.json
           retention-days: 14
 
   pilot:
     name: pilot-acceptance
-    if: startsWith(github.head_ref, 'agent/pilot-status-')
+    if: startsWith(github.head_ref, 'agent/pilot-status-normalizer-') && !startsWith(github.head_ref, 'agent/pilot-status-normalizer-v2-')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -60,3 +66,20 @@ jobs:
           python-version: '3.12'
       - name: Enforce independent goal acceptance
         run: python -m unittest automation.goal_loop.pilot_acceptance -v
+
+  pilot_v2:
+    name: pilot-acceptance-v2
+    if: startsWith(github.head_ref, 'agent/pilot-status-normalizer-v2-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Independently enforce V2 module-level source quality
+        run: python -m automation.goal_loop.source_quality automation/goal_loop/pilot_target_v2.py
+      - name: Independently verify V2 behavior
+        run: python -m unittest automation.goal_loop.pilot_acceptance_v2 -v
