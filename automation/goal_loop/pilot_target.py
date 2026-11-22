@@ -2,5 +2,10 @@
 
 
 def normalize_status(value):
-    """Baseline implementation; goal acceptance intentionally requires enhancements."""
-    return str(value).strip().upper()
+    """Enhanced implementation to handle various input cases."""
+    if value is None or value == '' or isinstance(value, (int, float, dict)):
+        return 'HOLD'
+    normalized = str(value).strip().upper()
+    if normalized in ['PASS', 'FAIL']:
+        return normalized
+    return 'HOLD'
