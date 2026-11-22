@@ -25,6 +25,8 @@ EXTRACT_HEADER = (
     "extracted_at_utc", "ingest_key",
 )
 DECISIONS = ("HOLD", "REVIEW_OK", "REJECT")
+REVIEW_TITLE = "QQ 2026 세금계산서 누락 7건 — 개별 검토 (HOLD, 저장 비활성)"
+SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
 
 def _integer(value):
@@ -170,19 +172,41 @@ def _dict_rows(rows, tag):
     return a
 
 
+def _discover_review_id(session):
+    """Discover one *already shared* owner-side sheet by exact title, read-only.
+
+    Never print the title-matched file ID or any Drive metadata. Fail closed on
+    missing/duplicate names. This is not an authenticated case approval.
+    """
+    q = ("name = '" + REVIEW_TITLE.replace("\\", "\\\\").replace("'", "\\'")
+         + "' and mimeType = '" + SHEET_MIME + "' and trashed = false")
+    response = session.get("https://www.googleapis.com/drive/v3/files",
+                           params={"q":q,"fields":"files(id,name,mimeType),nextPageToken",
+                                   "pageSize":20},timeout=50)
+    response.raise_for_status()
+    data = response.json()
+    matches=[x for x in data.get("files",[])
+             if x.get("name")==REVIEW_TITLE
+             and x.get("mimeType")==SHEET_MIME
+             and re.fullmatch(r"[A-Za-z0-9_-]{20,128}",str(x.get("id") or ""))]
+    if len(matches)!=1 or data.get("nextPageToken"):
+        raise ValueError("REVIEW_DISCOVERY_NOT_UNIQUE")
+    return matches[0]["id"]
+
+
 def main():
-    # Both credentials are opt-in, never assume the private review file is
-    # visible to the CSS service account.
+    # Credential is opt-in; an unconfigured or undiscoverable private review
+    # file must remain HOLD, never authorize any stage write.
     review_id=os.getenv("QQ_REPLAY_REVIEW_SHEET_ID","").strip()
     source_id=(os.getenv("CSS_SHEET_ID") or "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY").strip()
     credential=os.getenv("CKD_DRIVE_SA_JSON","").strip()
-    if not review_id or not credential:
+    if not credential:
         print("QQ_PRIVATE_REVIEW_AUDIT="+json.dumps({
             "status":"HOLD","reason":"REVIEW_READER_NOT_CONFIGURED",
             "authenticated_approvals":0,"stage_writes":0,"cursor_writes":0,
             "canonical_writes":0},sort_keys=True))
         return 0
-    if not re.fullmatch(r"[A-Za-z0-9_-]{20,128}",review_id):
+    if review_id and not re.fullmatch(r"[A-Za-z0-9_-]{20,128}",review_id):
         print("QQ_PRIVATE_REVIEW_AUDIT="+json.dumps({
             "status":"HOLD","reason":"REVIEW_ID_INVALID",
             "authenticated_approvals":0,"stage_writes":0},sort_keys=True))
@@ -192,8 +216,11 @@ def main():
         from google.oauth2 import service_account
         info=json.loads(credential)
         creds=service_account.Credentials.from_service_account_info(
-            info,scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+            info,scopes=["https://www.googleapis.com/auth/spreadsheets.readonly",
+                         "https://www.googleapis.com/auth/drive.metadata.readonly"])
         session=AuthorizedSession(creds)
+        if not review_id:
+            review_id=_discover_review_id(session)
         rev=_dict_rows(_read(session,review_id,"건별 검토","P8"),"review")
         source_specs=(
             ("extracts","CSS Tax Invoice Extract","L1000"),

@@ -2,7 +2,7 @@
 import json
 import unittest
 from automation.css_mail.qq_replay_private_review_readonly import (
-    HEADER, _table, review_audit
+    HEADER, _table, review_audit, _discover_review_id, REVIEW_TITLE, SHEET_MIME
 )
 
 
@@ -38,6 +38,31 @@ def fixture():
 
 
 class PrivateReviewTests(unittest.TestCase):
+    def test_private_title_discovery_one_match_only(self):
+        class Response:
+            def __init__(self, files, more=False):
+                self.files=files
+                self.more=more
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"files":self.files,"nextPageToken":"MORE" if self.more else None}
+        class Session:
+            def __init__(self, response):
+                self.response=response
+            def get(self, url, params, timeout):
+                self.response_query=params["q"]
+                return self.response
+        record={"name":REVIEW_TITLE,"mimeType":SHEET_MIME,"id":"A"*32}
+        s=Session(Response([record]))
+        self.assertEqual(_discover_review_id(s),"A"*32)
+        self.assertIn("trashed = false",s.response_query)
+        for payload in ([],[record,record]):
+            with self.assertRaisesRegex(ValueError,"REVIEW_DISCOVERY_NOT_UNIQUE"):
+                _discover_review_id(Session(Response(payload)))
+        with self.assertRaisesRegex(ValueError,"REVIEW_DISCOVERY_NOT_UNIQUE"):
+            _discover_review_id(Session(Response([record],more=True)))
+
     def test_seven_holds_are_matched_and_never_approved(self):
         data=fixture()
         v=review_audit(*data)
