@@ -212,6 +212,21 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"DAILY20_DRIVE_READBACK": report}))
+    # A small, deliberately secret-free single line for the independent
+    # workflow_run monitor. The larger JSON is sometimes escaped/redacted in
+    # GitHub job logs. Keep original-run identity for same-day replay proof.
+    original = next((x for x in report["prospective_first_seal_evidence"]
+                     if x["session"] == report["session"]), None)
+    run_id = original["source_actions_run_id"] if original else "NONE"
+    assert run_id == "NONE" or (str(run_id).isascii() and str(run_id).isdigit())
+    snapshot_sha = report["current_snapshot_sha256"] or "NONE"
+    print("DAILY20_FIRST_SEAL_CHECK_V1 "
+          f"session={report['session']} "
+          f"status={report['prospective_first_seal_status']} "
+          f"deep={report['prospective_seals_deep_verified']} "
+          f"current={'YES' if original else 'NO'} "
+          f"original_run={run_id} "
+          f"snapshot_sha={snapshot_sha}")
 
 
 if __name__ == "__main__":

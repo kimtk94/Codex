@@ -7,7 +7,11 @@ on:
       - 'research/kalman_daily20/**'
       - '.github/workflows/kalman-daily20.yml'
   schedule:
+    # First pass: completed NYSE day, before the next NYSE open.
     - cron: '40 2 * * 2-6'
+    # Independent same-session replay of the *already frozen* original inputs.
+    # The immutable snapshot and event hashes must NOT be replaced on replay.
+    - cron: '40 4 * * 2-6'
   pull_request:
     paths:
       - 'research/kalman_daily20/**'
