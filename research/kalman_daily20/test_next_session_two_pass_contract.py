@@ -18,7 +18,7 @@ from bear_forward import VERSION as BEAR_VERSION
 from test_prospective_seal_attestation import fake_prospective
 from next_session_two_pass_contract import (
     VERSION, BEAR_JOURNAL, BULL_JOURNAL, SNAP_PREFIX,
-    decide, postflight,
+    FIRST_SCHEDULE, REPLAY_SCHEDULE, decide, postflight,
 )
 
 SESSION = "2026-11-23"
@@ -122,6 +122,106 @@ class TwoPassContractTests(unittest.TestCase):
         self.assertEqual(p["mode"], "SAME_SESSION_REPLAY_EXPECTED")
         self.assertEqual(p["expected_new_bull"] + p["expected_new_bear"], 0)
         self.assertEqual(p["prior_original_snapshot_sha256"], "a" * 64)
+
+    def test_first_scheduled_nov23_is_one_genuine_first_seal(self):
+        p = decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                   schedule_slot=FIRST_SCHEDULE, current_run_id="fresh-run")
+        self.assertEqual(p["scheduled_slot"], FIRST_SCHEDULE)
+        self.assertEqual(p["mode"], "FIRST_GENUINE_SEAL_EXPECTED")
+        self.assertEqual((p["expected_new_bull"], p["expected_new_bear"]),
+                         (20, 40))
+        self.assertFalse(p["scheduled_replay_first_seal_verified"])
+
+    def test_second_schedule_never_backfills_if_first_job_failed(self):
+        with self.assertRaisesRegex(
+                RuntimeError, "SCHEDULED_REPLAY_WITHOUT_VERIFIED_FIRST_SEAL"):
+            decide(CORE, prior_stub(), SESSION,
+                   clock="2026-11-24T04:40:00+00:00",
+                   schedule_slot=REPLAY_SCHEDULE, current_run_id="second-run")
+
+    def test_second_schedule_requires_snapshot_and_current_day_manifest(self):
+        prior = prior_stub()
+        prior["current_prior_bull_keys"] = {(SESSION, s): {} for s in CORE}
+        prior["current_prior_bear_keys"] = {
+            (SESSION, s, f): {} for s in CORE
+            for f in ("BEAR_LOGISTIC", "BEAR_RULE")
+        }
+        # Historical ledger entries are not enough: require the ORIGINAL
+        # frozen input file and the first-run data archive dated this session.
+        with self.assertRaisesRegex(
+                RuntimeError, "SCHEDULED_REPLAY_WITHOUT_VERIFIED_FIRST_SEAL"):
+            decide(CORE, prior, SESSION,
+                   clock="2026-11-24T04:40:00+00:00",
+                   schedule_slot=REPLAY_SCHEDULE)
+        prior["frozen_snapshot_sha256"] = {
+            SNAP_PREFIX + SESSION + ".json": "a" * 64}
+        with self.assertRaisesRegex(
+                RuntimeError, "SCHEDULED_REPLAY_WITHOUT_VERIFIED_FIRST_SEAL"):
+            decide(CORE, prior, SESSION,
+                   clock="2026-11-24T04:40:00+00:00",
+                   schedule_slot=REPLAY_SCHEDULE)
+        prior["prior_manifest_session"] = SESSION
+        p = decide(CORE, prior, SESSION,
+                   clock="2026-11-24T04:40:00+00:00",
+                   schedule_slot=REPLAY_SCHEDULE,
+                   current_run_id="second-run")
+        self.assertEqual(p["mode"], "SAME_SESSION_REPLAY_EXPECTED")
+        self.assertTrue(p["scheduled_replay_first_seal_verified"])
+        self.assertEqual((p["expected_new_bull"], p["expected_new_bear"]),
+                         (0, 0))
+
+    def test_replay_requires_independent_actions_run(self):
+        prior = prior_stub()
+        prior["prior_manifest_session"] = SESSION
+        prior["prior_actions_run_id"] = "same-run"
+        prior["current_prior_bull_keys"] = {(SESSION, s): {} for s in CORE}
+        prior["current_prior_bear_keys"] = {
+            (SESSION, s, f): {} for s in CORE
+            for f in ("BEAR_LOGISTIC", "BEAR_RULE")
+        }
+        prior["frozen_snapshot_sha256"] = {
+            SNAP_PREFIX + SESSION + ".json": "a" * 64}
+        with self.assertRaisesRegex(
+                RuntimeError, "REPLAY_MUST_USE_DISTINCT_ACTIONS_RUN"):
+            decide(CORE, prior, SESSION,
+                   clock="2026-11-24T04:40:00+00:00",
+                   schedule_slot=REPLAY_SCHEDULE, current_run_id="same-run")
+
+    def test_first_scheduled_on_thanksgiving_no_fake_new_session(self):
+        # Thursday Nov 26 is a market holiday. Friday Nov 27 UTC 02:40
+        # still sees the already recorded Wednesday Nov 25 XNYS session.
+        holiday_prior = prior_stub()
+        date = "2026-11-25"
+        holiday_prior["prior_manifest_session"] = date
+        holiday_prior["current_prior_bull_keys"] = {
+            (date, s): {} for s in CORE}
+        holiday_prior["current_prior_bear_keys"] = {
+            (date, s, f): {} for s in CORE
+            for f in ("BEAR_LOGISTIC", "BEAR_RULE")
+        }
+        holiday_prior["frozen_snapshot_sha256"] = {
+            SNAP_PREFIX + date + ".json": "b" * 64}
+        r = decide(CORE, holiday_prior, date,
+                   clock="2026-11-27T02:40:00+00:00",
+                   schedule_slot=FIRST_SCHEDULE)
+        self.assertEqual(r["mode"], "SAME_SESSION_REPLAY_EXPECTED")
+        self.assertEqual((r["expected_new_bull"], r["expected_new_bear"]),
+                         (0, 0))
+
+    def test_unknown_scheduled_slot_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "UNKNOWN_SCHEDULE_SLOT"):
+            decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                   schedule_slot="40 3 * * 2-6")
+
+    def test_schedule_role_must_match_postflight(self):
+        p = decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                   schedule_slot=FIRST_SCHEDULE)
+        with TemporaryDirectory() as tmp:
+            dirs = test_file_fixture(tmp)
+            with self.assertRaisesRegex(
+                    RuntimeError, "PREFLIGHT_POSTFLIGHT_SCHEDULE_ROLE_CHANGED"):
+                postflight(p, prior_stub(), CORE, *dirs, run_id=RUN,
+                           schedule_slot=REPLAY_SCHEDULE)
 
     def test_after_following_open_missed_window_marked_hold(self):
         p = decide(CORE, prior_stub(), SESSION,
