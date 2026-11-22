@@ -18,7 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 URL = "https://www.proshares.com/api/distributionsummary?fund=QLD&year=2023"
-VERSION = "daily20-qld2023-issuer-distribution-api-v2"
+VERSION = "daily20-qld2023-issuer-distribution-api-v3"
 TARGET = "2023-09-20"
 LIMIT = 1_000_000
 
@@ -44,7 +44,11 @@ def parse_day(value):
     if not isinstance(value, str):
         return None
     s = value.strip()
-    formats = ("%m/%d/%Y", "%Y-%m-%d", "%d-%b-%Y", "%b %d %Y", "%b %d, %Y")
+    # ProShares' original year-scoped API uses naive ISO datetimes such as
+    # 2023-12-20T00:00:00. These are calendar dates, not UTC instants:
+    # preserve the written day and do not apply timezone conversion.
+    formats = ("%m/%d/%Y", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S",
+               "%d-%b-%Y", "%b %d %Y", "%b %d, %Y")
     for fmt in formats:
         try:
             return datetime.strptime(s, fmt).date().isoformat()
@@ -92,7 +96,8 @@ def inspect(raw: bytes):
         rows.append({
             "ex_date": day, "record_date": parse_day(item.get("RecordDate")),
             "payable_date": parse_day(item.get("PayableDate")),
-            "cash_dividend_per_2023_share_usd": dividend if dividend is not None else raw_cash,
+            "cash_dividend_as_published_usd": dividend if dividend is not None else raw_cash,
+            "cash_share_unit_basis_certified": False,
             "source_symbol": sym, "raw_keys": sorted(item.keys())
         })
     hits = [r for r in rows if r["ex_date"] == TARGET]
@@ -144,6 +149,8 @@ def run(*, offline=False, getter=get_json_bytes, out_dir=None):
         "independent_adjustment_factor_certified": False,
         "independent_close_certified": False,
         "historical_nonpayment_proven": False,
+        "historical_api_completeness_certified": False,
+        "published_dividend_share_unit_basis": "UNDETERMINED_POSSIBLY_SPLIT_ADJUSTED",
         "status": "PR_OFFLINE_NO_SOURCE_HOLD" if offline else "ISSUER_API_FETCH_PENDING_HOLD",
         "fetched_at_utc": None, "source_sha256": None, "source_archive": None,
         "source_bytes": None, "source_response_kind": None,

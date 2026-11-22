@@ -20,7 +20,7 @@ class ProSharesDistributionAPITests(unittest.TestCase):
             r=q.run(getter=lambda url: original,out_dir=d)
             self.assertEqual(r["status"],"ISSUER_API_2023_TARGET_ROW_PRESENT_CASH_UNCERTIFIED")
             self.assertEqual(r["issuer_api_target_row"]["ex_date"],"2023-09-20")
-            self.assertEqual(r["issuer_api_target_row"]["cash_dividend_per_2023_share_usd"],"0.176282")
+            self.assertEqual(r["issuer_api_target_row"]["cash_dividend_as_published_usd"],"0.176282")
             self.assertEqual(r["issuer_api_target_row"]["payable_date"],"2023-09-27")
             self.assertEqual(r["source_sha256"],sha256(original).hexdigest())
             self.assertEqual(gzip.decompress((Path(d)/r["source_archive"]).read_bytes()),original)
@@ -62,7 +62,7 @@ class ProSharesDistributionAPITests(unittest.TestCase):
         original=b"<!DOCTYPE html><html><body>upstream unavailable</body></html>"
         with TemporaryDirectory() as d:
             r=q.run(getter=lambda url: original,out_dir=d)
-            self.assertEqual(r["version"],"daily20-qld2023-issuer-distribution-api-v2")
+            self.assertEqual(r["version"],"daily20-qld2023-issuer-distribution-api-v3")
             self.assertEqual(r["status"],"ISSUER_API_FETCH_OR_SCHEMA_FAILED_HOLD")
             self.assertEqual(r["fetch_error_code"],"QLD_API_INVALID_JSON")
             self.assertEqual(r["failure_stage"],"API_SCHEMA_VALIDATE")
@@ -110,6 +110,45 @@ class ProSharesDistributionAPITests(unittest.TestCase):
             self.assertIsNone(r["issuer_api_target_row"])
             self.assertFalse(r["independent_adjustment_factor_certified"])
 
+
+    def test_original_issuer_iso_datetime_example_absence_not_nonpayment(self):
+        # Shape and decimal representations captured from ProShares' live
+        # 2023 year-scoped API on 2026-11-22, not a user-provided cash guess.
+        original=json.dumps([{
+            "CashDividendPerShare":0.039111,
+            "Dividend":".039111",
+            "EffectiveDate":"2023-12-19T00:00:00",
+            "ExDate":"2023-12-20T00:00:00",
+            "PayableDate":"2023-12-28T00:00:00",
+            "RecordDate":"2023-12-21T00:00:00",
+            "Symbol":"QLD"
+        }]).encode()
+        with TemporaryDirectory() as d:
+            r=q.run(getter=lambda url:original,out_dir=d)
+            self.assertEqual(r["status"],"ISSUER_API_2023_TARGET_ROW_ABSENT_HISTORY_HOLD")
+            self.assertEqual(r["api_2023_row_count"],1)
+            self.assertEqual(r["api_ex_dates"],["2023-12-20"])
+            self.assertIsNone(r["issuer_api_target_row"])
+            self.assertEqual(r["source_sha256"],sha256(original).hexdigest())
+            self.assertEqual(gzip.decompress((Path(d)/r["source_archive"]).read_bytes()),original)
+            self.assertFalse(r["historical_nonpayment_proven"])
+            self.assertFalse(r["historical_api_completeness_certified"])
+            self.assertEqual(r["published_dividend_share_unit_basis"],
+                             "UNDETERMINED_POSSIBLY_SPLIT_ADJUSTED")
+            self.assertEqual(r["source_finality_verified"],0)
+
+    def test_iso_datetime_date_not_rebased_to_utc_and_invalid_calendar_rejected(self):
+        self.assertEqual(q.parse_day("2023-12-20T00:00:00"),"2023-12-20")
+        self.assertEqual(q.parse_day("2023-09-20T00:00:00"),"2023-09-20")
+        self.assertIsNone(q.parse_day("2023-13-20T00:00:00"))
+        self.assertIsNone(q.parse_day("not a date"))
+        rows,hit=q.inspect(json.dumps([{
+            "Symbol":"QLD", "ExDate":"2023-09-20T00:00:00",
+            "Dividend":".176282", "CashDividendPerShare":0.176282
+        }]).encode())
+        self.assertEqual(len(rows),1)
+        self.assertEqual(hit["cash_dividend_as_published_usd"],"0.176282")
+        self.assertFalse(hit["cash_share_unit_basis_certified"])
 
 if __name__ == "__main__":
     unittest.main()
