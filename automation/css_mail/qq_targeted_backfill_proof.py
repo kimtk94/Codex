@@ -16,6 +16,12 @@ from pathlib import Path
 import re
 import sys
 
+# Work both as a package (unit tests) and as an Actions script entrypoint.
+if __package__:
+    from .qq_precursor_replay_readiness import summarize_replay
+else:
+    from qq_precursor_replay_readiness import summarize_replay
+
 SHEET = os.getenv("CSS_SHEET_ID", "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 MAX_TARGETS = 35
 ISSUED = re.compile(r"^\s*(?:❗️\s*)?Notice:\s*Invoice Issued\s*&\s*Statement Confirmed\b", re.I)
@@ -365,7 +371,6 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
                 # Mail arrival time is *not* an official invoice issue date.
                 totals["original_invoice_issue_date_proved"] += 0
         im.logout()
-    from automation.css_mail.qq_precursor_replay_readiness import summarize_replay
     totals.update(summarize_replay(targets, replay_evidence))
     totals["business_writes"] = 0
     totals["qq_cursor_writes"] = 0

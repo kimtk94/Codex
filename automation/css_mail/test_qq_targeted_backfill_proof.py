@@ -2,7 +2,10 @@
 import json
 import os
 import re
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from automation.css_mail import qq_targeted_backfill_proof as proof
@@ -103,6 +106,17 @@ def parser(name):
 
 
 class ProofTests(unittest.TestCase):
+    def test_entrypoint_and_package_imports_both_resolve(self):
+        # No mail account or Sheets credentials: test module loading only.
+        self.assertTrue(callable(proof.summarize_replay))
+        entrypoint_dir=Path(proof.__file__).resolve().parent
+        completed=subprocess.run(
+            [sys.executable,"-c",
+             "from qq_targeted_backfill_proof import summarize_replay; assert callable(summarize_replay)"],
+            cwd=entrypoint_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=15)
+        self.assertEqual(completed.returncode,0,"Direct-script import failed")
+
     def setUp(self):
         FakeIMAP.entries={}
         FakeIMAP.search_uids=None
