@@ -20,9 +20,11 @@ import sys
 if __package__:
     from .qq_precursor_replay_readiness import summarize_replay
     from .qq_precursor_prewrite_gate import prewrite_readback
+    from .qq_precursor_replay_protocol import plan_cases
 else:
     from qq_precursor_replay_readiness import summarize_replay
     from qq_precursor_prewrite_gate import prewrite_readback
+    from qq_precursor_replay_protocol import plan_cases
 
 SHEET = os.getenv("CSS_SHEET_ID", "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 MAX_TARGETS = 35
@@ -416,6 +418,26 @@ def main():
     before = {"qq": qq, "css": css, "extract": extracts,
               "cursor": cursor, "audit": audit}
     report.update(prewrite_readback(before, after, targets))
+    # Contract-only approval inventory, no user approvals are inferred or
+    # created by Actions. The source keys/amounts remain private in memory.
+    precursor = [t for t in targets if t["category"] == "PRE_CURSOR_MISSING"]
+    verified_all = (
+        report["replay_source_proved_hold"] == len(precursor)
+        and report["replay_prewrite_stable_readback_count"] == len(precursor)
+        and report["replay_prewrite_snapshot_changed"] == 0)
+    approval_cases = [
+        {"invoice_number":t["number"],
+         "amount_krw":str(t["extract"].get("amount_krw") or ""),
+         "imap_folder":"INBOX",
+         "imap_uid":str(t["extract"].get("imap_uid") or ""),
+         "uidvalidity":str(checkpoint.get("uidvalidity") or ""),
+         "evidence":str(t["extract"].get("validation_status") or "")}
+        for t in precursor]
+    if approval_cases:
+        report.update(plan_cases(
+            approval_cases, {}, before, after,
+            {t["number"]:verified_all for t in precursor},
+            dt.datetime.now(dt.timezone.utc)))
     from qq_cursor_checkpoint_policy import assess_writer_cursor_order
     # Static read-only scan. NO Backfill writer import or execution.
     writer = Path(__file__).with_name("qq_historical_invoice_backfill.py")

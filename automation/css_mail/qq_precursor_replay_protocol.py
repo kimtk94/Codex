@@ -12,11 +12,15 @@ import json
 import re
 from collections import Counter
 
-from .qq_precursor_prewrite_gate import verify_staged_readback
+if __package__:
+    from .qq_precursor_prewrite_gate import verify_staged_readback
+else:
+    from qq_precursor_prewrite_gate import verify_staged_readback
 
 STAGE = "QQ 2026 Invoice Backfill"
 REASONS = (
-    "SOURCE_UNVERIFIED", "CURSOR_CHANGED", "SINK_ALREADY_PRESENT",
+    "SOURCE_UNVERIFIED", "CURSOR_CHANGED", "SNAPSHOT_CHANGED",
+    "SINK_ALREADY_PRESENT",
     "APPROVAL_ABSENT", "APPROVAL_SCOPE_INVALID", "APPROVAL_BINDING_INVALID",
     "APPROVAL_EXPIRED", "APPROVAL_UNTRUSTED",
     "SERIALIZATION_UNPROVEN", "ATOMIC_COMMIT_UNPROVEN",
@@ -60,6 +64,8 @@ def evaluate_case(case, approval, before, after, proof_ok, now):
         return "CURSOR_CHANGED"
     if before.get("audit") != after.get("audit"):
         return "CURSOR_CHANGED"
+    if any(before.get(t) != after.get(t) for t in ("qq", "css", "extract")):
+        return "SNAPSHOT_CHANGED"
     if any(str(row.get("invoice_number") or "") == key
            for tab in ("qq", "css") for row in after.get(tab, [])):
         return "SINK_ALREADY_PRESENT"
@@ -74,6 +80,13 @@ def evaluate_case(case, approval, before, after, proof_ok, now):
     required = ("invoice_number", "amount_krw", "imap_folder", "imap_uid",
                 "uidvalidity", "evidence")
     if any(not isinstance(case.get(f), str) or not case[f] for f in required):
+        return "SOURCE_UNVERIFIED"
+    if case["imap_folder"] != "INBOX":
+        return "SOURCE_UNVERIFIED"
+    inbox = [x for x in after.get("cursor", [])
+             if str(x.get("year")) == "2026"
+             and str(x.get("folder") or "").upper() == "INBOX"]
+    if len(inbox) != 1 or str(inbox[0].get("uidvalidity") or "") != case["uidvalidity"]:
         return "SOURCE_UNVERIFIED"
     bindings = ("invoice_number", "amount_krw", "imap_folder", "imap_uid",
                 "uidvalidity")

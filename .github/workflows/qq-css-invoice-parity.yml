@@ -17,6 +17,8 @@ on:
       - 'automation/css_mail/test_qq_precursor_replay_readiness.py'
       - 'automation/css_mail/qq_precursor_prewrite_gate.py'
       - 'automation/css_mail/test_qq_precursor_prewrite_gate.py'
+      - 'automation/css_mail/qq_precursor_replay_protocol.py'
+      - 'automation/css_mail/test_qq_precursor_replay_protocol.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
@@ -38,6 +40,8 @@ on:
       - 'automation/css_mail/test_qq_precursor_replay_readiness.py'
       - 'automation/css_mail/qq_precursor_prewrite_gate.py'
       - 'automation/css_mail/test_qq_precursor_prewrite_gate.py'
+      - 'automation/css_mail/qq_precursor_replay_protocol.py'
+      - 'automation/css_mail/test_qq_precursor_replay_protocol.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
@@ -67,6 +71,7 @@ jobs:
           python3 -m unittest automation.css_mail.test_qq_targeted_backfill_proof -v
           python3 -m unittest automation.css_mail.test_qq_precursor_replay_readiness -v
           python3 -m unittest automation.css_mail.test_qq_precursor_prewrite_gate -v
+          python3 -m unittest automation.css_mail.test_qq_precursor_replay_protocol -v
           python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
           python3 -m unittest automation.css_mail.test_qq_safe_backfill_ingest -v
   audit:
@@ -179,6 +184,16 @@ jobs:
                    "replay_stage_writes_approved","replay_canonical_writes_approved",
                    "replay_official_issue_date_proved","replay_persisted_receipts",
                    "replay_current_sink_readback_proved",
+                   "replay_protocol_cases","replay_protocol_holds",
+                   "replay_protocol_approval_required",
+                   "replay_protocol_authenticated_approvals",
+                   "replay_protocol_writer_exclusion_verified",
+                   "replay_protocol_atomic_cas_verified",
+                   "replay_protocol_stage_writes","replay_protocol_cursor_writes",
+                   "replay_protocol_canonical_writes",
+                   "replay_protocol_status",
+                   "replay_protocol_approval_absent",
+                   "replay_protocol_source_unverified",
                    "replay_prewrite_target_count",
                    "replay_prewrite_stable_readback_count",
                    "replay_prewrite_snapshot_changed",

@@ -1,7 +1,10 @@
 """Credential-free safety tests for seven QQ replay approval contracts."""
 import datetime as dt
 import json
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 
 from automation.css_mail.qq_precursor_replay_protocol import (
     evaluate_case, plan_cases, reconcile_uncertain_attempt, _fingerprint
@@ -74,6 +77,23 @@ class ProtocolTests(unittest.TestCase):
                        a,b,{c1["invoice_number"]:True,c2["invoice_number"]:True},NOW)
         with self.assertRaisesRegex(ValueError,"REPLAY_PROOF_OR_APPROVAL_SCOPE_INVALID"):
             plan_cases([c1],{},a,b,{},NOW)
+    def test_no_epoch_guess_and_source_snapshot_drift(self):
+        c=case();b,a=snaps()
+        c["uidvalidity"]="9999"
+        self.assertEqual(evaluate_case(c,approval(c),b,a,True,NOW),"SOURCE_UNVERIFIED")
+        c=case();b,a=snaps()
+        a["extract"]=[{"invoice_number":c["invoice_number"],"amount_krw":"5000"}]
+        self.assertEqual(evaluate_case(c,approval(c),b,a,True,NOW),"SNAPSHOT_CHANGED")
+
+    def test_script_import_can_load_safety_contract(self):
+        import automation.css_mail.qq_precursor_replay_protocol as protocol
+        path=Path(protocol.__file__).resolve().parent
+        completed=subprocess.run([sys.executable,"-c",
+            "from qq_precursor_replay_protocol import plan_cases; assert callable(plan_cases)"],
+            cwd=path,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+            text=True,timeout=10)
+        self.assertEqual(completed.returncode,0, "direct-script import failed")
+
     def test_crash_after_append_before_receipt_is_never_retried(self):
         base=case()
         expected={**base, "issued_month":"", "amea_project_id":"A",
