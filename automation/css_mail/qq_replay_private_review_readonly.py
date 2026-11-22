@@ -6,7 +6,7 @@ approve replay, advance a cursor, create receipts or touch financial ledgers.
 Only aggregate counts/statuses may leave this process in stdout/Actions.
 """
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -14,8 +14,10 @@ import urllib.parse
 
 if __package__:
     from .qq_replay_plan_readonly import PLAN_HEADER, validate_plan
+    from .qq_replay_stage_request_readonly import REQUEST_HEADER, REQUEST_TAB, assess_requests
 else:
     from qq_replay_plan_readonly import PLAN_HEADER, validate_plan
+    from qq_replay_stage_request_readonly import REQUEST_HEADER, REQUEST_TAB, assess_requests
 
 HEADER = [
     "No.", "Invoice Number", "Amount KRW", "Project ID", "H Project Number",
@@ -58,6 +60,8 @@ def _table(rows, table):
         raise ValueError("REVIEW_SCHEMA_CHANGED")
     if table == "plan" and tuple(header) != PLAN_HEADER:
         raise ValueError("RECOVERY_PLAN_SCHEMA_CHANGED")
+    if table == "request" and tuple(header) != REQUEST_HEADER:
+        raise ValueError("RECOVERY_REQUEST_SCHEMA_CHANGED")
     return data
 
 
@@ -231,6 +235,8 @@ def main():
         rev=_dict_rows(_read(session,review_id,"건별 검토","P8"),"review")
         recovery_plan=_dict_rows(
             _read(session,review_id,"복구 행 계획 (미실행)","K8"),"plan")
+        request_rows=_dict_rows(
+            _read(session,review_id,REQUEST_TAB,"N8"),"request")
         source_specs=(
             ("extracts","CSS Tax Invoice Extract","L1000"),
             ("stage","QQ 2026 Invoice Backfill","K3000"),
@@ -244,6 +250,9 @@ def main():
         result.update(validate_plan(
             recovery_plan, rev, values["extracts"],
             values["stage"], values["canonical"]))
+        result.update(assess_requests(
+            request_rows, rev, recovery_plan,
+            datetime.now(timezone.utc)))
     except (ValueError, KeyError, RuntimeError):
         result={"status":"HOLD","reason":"REVIEW_SCHEMA_OR_DATA_INVALID",
                 "authenticated_approvals":0,"stage_writes":0,"cursor_writes":0}
