@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
+      - 'automation/css_mail/qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/test_qq_writer_integration.py'
+      - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - '.github/workflows/qq-backfill-offline-tests.yml'
       - 'automation/css_mail/test_qq_uidvalidity.py'
       - 'automation/css_mail/invoice_fallback.py'
@@ -14,6 +20,12 @@ on:
     branches: [main]
     paths:
       - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
+      - 'automation/css_mail/qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/test_qq_writer_integration.py'
+      - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - '.github/workflows/qq-backfill-offline-tests.yml'
 permissions:
   contents: read
@@ -27,25 +39,39 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile QQ backfill and invoice parser
-        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py automation/css_mail/invoice_fallback.py
+        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/qq_historical_invoice_backfill_2026_safe.py automation/css_mail/tax_invoice_extract.py automation/css_mail/invoice_fallback.py
       - name: Test IMAP UIDVALIDITY fallback
         run: |
           python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
           python3 automation/css_mail/test_qq_uidvalidity.py
+          python3 automation/css_mail/test_qq_writer_integration.py
           python3 automation/css_mail/test_invoice_fallback.py
           python3 -m unittest discover -s automation/css_mail -p 'test_qq_2025_bi_sync.py' -v
       - name: Check cursor status and fail-closed safety invariants
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          s=Path("automation/css_mail/qq_historical_invoice_backfill.py").read_text()
-          for text in ("UIDVALIDITY", "PARTIAL_SCAN", "SCAN_COMPLETE", "QQ Backfill Cursor", "QQ Backfill Audit", "BACKFILL_HEADER_MISMATCH"):
-              assert text in s, text
-          assert s.index('json={"values":values}') < s.index('cursor_values=[cursor_header]')
-          assert 'if uidvalidity:last_by_folder[folder]' in s
-          assert 'no_uidvalidity_folders+=1' in s
-          assert 'unfinished=True' in s
-          assert 'QQ_BACKFILL_PARSER_DIAGNOSTIC' in s
-          assert 'PATTERN_MISMATCH' in s
-          print("QQ_CURSOR_OFFLINE_SAFETY_PASS")
+          from automation.css_mail.qq_cursor_checkpoint_policy import assess_writer_cursor_order
+          writer=Path("automation/css_mail/qq_historical_invoice_backfill_2026_safe.py").read_text()
+          original=Path("automation/css_mail/qq_safe_backfill_ingest.py").read_text()
+          for marker in ("UIDVALIDITY", "PARTIAL_SCAN", "SCAN_COMPLETE",
+                         "QQ Backfill Cursor", "QQ Backfill Audit",
+                         "BACKFILL_HEADER_MISMATCH",
+                         "safe_folder_checkpoint(checkpoint,processed_uids,outcomes)",
+                         "MIME_PARSER_UNRESOLVED", "AMOUNT_CONFLICT"):
+              assert marker in writer + original, marker
+          check=assess_writer_cursor_order(writer)
+          assert not check["early_cursor_advance_detected"], "EARLY_UID_ADVANCE"
+          assert 'if uidvalidity:last_by_folder[folder]' not in writer
+          # Google Sheets invoice staging PUT is still sequenced before the
+          # persistent cursor commit; crashes remain safely retryable.
+          assert writer.index('json={"values":values}') < writer.index('cursor_values=[cursor_header]')
+          assert "by_invoice[inv]" not in original
+          assert "BACKFILL_WRITE_MODE" in writer
+          assert "BACKFILL_STAGE_WRITES_APPROVED" in writer
+          assert writer.index('if mode=="PREVIEW":') < writer.index('json={"values":values}')
+          assert "BACKFILL_WRITE_MODE: 'PREVIEW'" in Path(".github/workflows/qq-2026-invoice-backfill.yml").read_text()
+          assert "no_uidvalidity_folders+=1" in writer
+          assert "unfinished=True" in writer
+          print("QQ_CURSOR_PROOF_FIRST_OFFLINE_SAFETY_PASS")
           PY
