@@ -807,6 +807,40 @@ jobs:
                 "stability",r["stability_incident_count"],
                 "legacy",r["legacy_without_original_21_feature_snapshot"])
           PY
+      - name: Audit fourth-NYSE-session settlements, price revisions, and frozen signal economics (HOLD)
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/forward_settlement_integrity.py \
+            --market output/daily20/market \
+            --qc output/daily20/qc.json \
+            --bull-journal output/daily20/research/forward_shadow/journal.jsonl \
+            --bear-journal output/daily20/research/bear_forward/journal.jsonl \
+            --bull-report output/daily20/research/forward_shadow/report.json \
+            --bear-report output/daily20/research/bear_forward/report.json \
+            --out output/daily20/research/forward_settlement_integrity
+          python - <<'PY'
+          from pathlib import Path
+          import csv, json
+          root=Path("output/daily20/research/forward_settlement_integrity")
+          r=json.loads((root/"report.json").read_text())
+          with (root/"settlement_queue.csv").open(newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert r["version"]=="daily20-4xnys-settlement-evidence-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["live_execution"] and not r["strategy_promoted"]
+          assert r["source_finality_verified_assets"]==0
+          assert r["official_regular_close_certified"] is False
+          assert r["original_journals_unchanged"]
+          assert r["holding_period_subsequent_xnys_sessions"]==4
+          assert r["signal_count"]==len(rows)==r["bull_signals"]+r["bear_signals"]
+          assert r["pending_unmatured"]+r["settled_events"]==len(rows)
+          assert all(row["state"].startswith(("PENDING_", "SETTLED_")) for row in rows)
+          print("DAILY20_FORWARD_SETTLEMENT_GATE_HOLD", r["session"],
+                "pending",r["pending_unmatured"],
+                "settled",r["settled_events"],
+                "revised",r["settled_vendor_price_revisions"],
+                "first_due",r["first_unsettled_exit_date"])
+          PY
       - name: Publish reproducible research evidence
         if: always()
         uses: actions/upload-artifact@v4
