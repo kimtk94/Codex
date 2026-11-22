@@ -206,9 +206,10 @@ class WriterIntegrationTests(unittest.TestCase):
     def test_preview_of_unresolved_mail_stays_readonly_and_fails(self):
         mail=FakeMail({101:[attachment("209126000701")]},body_fail={101})
         sheets=FakeSheet()
-        with self.assertRaises(SystemExit) as outcome:
+        # Existing fail-closed NO_INVOICE_EVIDENCE check correctly rejects a
+        # source run without any trusted invoice. PREVIEW still cannot write.
+        with self.assertRaisesRegex(RuntimeError,"QQ_BACKFILL_NO_INVOICE_EVIDENCE"):
             run_writer(mail,sheets,mode="PREVIEW",approved=False)
-        self.assertEqual(outcome.exception.code,2)
         self.assertEqual(sheets.puts,[])
         self.assertEqual(sheets.cursor[1][3],"100")
 
