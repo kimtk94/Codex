@@ -12,7 +12,9 @@ import json
 import os
 from pathlib import Path
 import re
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 API = "https://api.github.com"
 WORKFLOW = "kalman-daily20.yml"
@@ -142,16 +144,53 @@ def make_scorecard(run: dict, jobs: list[dict], research_log: str,
     }
 
 
+class SafeGitHubLogRedirect(HTTPRedirectHandler):
+    """GitHub Actions logs use a cross-host signed URL.
+
+    Never forward the repository bearer token to Azure/GitHub blob storage.
+    Disallow non-HTTPS and unrecognized download destinations.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urlparse(newurl)
+        host = (parsed.hostname or "").lower()
+        allowed = (
+            host == "api.github.com"
+            or host == "objects.githubusercontent.com"
+            or host.endswith(".actions.githubusercontent.com")
+            or host.endswith(".blob.core.windows.net")
+        )
+        if parsed.scheme != "https" or not allowed or parsed.username or parsed.password:
+            raise ValueError("UNTRUSTED_GITHUB_LOG_REDIRECT")
+        follow = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if follow is not None and host != urlparse(req.full_url).hostname:
+            follow.remove_header("Authorization")
+        return follow
+
+
 def api(url: str, token: str, *, as_text=False):
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "api.github.com":
+        raise ValueError("GITHUB_API_URL_NOT_PINNED")
     req = Request(url, headers={
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "kalman-research-readiness-audit",
     })
-    with urlopen(req, timeout=40) as response:
+    with build_opener(SafeGitHubLogRedirect()).open(req, timeout=40) as response:
         body = response.read()
     return body.decode("utf-8", errors="replace") if as_text else json.loads(body)
+
+
+def safe_job_log(root: str, job_id: int | None, token: str, role: str):
+    if job_id is None:
+        return "", f"JOB_ID_NOT_FOUND:{role}"
+    try:
+        return api(f"{root}/actions/jobs/{job_id}/logs", token, as_text=True), None
+    except (HTTPError, URLError, OSError, TimeoutError, ValueError, UnicodeError):
+        # No raw error payload, redirected signed URL, bearer token, or log bytes.
+        return "", f"GITHUB_LOG_DOWNLOAD_FAILED:{role}"
 
 
 def render_md(card: dict) -> str:
@@ -191,9 +230,18 @@ def main() -> int:
             raise SystemExit("No completed Daily20 main run")
     jobs = api(f"{root}/actions/runs/{run['id']}/jobs?per_page=100", token)["jobs"]
     mapping = {j["name"]: j["id"] for j in jobs}
-    research_log = api(f"{root}/actions/jobs/{mapping['daily-research']}/logs", token, as_text=True) if "daily-research" in mapping else ""
-    publisher_log = api(f"{root}/actions/jobs/{mapping['persist-google-drive']}/logs", token, as_text=True) if "persist-google-drive" in mapping else ""
+    research_log, research_error = safe_job_log(
+        root, mapping.get("daily-research"), token, "daily-research")
+    publisher_log, publisher_error = safe_job_log(
+        root, mapping.get("persist-google-drive"), token, "persist-google-drive")
     result = make_scorecard(run, jobs, research_log, publisher_log)
+    log_errors = [e for e in (research_error, publisher_error) if e]
+    if log_errors:
+        result["operational_failures"] = sorted(set(
+            result["operational_failures"] + log_errors))
+        result["operational_status"] = "FAIL"
+        result["research_status"] = "HOLD"
+    result["log_access_status"] = "HOLD" if log_errors else "VERIFIED"
     target = Path(args.out)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
