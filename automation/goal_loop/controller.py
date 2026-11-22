@@ -235,6 +235,16 @@ def require_local_model(model):
     return model
 
 
+def ollama_generation_timeout(model):
+    """Bounded allowance for slower, opt-in 7B CPU/first-load generation.
+
+    This is a per-I/O request deadline, not evidence that a given laptop can
+    execute 7B efficiently. The outer 45-minute invocation budget and 12
+    historical attempts still apply.
+    """
+    return 600 if model == "qwen2.5-coder:7b" else 200
+
+
 def ollama_proposal(root, goal, feedback):
     source = {}
     for path in goal["allowed_files"]:
@@ -263,8 +273,10 @@ def ollama_proposal(root, goal, feedback):
             "latest_CI_evidence": feedback
         }, ensure_ascii=False)
     )
+    selected_model = select_local_model(goal)
+    timeout_seconds = ollama_generation_timeout(selected_model)
     payload = {
-        "model": select_local_model(goal),
+        "model": selected_model,
         "stream": False,
         "format": "json",
         "messages": [
@@ -279,11 +291,24 @@ def ollama_proposal(root, goal, feedback):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    # The local 7B model can spend most of the original 200s timeout just
+    # loading/prefilling on a 16GB machine. Avoid silently treating that as a
+    # missing server; show which local model and limit were actually used.
+    print("Ollama request: model=" + selected_model
+          + "; response_timeout_seconds=" + str(timeout_seconds), flush=True)
+    begin = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=200) as r:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as r:
             response = json.load(r)
+    except (TimeoutError, OSError) as exc:
+        elapsed = round(time.monotonic() - begin)
+        if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+            raise Hold("LOCAL_OLLAMA_GENERATION_TIMEOUT:model=" + selected_model
+                       + ":limit=" + str(timeout_seconds)
+                       + ":elapsed=" + str(elapsed)) from exc
+        raise Hold("LOCAL_OLLAMA_CONNECTION_ERROR:" + type(exc).__name__) from exc
     except Exception as exc:
-        raise Hold("LOCAL_OLLAMA_UNAVAILABLE:" + type(exc).__name__) from exc
+        raise Hold("LOCAL_OLLAMA_RESPONSE_ERROR:" + type(exc).__name__) from exc
     try:
         proposal = json.loads(response["message"]["content"])
     except (TypeError, KeyError, ValueError) as exc:
