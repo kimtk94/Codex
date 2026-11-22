@@ -1,11 +1,12 @@
 """Isolated negative and positive safety-contract tests (never calls Ollama/GitHub)."""
 import json
+import time
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from automation.goal_loop.controller import Hold, apply_proposal, load_goal, run
+from automation.goal_loop.controller import Hold, apply_proposal, load_goal, run, test_goal, pr_checks
 
 
 BASE = {
@@ -95,6 +96,57 @@ class ControllerSafetyTests(unittest.TestCase):
                 "content": "token='ghp_1234567890123456789012345678'\n",
             })
         self.assertEqual(self.file.read_text(), "x = 1\n")
+
+    def test_local_execution_always_forbidden(self):
+        with self.assertRaisesRegex(Hold, "LOCAL_TEST_EXECUTION_FORBIDDEN"):
+            test_goal(self.root, self.load())
+
+    def test_symlink_is_not_editable(self):
+        self.file.unlink()
+        external = self.root / "external.py"
+        external.write_text("x = 1\n")
+        self.file.symlink_to(external)
+        with self.assertRaisesRegex(Hold, "MISSING_OR_LINKED_EDIT_TARGET"):
+            self.load()
+
+    def test_remote_ci_pass_requires_exact_sha(self):
+        sha = "a" * 40
+        checks = [{
+            "name": name, "status": "completed", "conclusion": "success",
+            "head_sha": sha, "id": index, "html_url": "https://github.com/kimtk94/Codex/actions",
+        } for index, name in enumerate(BASE["required_checks"])]
+        def fake_cmd(args, *unused, **kwargs):
+            if args[1:3] == ["pr", "view"]:
+                return {"ok": True, "output": sha}
+            if args[1] == "api":
+                return {"ok": True, "output": json.dumps({"check_runs": checks})}
+            raise AssertionError("unexpected command")
+        with patch("automation.goal_loop.controller.run_cmd", side_effect=fake_cmd):
+            state, observed = pr_checks(self.root, self.load(), "https://github.com/kimtk94/Codex/pull/123", time.monotonic() + 5, sha)
+        self.assertEqual(state, "PASS")
+        self.assertEqual(len(observed), 3)
+
+    def test_remote_ci_wrong_head_fails_closed(self):
+        def fake_cmd(args, *unused, **kwargs):
+            return {"ok": True, "output": "b" * 40}
+        with patch("automation.goal_loop.controller.run_cmd", side_effect=fake_cmd):
+            with self.assertRaisesRegex(Hold, "PR_HEAD_SHA_MISMATCH"):
+                pr_checks(self.root, self.load(), "https://github.com/kimtk94/Codex/pull/123", time.monotonic() + 5, "a" * 40)
+
+    def test_remote_ci_wrong_check_sha_is_not_pass(self):
+        head = "a" * 40
+        bad = [{
+            "name": name, "status": "completed", "conclusion": "success",
+            "head_sha": "b" * 40, "html_url": "https://github.com/kimtk94/Codex/actions",
+        } for name in BASE["required_checks"]]
+        def fake_cmd(args, *unused, **kwargs):
+            if args[1:3] == ["pr", "view"]:
+                return {"ok": True, "output": head}
+            return {"ok": True, "output": json.dumps({"check_runs": bad})}
+        with patch("automation.goal_loop.controller.run_cmd", side_effect=fake_cmd), \
+             patch("automation.goal_loop.controller.time.sleep"):
+            state, _ = pr_checks(self.root, self.load(), "https://github.com/kimtk94/Codex/pull/123", time.monotonic() + 0.01, head)
+        self.assertEqual(state, "TIMEOUT")
 
     def test_dry_run_does_not_call_model_or_git(self):
         with patch("pathlib.Path.home", return_value=self.root), \
