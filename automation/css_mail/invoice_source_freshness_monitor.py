@@ -157,7 +157,10 @@ def main():
     try:
         from google.oauth2 import service_account
         from google.auth.transport.requests import AuthorizedSession
-        from qq_invoice_parity_audit import load_rows
+        import urllib.parse
+        from qq_invoice_parity_audit import SHEET, load_rows
+        from invoice_provenance_triage import (
+            summarize as lineage_triage, load_ingest_subset, source_relevant_keys)
         credentials = service_account.Credentials.from_service_account_info(
             json.loads(os.environ["CKD_DRIVE_SA_JSON"]),
             scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
@@ -167,6 +170,27 @@ def main():
         extracted = load_rows(session, "CSS Tax Invoice Extract", 2000)
         audit = load_rows(session, "QQ Backfill Audit", 100)
         report = summarize(qq, css, extracted, audit)
+        # Owner/lineage evidence is read-only and never a promotion authorization.
+        def read_named(tab, cells):
+            address = urllib.parse.quote("'" + tab + "'!" + cells, safe="")
+            url = ("https://sheets.googleapis.com/v4/spreadsheets/" + SHEET +
+                   "/values/" + address)
+            response = session.get(url, timeout=70)
+            response.raise_for_status()
+            values = response.json().get("values", [])
+            if not values:
+                raise ValueError("ADDITIONAL_AUDIT_TAB_EMPTY")
+            headers = values[0]
+            return [dict(zip(headers, row)) for row in values[1:]
+                    if any(str(v).strip() for v in row)]
+        cursor = read_named("QQ Backfill Cursor", "A1:E30")
+        projects = read_named("CSS Project Dashboard", "A1:AK1500")
+        tracker = read_named("CSS Contract-SIF Tracker", "A1:AJ1500")
+        ingest = load_ingest_subset(
+            session, SHEET, source_relevant_keys(qq, css, extracted))
+        report.update(lineage_triage(
+            qq, css, extracted, cursor, projects, tracker, ingest,
+            scan_at=report["backfill_scan_at"], year=YEAR))
     except Exception as exc:
         reason = str(exc) if isinstance(exc, ValueError) else ""
         status = ("STALE" if reason == "BACKFILL_SCAN_STALE"
