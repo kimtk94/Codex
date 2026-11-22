@@ -284,6 +284,39 @@ def apply_proposal(root, goal, proposal):
     return path
 
 
+def pr_head_relation(root, observed_sha, expected_sha):
+    """Classify a PR head change without weakening commit-bound CI attestation.
+
+    A PR API response can temporarily show the PREVIOUS head immediately after
+    a successful push. Only an ancestor of our pushed commit may be retried.
+    If the PR advanced elsewhere, or Git cannot prove ancestry, stop safely.
+    """
+    if not all(
+        isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value)
+        for value in (observed_sha, expected_sha)
+    ):
+        raise Hold("PR_HEAD_SHA_INVALID")
+    if observed_sha == expected_sha:
+        return "MATCH"
+    old_to_new = run_cmd(
+        ["git", "merge-base", "--is-ancestor", observed_sha, expected_sha],
+        root, timeout=20,
+    )
+    if old_to_new["ok"]:
+        return "STALE_PR_API"
+    if old_to_new["code"] != 1:
+        raise Hold("PR_HEAD_ANCESTRY_UNVERIFIED")
+    new_to_old = run_cmd(
+        ["git", "merge-base", "--is-ancestor", expected_sha, observed_sha],
+        root, timeout=20,
+    )
+    if new_to_old["ok"]:
+        return "REMOTE_ADVANCED"
+    if new_to_old["code"] != 1:
+        raise Hold("PR_HEAD_ANCESTRY_UNVERIFIED")
+    raise Hold("PR_HEAD_SHA_DIVERGED")
+
+
 def pr_checks(root, goal, pr_url, deadline, expected_sha):
     """Only attest check-runs tied to the exact pushed commit SHA.
 
@@ -298,8 +331,16 @@ def pr_checks(root, goal, pr_url, deadline, expected_sha):
             time.sleep(10)
             continue
         current_head = head["output"].strip().splitlines()[0] if head["output"].strip() else ""
-        if current_head != expected_sha:
-            raise Hold("PR_HEAD_SHA_MISMATCH")
+        relation = pr_head_relation(root, current_head, expected_sha)
+        if relation == "STALE_PR_API":
+            # GitHub's PR headRefOid can lag the branch update for seconds.
+            # Never accept CI from an ancestor; retry until exact SHA appears.
+            time.sleep(10)
+            continue
+        if relation == "REMOTE_ADVANCED":
+            # Another writer changed the PR. Do not publish or validate against
+            # their commit; require fresh, independently verified resumption.
+            return "HEAD_ADVANCED", last
         remote = run_cmd(["gh", "api",
                           "repos/" + goal["repo"] + "/commits/" + expected_sha
                           + "/check-runs?per_page=100"], root, timeout=40)
@@ -527,6 +568,9 @@ def run(root, goal, *, dry_run=False):
             evidence["last_ci"] = {"verdict": verdict, "checks": checks}
             if verdict == "PASS":
                 return report_state(root, goal, "CI_PASS_REVIEW_REQUIRED", evidence)
+            if verdict == "HEAD_ADVANCED":
+                evidence["reason"] = "REMOTE_PR_UPDATED_AFTER_CHECKOUT"
+                return report_state(root, goal, "CI_HEAD_ADVANCED_HOLD", evidence)
             if verdict == "TIMEOUT":
                 return report_state(root, goal, "CI_PENDING", evidence)
             if unsafe_ci_gate_failed(goal, checks):
@@ -587,6 +631,10 @@ def run(root, goal, *, dry_run=False):
             report_state(root, goal, "RUNNING", evidence)
             if verdict == "PASS":
                 state = "CI_PASS_REVIEW_REQUIRED"
+                break
+            if verdict == "HEAD_ADVANCED":
+                state = "CI_HEAD_ADVANCED_HOLD"
+                evidence["reason"] = "REMOTE_PR_UPDATED_DURING_CHECK"
                 break
             if unsafe_ci_gate_failed(goal, checks):
                 evidence["failed_required_checks"] = failed_required_checks(goal, checks)
