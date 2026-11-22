@@ -41,7 +41,7 @@ jobs:
       - name: Validate all 26 real assets, 52 parquet hashes and native parser fixture
         run: |
           python research/kalman_daily20/runtime_version_matrix.py manifest \
-            --root input_bundle/output/daily20 \
+            --root input_bundle \
             --out input_bundle/manifest.json \
             --fixture input_bundle/outcomes.csv
           python - <<'PY'
@@ -104,7 +104,7 @@ jobs:
       - name: Fit unchanged Bull and Bear model on actual archived 20-asset inputs
         run: |
           python research/kalman_daily20/runtime_version_matrix.py work \
-            --root input_bundle/output/daily20 \
+            --root input_bundle \
             --manifest input_bundle/manifest.json \
             --fixture input_bundle/outcomes.csv \
             --variant ${{ matrix.variant }} \
