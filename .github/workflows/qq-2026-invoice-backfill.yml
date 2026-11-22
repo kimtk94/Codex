@@ -86,35 +86,3 @@ jobs:
           print("QQ_SAFE_PREVIEW_PASS: verified source is eligible for independently gated writer")
           PY
 
-  backfill:
-    if: github.event_name != 'pull_request'
-    needs: safe-preview
-    runs-on: ubuntu-latest
-    environment: TaehoonServer
-    timeout-minutes: 45
-    env:
-      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
-      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
-      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
-      BACKFILL_YEAR: '2026'
-      # Only the independent successful read-only preview permits APPLY.
-      BACKFILL_WRITE_MODE: 'APPLY'
-      BACKFILL_STAGE_WRITES_APPROVED: 'YES'
-      BACKFILL_TAB: 'QQ 2026 Invoice Backfill'
-      BACKFILL_MAX_MATCHES: '4500'
-      BACKFILL_DIAGNOSTIC_VERSION: '2026-10-23-v4-full-ledger'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install Google Sheets API dependencies
-        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - name: Preflight Python syntax
-        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill_2026_safe.py automation/css_mail/tax_invoice_extract.py automation/css_mail/qq_safe_backfill_ingest.py
-      - name: Gate writer with offline cursor and original-proof regression
-        run: |
-          python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
-          python3 -m unittest automation.css_mail.test_qq_safe_backfill_ingest -v
-      - name: Backfill 2026 QQ invoice evidence (read-only IMAP)
-        run: python3 automation/css_mail/qq_historical_invoice_backfill_2026_safe.py
