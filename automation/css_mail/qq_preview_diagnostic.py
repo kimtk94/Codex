@@ -131,3 +131,17 @@ def classify_preview(returncode, stdout, stderr):
             report["status"] = "PASS"
             report["exception_code"] = "NONE"
     return report
+
+
+def summarize_uid_search_reply(status, rows):
+    """Classify one IMAP SEARCH response without copying any untrusted data."""
+    status_class = status if isinstance(status, str) and status in ("OK", "NO", "BAD") else "OTHER"
+    if not isinstance(rows, (list, tuple)):
+        row_class = "NON_SEQUENCE"
+    elif not rows:
+        row_class = "EMPTY_SEQUENCE"
+    elif not isinstance(rows[0], bytes):
+        row_class = "FIRST_NOT_BYTES"
+    else:
+        row_class = "BYTES"
+    return {"status_class": status_class, "row_class": row_class}

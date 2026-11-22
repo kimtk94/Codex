@@ -9,6 +9,7 @@ from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 from tax_invoice_extract import extract,bodystructure_filenames,imap_bodystructure_chunks
 from qq_safe_backfill_ingest import evaluate_candidate,safe_folder_checkpoint
+from qq_preview_diagnostic import summarize_uid_search_reply
 
 SHEET=os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 TAB=os.getenv("BACKFILL_TAB","QQ Historical Invoice Backfill")
@@ -164,6 +165,13 @@ def main():
             for phrase in ('Invoice Issued','TAX INVOICE'):
                 status,found_rows=im.uid("SEARCH",None,"SINCE",start,"BEFORE",end,"SUBJECT",'"'+phrase+'"')
                 if status!="OK" or not found_rows or not isinstance(found_rows[0],bytes):
+                    # Public logs contain allowlisted classifications, not raw IMAP data.
+                    summary=summarize_uid_search_reply(status,found_rows)
+                    print("QQ_SAFE_SEARCH_FAILURE "+json.dumps({
+                        "folder_role": "INBOX" if folder.upper()=="INBOX" else "OTHER",
+                        "folder_ordinal": folders,
+                        "criterion": "ISSUED" if phrase=="Invoice Issued" else "TAX",
+                        **summary},sort_keys=True),flush=True)
                     raise RuntimeError("QQ_BACKFILL_SEARCH_UNAVAILABLE")
                 found.update(found_rows[0].split())
             matches+=len(found)
