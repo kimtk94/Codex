@@ -377,6 +377,10 @@ def main():
     report = check_imap(
         targets, checkpoint, ingest, imaplib.IMAP4_SSL,
         bodystructure_filenames, extract)
+    from qq_cursor_checkpoint_policy import assess_writer_cursor_order
+    # Static read-only scan. NO Backfill writer import or execution.
+    writer = Path(__file__).with_name("qq_historical_invoice_backfill.py")
+    report.update(assess_writer_cursor_order(writer.read_text(encoding="utf-8")))
     report["status"] = "HOLD"  # read-only evidence cannot authorize payment posting
     report["target_count"] = len(targets)
     report["scan_at"] = scan.isoformat()
