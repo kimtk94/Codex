@@ -1,12 +1,14 @@
 """Isolated negative and positive safety-contract tests (never calls Ollama/GitHub)."""
 import json
+import subprocess
+import sys
 import time
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from automation.goal_loop.controller import Hold, apply_proposal, load_goal, run, test_goal, pr_checks
+from automation.goal_loop.controller import Hold, apply_proposal, load_goal, run, run_cmd, test_goal, pr_checks
 
 
 BASE = {
@@ -168,6 +170,34 @@ class ControllerSafetyTests(unittest.TestCase):
              patch("automation.goal_loop.controller.time.sleep"):
             state, _ = pr_checks(self.root, self.load(), "https://github.com/kimtk94/Codex/pull/123", time.monotonic() + 0.01, head)
         self.assertEqual(state, "TIMEOUT")
+
+    def test_subprocess_replaces_undecodable_bytes_on_windows(self):
+        # A real child emits an invalid cp949/UTF-8 byte in both streams.
+        # Previously this crashed the reader thread and returned None.
+        child = [
+            sys.executable, "-c",
+            "import sys;sys.stdout.buffer.write(bytes([130]));"
+            "sys.stderr.buffer.write(bytes([130]))",
+        ]
+        actual = run_cmd(child, self.root)
+        self.assertTrue(actual["ok"])
+        self.assertIn("\ufffd", actual["output"])
+        self.assertIn("\ufffd", actual["stderr"])
+
+    def test_subprocess_empty_streams_never_crash(self):
+        with patch("automation.goal_loop.controller.subprocess.run",
+                   return_value=subprocess.CompletedProcess(["gh"], 0, None, None)) as proc:
+            actual = run_cmd(["gh", "auth", "status"], self.root)
+        self.assertEqual(actual["output"], "")
+        self.assertEqual(actual["stderr"], "")
+        self.assertEqual(proc.call_args.kwargs["encoding"], "utf-8")
+        self.assertEqual(proc.call_args.kwargs["errors"], "replace")
+
+    def test_subprocess_failed_command_returns_safe_hold(self):
+        with patch("automation.goal_loop.controller.subprocess.run",
+                   return_value=subprocess.CompletedProcess(["gh"], 1, None, None)):
+            with self.assertRaisesRegex(Hold, "COMMAND_FAILED:gh"):
+                run_cmd(["gh", "auth", "status"], self.root, checked=True)
 
     def test_dry_run_does_not_call_model_or_git(self):
         with patch("pathlib.Path.home", return_value=self.root), \
