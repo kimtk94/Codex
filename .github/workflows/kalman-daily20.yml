@@ -478,6 +478,40 @@ jobs:
           print("DAILY20_DIVIDEND_GAP_HOLD",r["status"],
                 "archived",r["both_archived_sources_verified"],"0/26")
           PY
+      - name: Audit per-asset official-close and issuer-factor proof obligations (HOLD)
+        run: |
+          python research/kalman_daily20/official_price_proof_obligations.py \
+            --source output/daily20/research/source_finality/report.json \
+            --bridge output/daily20/research/price_basis_bridge/report.json \
+            --actions output/daily20/research/corporate_actions/report.json \
+            --gaps output/daily20/research/issuer_ca_gap_audit.json \
+            --out-dir output/daily20/research/official_price_proof_obligations
+          python - <<'PY'
+          import csv,hashlib,json
+          from pathlib import Path
+          root=Path("output/daily20/research/official_price_proof_obligations")
+          r=json.loads((root/"report.json").read_text())
+          raw=(root/"evidence_obligations.csv").read_bytes()
+          rows=list(csv.DictReader(raw.decode("utf-8").splitlines()))
+          assert r["version"]=="daily20-26asset-official-proof-obligations-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["live_execution"]
+          assert r["status"]=="OFFICIAL_CLOSE_AND_FACTOR_RESEARCH_HOLD"
+          assert r["required_assets"]==len(rows)==26
+          assert r["equity_etf_assets"]==25 and r["index_assets"]==1
+          assert r["official_close_certified"]==0
+          assert r["independent_factor_certified"]==0
+          assert r["independent_factor_applicable"]==25
+          assert r["issuer_specific_cash_gaps"]==2
+          assert hashlib.sha256(raw).hexdigest()==r["evidence_obligations_csv_sha256"]
+          assert all(x["close_certified"]=="False" for x in rows)
+          print("DAILY20_26_OFFICIAL_PROOF_QUEUE",r["session"],
+                "M refs",r["primary_M_observed"],"/25",
+                "vendor traces",r["vendor_traces_observed"],"/25",
+                "official cert",r["official_close_certified"],"/26",
+                "independent factors",r["independent_factor_certified"],"/25",
+                "issuer cash gaps",r["issuer_specific_cash_gaps"])
+          PY
       - name: Record original QQQ 2018 trust amendment (date rule only; no paid cash)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
