@@ -129,6 +129,7 @@ def main():
     reject_reasons=Counter()
     fallback_matched=0
     no_uidvalidity_folders=0
+    preview_block_reasons=Counter()
 
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=60) as im:
         im.login(os.environ["CSS_QQ_MAIL_ADDRESS"],os.environ["CSS_QQ_MAIL_AUTH_CODE"])
@@ -149,7 +150,10 @@ def main():
         names=prioritize_inbox_mailboxes(names)
         for folder in names:
             status,_=im.select('"'+folder.replace('"','')+'"',readonly=True)
-            if status!="OK":continue
+            if status!="OK":
+                # Preserve existing mailbox skip behavior; report its count.
+                preview_block_reasons["FOLDER_SELECT_SKIPPED"]+=1
+                continue
             folders+=1
             try:
                 uidvalidity=resolve_uidvalidity(im, folder)
@@ -182,8 +186,11 @@ def main():
             # For folders with candidates, retain failure until identity/cursor safety is resolved.
             if not uidvalidity and eligible:
                 unfinished=True
+                preview_block_reasons["UIDVALIDITY_MISSING_WITH_CANDIDATES"]+=1
             prior_skipped+=len(found)-len(eligible)
-            if scanned>=limit and eligible:unfinished=True
+            if scanned>=limit and eligible:
+                unfinished=True
+                preview_block_reasons["SCAN_LIMIT_AT_FOLDER_START"]+=1
             # Process the sorted source UIDs, but preserve a retryable hole
             # instead of silently advancing the cursor before FETCH/parsing.
             processed_uids=[]
@@ -226,6 +233,7 @@ def main():
                     "ORIGINAL_ISSUED_PROOF_PERSISTED",
                     "ORIGINAL_NONOFFICIAL_HEADER_VERIFIED"):
                     unfinished=True
+                    preview_block_reasons["UNRESOLVED_SOURCE_UID"]+=1
                     # Stop at the first unresolved UID. Later UID successes
                     # must not move the durable cursor across this gap.
                     break
@@ -236,10 +244,13 @@ def main():
                         uidvalidity,decision["checkpoint_safe"])
                 if decision["blocked"]:
                     unfinished=True
+                    preview_block_reasons["CONSERVATIVE_CHECKPOINT_BLOCKED"]+=1
             if scanned>=limit and len(processed_uids)<len(eligible):
                 unfinished=True
+                preview_block_reasons["SCAN_LIMIT_INCOMPLETE"]+=1
         im.logout()
     print("QQ_SAFE_STAGE=SOURCE_SCAN_FINISHED",flush=True)
+    print("QQ_BACKFILL_BLOCK_DIAGNOSTIC "+json.dumps(dict(sorted(preview_block_reasons.items())),sort_keys=True),flush=True)
     print("QQ_BACKFILL_PARSER_DIAGNOSTIC "+json.dumps(dict(sorted(reject_reasons.items())),sort_keys=True)+" fallback_verified="+str(fallback_matched),flush=True)
     print("QQ_BACKFILL_DIAGNOSTIC year="+str(year)+" folders="+str(folders)+" matches="+str(matches)+" scanned="+str(scanned)+" attachment_candidates="+str(filename_candidates)+" parsed_invoices="+str(filename_parsed)+" new="+str(fetched),flush=True)
     if not by_invoice and (matches==0 or (scanned>0 and filename_parsed==0)):

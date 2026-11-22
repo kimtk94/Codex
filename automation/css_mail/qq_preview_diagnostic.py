@@ -47,6 +47,14 @@ REASONS = (
     "ARRIVAL_TOKEN_ABSENT",
     "ARRIVAL_FETCH_ERROR",
 )
+BLOCK_CAUSE_FIELDS = (
+    "UIDVALIDITY_MISSING_WITH_CANDIDATES",
+    "SCAN_LIMIT_AT_FOLDER_START",
+    "SCAN_LIMIT_INCOMPLETE",
+    "UNRESOLVED_SOURCE_UID",
+    "CONSERVATIVE_CHECKPOINT_BLOCKED",
+    "FOLDER_SELECT_SKIPPED",
+)
 COUNT_FIELDS = (
     "scanned",
     "new_in_memory",
@@ -113,6 +121,18 @@ def classify_preview(returncode, stdout, stderr):
         except (ValueError, TypeError):
             pass
         break
+    block_reports = [line for line in out.splitlines()
+                     if line.startswith("QQ_BACKFILL_BLOCK_DIAGNOSTIC ")]
+    if len(block_reports) == 1:
+        try:
+            raw = json.loads(block_reports[0].split(" ", 1)[1])
+            if isinstance(raw, dict):
+                report["block_reason_counts"] = {
+                    k: raw[k] for k in BLOCK_CAUSE_FIELDS
+                    if k in raw and type(raw[k]) is int and 0 <= raw[k] <= 1000000
+                }
+        except (ValueError, TypeError):
+            pass
     safe_search_lines = [line for line in out.splitlines()
                          if line.startswith("QQ_SAFE_SEARCH_FAILURE ")]
     if len(safe_search_lines) == 1:

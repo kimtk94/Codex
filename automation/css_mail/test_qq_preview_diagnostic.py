@@ -131,6 +131,40 @@ class SafePreviewDiagnosticTests(unittest.TestCase):
         self.assertEqual(prioritize_inbox_mailboxes(["Other", "inbox", "Else"]),
                          ["inbox", "Else", "Other"])
 
+    def test_block_reasons_are_allowlisted_and_cannot_change_hold(self):
+        payload = {
+            "UIDVALIDITY_MISSING_WITH_CANDIDATES": 2,
+            "SCAN_LIMIT_INCOMPLETE": 0,
+            "UNRESOLVED_SOURCE_UID": 1,
+            "FOLDER_SELECT_SKIPPED": 3,
+            "PRIVATE_UID_171": 999,
+            "CONSERVATIVE_CHECKPOINT_BLOCKED": "SECRET_INVOICE",
+        }
+        output = ("QQ_SAFE_STAGE=SOURCE_SCAN_FINISHED\n"
+                  + "QQ_BACKFILL_BLOCK_DIAGNOSTIC " + json.dumps(payload) + "\n"
+                  + "QQ_BACKFILL_PROOF_FIRST_PREVIEW year=2026 scanned=4 new_in_memory=1 "
+                  + "would_update_cursor_folders=1 blocked=1 sheet_writes=0 cursor_writes=0\n"
+                  + "QQ_BACKFILL_PREVIEW_ONLY_NOT_COMMITTED")
+        result = classify_preview(2, output, "")
+        self.assertEqual(result["block_reason_counts"], {
+            "UIDVALIDITY_MISSING_WITH_CANDIDATES": 2,
+            "SCAN_LIMIT_INCOMPLETE": 0,
+            "UNRESOLVED_SOURCE_UID": 1,
+            "FOLDER_SELECT_SKIPPED": 3,
+        })
+        self.assertEqual(result["status"], "HOLD")
+        self.assertNotIn("SECRET_INVOICE", json.dumps(result))
+        self.assertNotIn("PRIVATE_UID_171", json.dumps(result))
+
+    def test_malformed_block_diagnostic_cannot_claim_pass(self):
+        out = ("QQ_BACKFILL_BLOCK_DIAGNOSTIC not-json\n"
+               "QQ_BACKFILL_PROOF_FIRST_PREVIEW year=2026 scanned=1 new_in_memory=0 "
+               "would_update_cursor_folders=0 blocked=1 sheet_writes=0 cursor_writes=0\n"
+               "QQ_BACKFILL_PREVIEW_ONLY_NOT_COMMITTED")
+        result = classify_preview(2, out, "RuntimeError: SECRET")
+        self.assertNotIn("block_reason_counts", result)
+        self.assertEqual(result["status"], "HOLD")
+
 
 if __name__=="__main__":
     unittest.main()
