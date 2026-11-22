@@ -111,7 +111,7 @@ def summarize(qq_rows, css_rows, extract_rows, audits, now=None):
     elif before_scan or blank_qq_month or qq_css_gap:
         status = "HOLD"
     elif after_scan:
-        status = "NO_NEW_DATA"  # pending next scan, not a proven sink failure
+        status = "NOT_VERIFIED"  # waiting for next scan, not a proven sink failure
     else:
         status = "PASS"
 
