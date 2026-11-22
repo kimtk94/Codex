@@ -9,8 +9,9 @@ import unittest
 from unittest.mock import patch
 
 from automation.goal_loop.controller import (
-    Hold, apply_proposal, check_worktree_scope, load_goal, parse_porcelain_paths,
-    run, run_cmd, test_goal, pr_checks,
+    Hold, apply_proposal, check_worktree_scope, failed_required_checks,
+    load_goal, parse_porcelain_paths, run, run_cmd, test_goal, pr_checks,
+    unsafe_ci_gate_failed, verification_source_context,
 )
 
 
@@ -257,6 +258,50 @@ class ControllerSafetyTests(unittest.TestCase):
                    return_value=subprocess.CompletedProcess(["gh"], 1, None, None)):
             with self.assertRaisesRegex(Hold, "COMMAND_FAILED:gh"):
                 run_cmd(["gh", "auth", "status"], self.root, checked=True)
+
+    def test_provide_read_only_acceptance_file_context(self):
+        test_path = self.root / "automation/goal_loop/pilot_acceptance.py"
+        test_path.write_text("assert expected_alias == 'PASS'\n", encoding="utf-8")
+        sources = verification_source_context(self.root, self.load())
+        self.assertEqual(
+            sources["automation/goal_loop/pilot_acceptance.py"],
+            test_path.read_text(encoding="utf-8"),
+        )
+        self.assertEqual(test_path.read_text(encoding="utf-8"), sources[
+            "automation/goal_loop/pilot_acceptance.py"
+        ])
+
+    def test_ci_pilot_failure_is_retryable_but_security_failure_blocks(self):
+        goal = self.load()
+        def item(name, app="github-actions"):
+            return {"name": name, "app_slug": app, "conclusion": "failure"}
+        self.assertFalse(unsafe_ci_gate_failed(goal, [item("pilot-acceptance")]))
+        self.assertTrue(unsafe_ci_gate_failed(goal, [item("main-write-guard")]))
+        self.assertTrue(unsafe_ci_gate_failed(goal, [item("goal-loop-controller-tests")]))
+        self.assertEqual(
+            failed_required_checks(goal, [item("pilot-acceptance")]),
+            ["pilot-acceptance"],
+        )
+        self.assertFalse(unsafe_ci_gate_failed(goal, [item("unrelated")]))
+        self.assertFalse(unsafe_ci_gate_failed(goal, [item("main-write-guard", "external-app")]))
+
+    def test_repeated_identical_model_output_uses_attempt_budget_not_exception(self):
+        def safe_fake_command(args, *unused, **kwargs):
+            if args[:4] == ["git", "remote", "get-url", "origin"]:
+                return {"ok": True, "code": 0, "output": "https://github.com/kimtk94/Codex.git\n"}
+            return {"ok": True, "code": 0, "output": ""}
+        with patch("pathlib.Path.home", return_value=self.root), \
+             patch("automation.goal_loop.controller.shutil.which", return_value="fake-binary"), \
+             patch("automation.goal_loop.controller.run_cmd", side_effect=safe_fake_command), \
+             patch("automation.goal_loop.controller.ollama_proposal",
+                   return_value={"path": BASE["allowed_files"][0], "content": "x = 1\n"}) as model, \
+             patch("automation.goal_loop.controller.apply_proposal",
+                   side_effect=Hold("MODEL_NO_CHANGE")):
+            result = run(self.root, self.load())
+        self.assertEqual(result["state"], "NO_PROGRESS_HOLD")
+        self.assertEqual(len(result["evidence"]["iterations"]), 3)
+        self.assertTrue(all(i.get("no_change") for i in result["evidence"]["iterations"]))
+        self.assertEqual(model.call_count, 3)
 
     def test_dry_run_does_not_call_model_or_git(self):
         with patch("pathlib.Path.home", return_value=self.root), \
