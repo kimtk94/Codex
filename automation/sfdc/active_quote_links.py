@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import datetime
 from followup_stage1 import auth, call, OUTPUT_ID
 from opportunity_quote_mirror import range_data, replace_tab
+from quote_schema_gate import validate_quotation_columns
 
 TAB="SFDC Active Quote Links"
 AUDIT="SFDC Quote Link Audit"
@@ -23,6 +24,9 @@ def main():
     q=range_data(sess,OUTPUT_ID,"Quotation",2000)
     o=range_data(sess,OUTPUT_ID,"SFDC Opportunity Raw",2000)
     if not q or not o: raise RuntimeError("Missing mirrored Opportunity/Quotation")
+    # Source may incorrectly contain Opportunity rows under the Quotation tab.
+    # Validate before ANY downstream Sheet writes or Opportunity enrichment.
+    validate_quotation_columns(q[0])
     qi=pick(q[0],["SFDC Quotation ID","Salesforce Quotation ID","Quote Record ID","Id"])
     amea=pick(q[0],["Quotation ID","AMEA No.","AMEA ID"])
     oi=pick(q[0],["Opportunity ID","OpportunityId","Opportunity: ID"])

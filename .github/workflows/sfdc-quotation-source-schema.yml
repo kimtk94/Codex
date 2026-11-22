@@ -1,0 +1,28 @@
+name: SFDC Quotation Source Schema Safety
+
+on:
+  pull_request:
+    paths:
+      - 'automation/sfdc/quote_schema_gate.py'
+      - 'automation/sfdc/opportunity_quote_mirror.py'
+      - 'automation/sfdc/active_quote_links.py'
+      - 'automation/sfdc/test_quote_schema_gate.py'
+      - '.github/workflows/sfdc-quotation-source-schema.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-quote-source-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile source schema and reconciliation
+        run: python -m compileall -q automation/sfdc
+      - name: Run fail-closed quotation source schema tests
+        run: python -m unittest discover -s automation/sfdc -p 'test_quote_schema_gate.py' -v
