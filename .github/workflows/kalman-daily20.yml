@@ -292,6 +292,33 @@ jobs:
           assert r["overall_status"] == "CORPORATE_ACTION_FACTORS_RESEARCH_HOLD"
           print("DAILY20_YAHOO_CA_UNCERTIFIED",r["vendor_history_observed"],"/25")
           PY
+      - name: Link raw venue M, Yahoo split-adjusted, and Daily20 adjusted prices (research HOLD)
+        run: |
+          python research/kalman_daily20/price_basis_bridge.py \
+            --source-finality output/daily20/research/source_finality/report.json \
+            --primary-venue output/daily20/research/source_finality/venue_identity.json \
+            --yahoo-factor-dir output/daily20/research/factor_lineage \
+            --out output/daily20/research/price_basis_bridge/report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/price_basis_bridge/report.json").read_text())
+          assert r["version"] == "daily20-price-basis-bridge-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["live_execution"]
+          assert r["required_assets"] == 26 and len(r["rows"]) == 26
+          assert r["research_price_certified"] == 0
+          assert r["independent_adjustment_factors_certified"] == 0
+          assert r["status"] == "PRICE_BASIS_RECONCILIATION_RESEARCH_HOLD"
+          assert all(x["research_hold"] and not x["independent_price_certified"]
+                     and not x["independent_adjustment_factor_certified"]
+                     for x in r["rows"])
+          print("DAILY20_PRICE_BASIS_HOLD", r["raw_primary_M_auction_reference_count"],
+                "/25 primary raw M, vendor trace", r["vendor_unrepaired_trace_count"],
+                "/25, model/vendor differences",
+                r["same_session_model_vendor_adj_close_mismatches_gt_half_cent"],
+                "CERTIFIED 0/26")
+          PY
       - name: Compare ex-dated Yahoo dividends/splits to Alpaca (uncertified and fail-closed)
         run: |
           mkdir -p output/daily20/research/corporate_actions
