@@ -66,7 +66,11 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(out["plan_authenticated_approvals"],0)
     def test_original_changed_is_detected(self):
         d=sample();d[2][0]["amount_krw"]="8888"
-        self.assertEqual(validate_plan(*d)["plan_amount_mismatch_count"],1)
+        # A changed source amount first conflicts with the independently
+        # captured review row. That earlier HOLD classification is stronger.
+        report=validate_plan(*d)
+        self.assertEqual(report["plan_review_mismatch_count"],1)
+        self.assertEqual(report["plan_source_match_count"],6)
     def test_header_exact_schema(self):
         self.assertEqual(len(PLAN_HEADER),11)
         self.assertEqual(PLAN_HEADER[1],"issued_month")
