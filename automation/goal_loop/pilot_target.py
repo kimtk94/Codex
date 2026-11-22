@@ -4,4 +4,6 @@ def normalize_status(value):
     normalized = str(value).strip().upper()
     if normalized in ['PASS', 'FAIL']:
         return normalized
+    if normalized in ['OK', 'DONE', 'SUCCESS']:
+        return 'PASS'
     return 'UNKNOWN'
