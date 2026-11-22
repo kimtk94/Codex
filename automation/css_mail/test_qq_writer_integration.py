@@ -120,8 +120,10 @@ class FakeSheet:
         raise AssertionError("Unexpected API %s %s"%(method,key))
 
 
-def run_writer(mail, sheets):
+def run_writer(mail, sheets, mode="APPLY", approved=True):
     with mock.patch.dict(os.environ,{
+        "BACKFILL_WRITE_MODE":mode,
+        "BACKFILL_STAGE_WRITES_APPROVED":"YES" if approved else "NO",
         "CKD_DRIVE_SA_JSON":"{}",
         "CSS_QQ_MAIL_ADDRESS":"test@example.invalid",
         "CSS_QQ_MAIL_AUTH_CODE":"offline-placeholder",
@@ -191,6 +193,32 @@ class WriterIntegrationTests(unittest.TestCase):
         self.assertEqual(sheets.cursor[1][3],"100")
         self.assertEqual(sheets.qq[1][2],"1200")
         self.assertEqual(len(sheets.qq),2)
+
+    def test_preview_of_valid_source_never_writes_sheets_or_cursor(self):
+        mail=FakeMail({101:[attachment("209126000701")]})
+        sheets=FakeSheet()
+        run_writer(mail,sheets,mode="PREVIEW",approved=False)
+        self.assertEqual(sheets.puts,[])
+        self.assertEqual(sheets.cursor[1][3],"100")
+        self.assertEqual(len(sheets.qq),1)
+        self.assertTrue(any(x=="(BODYSTRUCTURE)" for _,x in mail.calls))
+
+    def test_preview_of_unresolved_mail_stays_readonly_and_fails(self):
+        mail=FakeMail({101:[attachment("209126000701")]},body_fail={101})
+        sheets=FakeSheet()
+        with self.assertRaises(SystemExit) as outcome:
+            run_writer(mail,sheets,mode="PREVIEW",approved=False)
+        self.assertEqual(outcome.exception.code,2)
+        self.assertEqual(sheets.puts,[])
+        self.assertEqual(sheets.cursor[1][3],"100")
+
+    def test_apply_requires_explicit_second_gate(self):
+        mail=FakeMail({101:[attachment("209126000701")]})
+        sheets=FakeSheet()
+        with self.assertRaisesRegex(RuntimeError,"BACKFILL_WRITER_APPROVAL_GATE"):
+            run_writer(mail,sheets,mode="APPLY",approved=False)
+        self.assertEqual(sheets.puts,[])
+        self.assertEqual(mail.calls,[])
 
     def test_unverified_mail_must_not_mutate_issued_month(self):
         mail=FakeMail({101:[attachment("209126000701")]})
