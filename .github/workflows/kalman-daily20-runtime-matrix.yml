@@ -1,0 +1,190 @@
+name: Kalman Daily20 Fixed-Input NumPy-PyArrow Isolation (Research Only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_daily20/runtime_version_matrix.py'
+      - 'research/kalman_daily20/test_runtime_version_matrix.py'
+      - '.github/workflows/kalman-daily20-runtime-matrix.yml'
+  pull_request:
+    paths:
+      - 'research/kalman_daily20/runtime_version_matrix.py'
+      - 'research/kalman_daily20/test_runtime_version_matrix.py'
+      - '.github/workflows/kalman-daily20-runtime-matrix.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: daily20-runtime-matrix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download one immutable previously archived main data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kalman-daily20-data
+          run-id: 45033994883
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          path: input_bundle
+      - name: Validate all 26 real assets, 52 parquet hashes and native parser fixture
+        run: |
+          python research/kalman_daily20/runtime_version_matrix.py manifest \
+            --root input_bundle/output/daily20 \
+            --out input_bundle/manifest.json \
+            --fixture input_bundle/outcomes.csv
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path("input_bundle/manifest.json").read_text())
+          assert x["source_actions_run_id"]=="45033994883"
+          assert x["asof_session"]=="2026-11-20"
+          assert x["symbol_count"]==26 and x["file_count"]==52
+          assert x["research_only"] and not x["live_execution"]
+          print("DAILY20_MATRIX_SOURCE_ATTESTED", x["file_count"], x["asof_session"])
+          PY
+      - name: Publish identical real input bundle for both isolated environments
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily20-fixed-real-input-20261120
+          path: input_bundle/
+          if-no-files-found: error
+          retention-days: 14
+
+  isolation:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: baseline
+            numpy: '2.3.5'
+            pyarrow: '24.0.0'
+          - variant: research
+            numpy: '2.4.6'
+            pyarrow: '26.0.1'
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      ARROW_NUM_THREADS: '1'
+      PYTHONFAULTHANDLER: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install exact model and native-version experiment stack
+        run: |
+          python -m pip install --disable-pip-version-check \
+            'numpy==${{ matrix.numpy }}' \
+            'pyarrow==${{ matrix.pyarrow }}' \
+            'pandas==2.3.3' \
+            'scipy==1.17.1' \
+            'scikit-learn==1.9.1' \
+            'exchange-calendars==4.13.3'
+      - name: Restore byte-identical protected-main input for this environment
+        uses: actions/download-artifact@v4
+        with:
+          name: daily20-fixed-real-input-20261120
+          path: input_bundle
+      - name: Fit unchanged Bull and Bear model on actual archived 20-asset inputs
+        run: |
+          python research/kalman_daily20/runtime_version_matrix.py work \
+            --root input_bundle/output/daily20 \
+            --manifest input_bundle/manifest.json \
+            --fixture input_bundle/outcomes.csv \
+            --variant ${{ matrix.variant }} \
+            --out matrix_report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("matrix_report.json").read_text())
+          assert r["models_fitted_or_attempted"]==40
+          assert r["assets"]==20 and len(r["observations"])==40
+          assert not r["primary_price_certified"]
+          assert not r["causal_model_drift_claimed"]
+          assert r["parser_probe"][0]["engine"]=="c"
+          assert r["parser_probe"][1]["engine"]=="python"
+          print("DAILY20_MATRIX_RESEARCH_ONLY",r["variant"],"models",40)
+          PY
+      - name: Publish this version's raw model and isolated parser evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily20-runtime-matrix-${{ matrix.variant }}
+          path: matrix_report.json
+          if-no-files-found: error
+          retention-days: 21
+
+  compare:
+    needs: isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: daily20-runtime-matrix-baseline
+          path: pair/baseline
+      - uses: actions/download-artifact@v4
+        with:
+          name: daily20-runtime-matrix-research
+          path: pair/research
+      - name: Prove identical 52 files, 20 feature inputs and training matrices
+        run: |
+          python research/kalman_daily20/runtime_version_matrix.py compare \
+            --baseline pair/baseline/matrix_report.json \
+            --research pair/research/matrix_report.json \
+            --out result/report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("result/report.json").read_text())
+          assert r["compared_core_symbols"]==20 and r["compared_models"]==40
+          assert r["input_feature_hash_mismatches"]==0
+          assert r["training_input_hash_mismatches"]==0
+          assert r["research_only"] and not r["strategy_promoted"]
+          assert not r["cause_of_historical_20261120_drift_certified"]
+          assert not r["model_or_trading_rules_changed"]
+          print("DAILY20_MATRIX_FINAL_HOLD",r["experimental_reproducibility"],
+                "max_delta_pp",r["max_probability_delta_pp"])
+          PY
+      - name: Archive complete real-input version experiment
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          import json
+          p=Path("result/report.json")
+          raw=p.read_bytes()
+          status={"schema":"daily20-runtime-matrix-archive-v1",
+                  "research_only":True,"production_writes":False,
+                  "original_20261120_first_seal_reconstructed":False,
+                  "report_sha256":sha256(raw).hexdigest(),
+                  "source_run":"45033994883",
+                  "github_run_id":__import__("os").environ.get("GITHUB_RUN_ID")}
+          Path("result/manifest.json").write_text(
+              json.dumps(status,sort_keys=True,indent=2)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daily20-runtime-matrix-comparison
+          path: result/
+          if-no-files-found: error
+          retention-days: 90
