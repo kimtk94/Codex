@@ -18,7 +18,7 @@ def when(s):
         t=dt.datetime.fromisoformat(str(s).strip().replace(" KST","").replace("Z","+00:00"))
         return t if t.tzinfo else t.replace(tzinfo=KST)
     except ValueError:return None
-def inspect(source,sink,manifest,mail,now=None):
+def inspect(source,sink,manifest,mail,now=None,legacy_emails=None):
     now=now or dt.datetime.now(KST)
     if now.tzinfo is None:raise ValueError("AWARE_CLOCK_REQUIRED")
     if not source or source[0][:7]!=["Project / Sub-project","AMEA","Institution","Customer","Service","Feishu Status (latest)","CSS Stage (legacy)"]:
@@ -51,8 +51,28 @@ def inspect(source,sink,manifest,mail,now=None):
     unexpected=len(set(sink_ids)-set(source_map))
     aligned=(not bad and not missing and not unexpected and len(source_rows)==len(sink_rows)
              and metadata.get("projects")==str(len(source_rows)))
-    status="SINK_LAG" if not aligned else "PASS_MIRROR_ONLY" if recent else "STALE"
+    # Window-caught-up is scoped to the bounded mail backfill, not an
+    # all-time message-body guarantee. Partial windows can never be PASS.
+    mail_state=cell(mail[1],1)
+    status=("SINK_LAG" if not aligned else "STALE" if not recent else
+            "PARTIAL_MIRROR" if mail_state!="WINDOW_CAUGHT_UP" else
+            "PASS_MIRROR_ONLY")
+    # Legacy project dashboard is an independent older feed. Its event
+    # watermark MUST NOT be replaced by the WEB_EXPORT creation timestamp.
+    legacy_dates=[when(cell(r,0)) for r in (legacy_emails or [])[1:]]
+    legacy_dates=[t for t in legacy_dates if t is not None and t<=now+dt.timedelta(minutes=10)]
+    legacy_at=max(legacy_dates,default=None)
+    legacy_age_days=(round((now-legacy_at).total_seconds()/86400,1)
+                     if legacy_at else None)
+    legacy_health=("NOT_CHECKED" if legacy_emails is None else
+                   "LEGACY_NO_VALID_EVENT" if not legacy_dates else
+                   "LEGACY_STALE" if legacy_age_days>7 else
+                   "LEGACY_EVENT_RECENT")
     return {"status":status,"scope":"GOOGLE_MIRROR_TO_V4_NOT_ORIGINAL_PROOF",
+            "mail_window_state":mail_state,
+            "legacy_project_latest_email_at":legacy_at.isoformat() if legacy_at else None,
+            "legacy_project_age_days":legacy_age_days,
+            "legacy_project_health":legacy_health,
             "checked_at":now.isoformat(),"source_manifest_date":source_date,
             "source_synced_at":times[0].isoformat() if times[0] else None,
             "mail_mirror_updated_at":times[1].isoformat() if times[1] else None,
@@ -81,6 +101,17 @@ def session():
         info=json.loads(path.read_text(encoding="utf8"))
     return AuthorizedSession(Credentials.from_service_account_info(info,
                 scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]))
+def legacy_event_range(meta):
+    """Use real grid bounds, not a guessed oversized A1 rectangle."""
+    matches=[s.get("properties",{}) for s in meta.get("sheets",[])
+             if s.get("properties",{}).get("title")=="CSS Project Dashboard"]
+    if len(matches)!=1:raise ValueError("LEGACY_DASHBOARD_TAB_NOT_FOUND")
+    rows=matches[0].get("gridProperties",{}).get("rowCount")
+    if type(rows) is not int or not 2<=rows<=100000:
+        raise ValueError("INVALID_LEGACY_GRID_SIZE")
+    return "AB1:AB"+str(min(rows,1500))
+
+
 def google_fetch():
     client=session()
     def read(book,name,area):
@@ -88,10 +119,21 @@ def google_fetch():
         r=client.get(u,timeout=28)
         r.raise_for_status()
         return r.json().get("values",[])
+    # The legacy dashboard is diagnostic only. A broken legacy tab must not
+    # prevent checking the independently refreshed V4 project mirror.
+    try:
+        meta_url="https://sheets.googleapis.com/v4/spreadsheets/"+DST
+        response=client.get(meta_url,params={
+            "fields":"sheets(properties(title,gridProperties(rowCount)))"},timeout=28)
+        response.raise_for_status()
+        legacy=read(DST,"CSS Project Dashboard",legacy_event_range(response.json()))
+    except Exception:
+        legacy=None
     return inspect(read(SRC,"BI Project Lifecycle Overview","A1:Q1500"),
                    read(DST,"WEB_EXPORT_V4","A1:P1500"),
                    read(SRC,"Feishu Source Manifest","A1:G20"),
-                   read(SRC,"CSS Mail Backfill Status","A1:L5"))
+                   read(SRC,"CSS Mail Backfill Status","A1:L5"),
+                   legacy_emails=legacy)
 if __name__=="__main__":
     try:result=google_fetch()
     except Exception as e:

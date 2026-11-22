@@ -1,6 +1,6 @@
 import datetime as dt
 import unittest
-from css_projects_local import inspect, KST, HEAD, MARK
+from css_projects_local import inspect, KST, HEAD, MARK, legacy_event_range
 NOW=dt.datetime(2026,11,9,12,0,tzinfo=KST)
 SRCH=["Project / Sub-project","AMEA","Institution","Customer","Service",
 "Feishu Status (latest)","CSS Stage (legacy)","CSS Progress %",
@@ -22,11 +22,12 @@ SINKMETA=["WEB_EXPORT_V4","MIRROR_ONLY","source_sheet","Sheet",
 MANIFEST=[["Source","Source Date","Synced At KST","Source ID","Rows"],
 ["Online-Project","2026-11-09","2026-11-09T10:55:33+09:00","id","110"]]
 MAIL=[["Updated At KST","State"],["2026-11-09 10:58:16 KST","WINDOW_CAUGHT_UP"]]
-def run(src=None,sink=None,manifest=None,mail=None):
+def run(src=None,sink=None,manifest=None,mail=None,legacy_emails=None):
   return inspect(src if src is not None else [SRCH,SOURCEROW],
                  sink if sink is not None else [SINKMETA,HEAD,SINKROW],
                  manifest if manifest is not None else MANIFEST,
-                 mail if mail is not None else MAIL,now=NOW)
+                 mail if mail is not None else MAIL,now=NOW,
+                 legacy_emails=legacy_emails)
 class Tests(unittest.TestCase):
   def test_parity(self):
     r=run()
@@ -36,6 +37,47 @@ class Tests(unittest.TestCase):
     self.assertFalse(r["original_feishu_verified"])
     self.assertFalse(r["sfdc_save_verified"])
     self.assertNotIn("Private Name",str(r))
+  def test_legacy_css_staleness_is_reported_separately_from_mirror_parity(self):
+    legacy=[["latest_email_at"],["2026-10-19 12:07"],["2026-10-18 21:30"]]
+    report=run(legacy_emails=legacy)
+    self.assertEqual(report["status"],"PASS_MIRROR_ONLY")
+    self.assertEqual(report["legacy_project_health"],"LEGACY_STALE")
+    self.assertGreater(report["legacy_project_age_days"],7)
+    self.assertIn("2026-10-19",report["legacy_project_latest_email_at"])
+    self.assertFalse(report["original_feishu_verified"])
+    self.assertFalse(report["original_qq_verified"])
+  def test_legacy_recent_is_only_an_event_recency_not_original_proof(self):
+    report=run(legacy_emails=[["latest_email_at"],["2026-11-08 10:00"]])
+    self.assertEqual("LEGACY_EVENT_RECENT",report["legacy_project_health"])
+    self.assertEqual("PASS_MIRROR_ONLY",report["status"])
+    self.assertFalse(report["original_qq_verified"])
+  def test_partial_mail_window_is_not_a_pass_even_with_fresh_mirror(self):
+    changed=MAIL[1].copy();changed[1]="WINDOW_PARTIAL"
+    result=run(mail=[MAIL[0],changed])
+    self.assertEqual("PARTIAL_MIRROR",result["status"])
+    self.assertEqual("WINDOW_PARTIAL",result["mail_window_state"])
+    self.assertFalse(result["original_qq_verified"])
+  def test_future_legacy_event_rejected_without_overriding_fresh_mirror(self):
+    report=run(legacy_emails=[["latest_email_at"],["2026-12-20 12:07"]])
+    self.assertEqual("LEGACY_NO_VALID_EVENT",report["legacy_project_health"])
+    self.assertIsNone(report["legacy_project_latest_email_at"])
+    self.assertEqual("PASS_MIRROR_ONLY",report["status"])
+  def test_legacy_source_unavailable_is_not_same_as_no_event(self):
+    self.assertEqual("NOT_CHECKED",run()["legacy_project_health"])
+    self.assertEqual("LEGACY_NO_VALID_EVENT",run(legacy_emails=[])["legacy_project_health"])
+
+  def test_legacy_sheet_read_respects_grid_rows_and_rejects_missing_tab(self):
+    metadata={"sheets":[{"properties":{"title":"CSS Project Dashboard",
+                    "gridProperties":{"rowCount":414}}}]}
+    self.assertEqual("AB1:AB414",legacy_event_range(metadata))
+    metadata["sheets"][0]["properties"]["gridProperties"]["rowCount"]=2000
+    self.assertEqual("AB1:AB1500",legacy_event_range(metadata))
+    metadata["sheets"][0]["properties"]["gridProperties"]["rowCount"]=0
+    with self.assertRaisesRegex(ValueError,"GRID_SIZE"):
+      legacy_event_range(metadata)
+    with self.assertRaisesRegex(ValueError,"TAB_NOT_FOUND"):
+      legacy_event_range({"sheets":[]})
+
   def test_mismatch(self):
     v=SINKROW.copy();v[4]="Wrong Status"
     self.assertEqual(run(sink=[SINKMETA,HEAD,v])["status"],"SINK_LAG")

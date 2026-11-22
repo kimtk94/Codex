@@ -23,6 +23,13 @@ test("valid project stage distribution",()=>{
   assert.equal(r.recordCount,3);
   assert.deepEqual(r.stageCounts,{"Sequencing":2,"Sample QC":1});
 });
+test("partial-mail window is a valid caution status, not a false verified PASS",()=>{
+  const r=summarizeProjects({status:"PARTIAL_MIRROR",project_rows:[
+    {project_id:"X00000000000004-Z01",stage:"Sample QC"},
+  ]});
+  assert.equal(r.recordCount,1);
+  assert.deepEqual(r.stageCounts,{"Sample QC":1});
+});
 test("duplicate, unsupported and unverified payload blocked",()=>{
   for(const raw of [
     {status:"PASS",project_rows:[]},

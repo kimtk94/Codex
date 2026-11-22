@@ -12,7 +12,7 @@ export function authorizeCssPcRead({enabled,method,host,origin,fetchSite,header}
 }
 export function summarizeProjects(payload) {
   if (!payload || typeof payload!=="object" ||
-      !["PASS_MIRROR_ONLY","SINK_LAG","STALE","SOURCE_UNAVAILABLE"].includes(payload.status) ||
+      !["PASS_MIRROR_ONLY","PARTIAL_MIRROR","SINK_LAG","STALE","SOURCE_UNAVAILABLE"].includes(payload.status) ||
       !Array.isArray(payload.project_rows) || payload.project_rows.length>1500)
     throw new Error("INVALID_CSS_SNAPSHOT");
   const records=payload.project_rows;
