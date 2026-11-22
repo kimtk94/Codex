@@ -371,6 +371,20 @@ def pr_checks(root, goal, pr_url, deadline, expected_sha):
         }
         required = goal["required_checks"]
         if all(verified.get(name, {}).get("conclusion") == "success" for name in required):
+            # Re-read the PR head before claiming success; all checks may be
+            # green for a SHA that was superseded while we were polling.
+            final = run_cmd(["gh", "pr", "view", pr_url, "--json", "headRefOid",
+                             "--jq", ".headRefOid"], root, timeout=40)
+            if not final["ok"]:
+                time.sleep(10)
+                continue
+            final_head = final["output"].strip().splitlines()[0] if final["output"].strip() else ""
+            final_relation = pr_head_relation(root, final_head, expected_sha)
+            if final_relation == "STALE_PR_API":
+                time.sleep(10)
+                continue
+            if final_relation == "REMOTE_ADVANCED":
+                return "HEAD_ADVANCED", last
             return "PASS", last
         if any(verified.get(name, {}).get("conclusion")
                in ("failure", "cancelled", "timed_out", "action_required")
