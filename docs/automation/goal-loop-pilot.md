@@ -2,7 +2,7 @@
 
 ## Goal
 
-Demonstrate **document → local Qwen code edit → independent local tests → GitHub PR CI → review-required completion** without modifying live CRM, payment, trading, research, or deployment workflows.
+Demonstrate **document → local Qwen code edit → restricted GitHub PR CI tests → review-required completion** without modifying live CRM, payment, trading, research, or deployment workflows.
 
 ## Allowed implementation target
 
@@ -18,16 +18,16 @@ The function `normalize_status(value)` must map:
 
 ## Completion evidence
 
-1. Local `automation.goal_loop.pilot_acceptance` tests pass against the modified worktree.
+1. GitHub Actions executes `automation.goal_loop.pilot_acceptance` against the exact AI-generated PR commit with no user secrets or local machine credentials.
 2. The specific draft pull request has **all** named GitHub checks in the JSON goal file passing.
-3. The controller records the PR URL, iteration number, test output, and CI check buckets.
+3. The controller records the PR URL, iteration number, immutable commit SHA, and required CI check conclusions.
 4. State is `CI_PASS_REVIEW_REQUIRED`. This is **not merged** and is **not a production deployment**.
 
 ## Hold and safety
 
 - At most three iterations and 45 minutes per invocation.
 - No test, goal, policy, security, workflow, secrets, or non-allowlisted edits.
-- Never execute shell snippets supplied by the model or goal document.
+- Never execute model-authored source or shell snippets on the laptop. Only compile syntax locally; execute generated Python only in restricted GitHub Actions with no checked-out credentials.
 - Never auto-merge, auto-deploy, send email, create CRM records, or trade.
 - If the laptop/Ollama connection is unavailable, mark `HOLD` rather than pretending work continued.
 - This pilot intentionally starts with an incomplete implementation. Only pilot acceptance tests in the `agent/pilot-status-*` pull requests are release-blocking. The general controller contract CI is independently testable before the laptop comes online.
