@@ -359,8 +359,8 @@ class MailOnlyTests(unittest.TestCase):
             def uid(self,command,uid,query):
                 assert command=="FETCH" and uid=="41234"
                 if "HEADER.FIELDS" in query:
-                    return "OK",[(b"header",(b"From: CSS <css@novogene-amea.com>\\r\\n"
-                                           b"Subject: Notice: Invoice Issued & Statement Confirmed\\r\\n\\r\\n"))]
+                    return "OK",[(b"header",(b"From: CSS <css@novogene-amea.com>\r\n"
+                                           b"Subject: Notice: Invoice Issued & Statement Confirmed\r\n\r\n"))]
                 if query=="(BODYSTRUCTURE)":
                     return "OK",[
                         (b"",b'("TAX INVOICE-209126000887-H209SC26065705-PO9-'),
