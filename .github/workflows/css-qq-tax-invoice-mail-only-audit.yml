@@ -20,8 +20,9 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    # Verify source completeness at 11:50 and 19:50 Korea time.
-    - cron: '50 2,10 * * *'
+    # Workflow_run after 10:31 KST backfill is primary; 19:50 KST is fallback.
+    # Avoid redundant near-backfill 11:50 KST scans.
+    - cron: '50 10 * * *'
 
 permissions:
   contents: read
@@ -30,6 +31,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  upstream-source-gate:
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Block misleading success after failed QQ backfill
+        run: |
+          echo '::error::SOURCE_UNAVAILABLE: upstream QQ historical invoice backfill did not succeed.'
+          exit 1
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -57,6 +67,7 @@ jobs:
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       BACKFILL_YEAR: '2026'
+      INVOICE_AUDIT_SUMMARY_PATH: ${{ runner.temp }}/qq-css-invoice-audit-summary.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,3 +79,29 @@ jobs:
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Verify actual original CSS Tax Invoice email, UID and filename (read-only)
         run: python3 automation/css_mail/mail_only_invoice_coverage_audit.py
+      - name: Publish redacted operational counters to run summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["INVOICE_AUDIT_SUMMARY_PATH"])
+          data=json.loads(p.read_text()) if p.exists() else {"status":"SOURCE_UNAVAILABLE"}
+          allow={"status","qq_only","qq_only_excluded","qq_only_verified",
+                 "qq_only_review","extract_overlap","extract_eligible",
+                 "extract_metadata_hold","extract_verified","extract_review"}
+          f=Path(os.environ["GITHUB_STEP_SUMMARY"])
+          with f.open("a",encoding="utf-8") as stream:
+              stream.write("### QQ / CSS Invoice original-only audit (no business writes)\\n")
+              for k in sorted(allow):
+                  if k in data:
+                      stream.write(f"- {k}: {data[k]}\\n")
+          PY
+      - name: Retain aggregate-only audit result for 7 days
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qq-css-invoice-aggregate-audit
+          path: ${{ runner.temp }}/qq-css-invoice-audit-summary.json
+          if-no-files-found: warn
+          retention-days: 7
