@@ -115,7 +115,7 @@ def select_extracted_original_candidates(backfill, extracted, canonical):
         month=str(row.get("issued_month") or "").strip()
         if not month.startswith("2026-"):continue
         inv=str(row.get("invoice_number") or "").strip()
-        if not re.fullmatch(r"209126\\d{6}",inv):continue
+        if not re.fullmatch(r"209126\d{6}",inv):continue
         if inv in qq:raise ValueError("QQ_INVOICE_DUPLICATE_REQUIRES_REVIEW")
         qq[inv]=row
     extract_map={}
