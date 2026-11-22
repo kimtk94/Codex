@@ -19,8 +19,10 @@ import sys
 # Work both as a package (unit tests) and as an Actions script entrypoint.
 if __package__:
     from .qq_precursor_replay_readiness import summarize_replay
+    from .qq_precursor_prewrite_gate import prewrite_readback
 else:
     from qq_precursor_replay_readiness import summarize_replay
+    from qq_precursor_prewrite_gate import prewrite_readback
 
 SHEET = os.getenv("CSS_SHEET_ID", "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 MAX_TARGETS = 35
@@ -402,6 +404,18 @@ def main():
     report = check_imap(
         targets, checkpoint, ingest, imaplib.IMAP4_SSL,
         bodystructure_filenames, extract)
+    # Second live readback after original IMAP verification. This detects
+    # intervening changes but DOES NOT provide atomic compare-and-swap.
+    after = {
+        "qq": load_rows(session, "QQ 2026 Invoice Backfill", 10000),
+        "css": load_rows(session, "CSS Tax Invoice List", 2000),
+        "extract": load_rows(session, "CSS Tax Invoice Extract", 2000),
+        "cursor": load_rows(session, "QQ Backfill Cursor", 100),
+        "audit": load_rows(session, "QQ Backfill Audit", 100),
+    }
+    before = {"qq": qq, "css": css, "extract": extracts,
+              "cursor": cursor, "audit": audit}
+    report.update(prewrite_readback(before, after, targets))
     from qq_cursor_checkpoint_policy import assess_writer_cursor_order
     # Static read-only scan. NO Backfill writer import or execution.
     writer = Path(__file__).with_name("qq_historical_invoice_backfill.py")
