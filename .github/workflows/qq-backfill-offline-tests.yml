@@ -7,6 +7,7 @@ on:
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/test_qq_writer_integration.py'
       - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - '.github/workflows/qq-backfill-offline-tests.yml'
       - 'automation/css_mail/test_qq_uidvalidity.py'
@@ -21,6 +22,7 @@ on:
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/test_qq_writer_integration.py'
       - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - '.github/workflows/qq-backfill-offline-tests.yml'
 permissions:
@@ -40,6 +42,7 @@ jobs:
         run: |
           python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
           python3 automation/css_mail/test_qq_uidvalidity.py
+          python3 automation/css_mail/test_qq_writer_integration.py
           python3 automation/css_mail/test_invoice_fallback.py
           python3 -m unittest discover -s automation/css_mail -p 'test_qq_2025_bi_sync.py' -v
       - name: Check cursor status and fail-closed safety invariants
