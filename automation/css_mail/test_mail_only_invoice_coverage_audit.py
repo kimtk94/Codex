@@ -156,6 +156,21 @@ class MailOnlyTests(unittest.TestCase):
             "209126000111","209126000222","209126000444"
         })
 
+
+    def test_formatted_canonical_krw_is_parsed_without_weakening_qq_amount(self):
+        history=[
+            backfill("209126000555",1600,month="2026-11"),
+            backfill("209126000666",1700,month="2026-11"),
+        ]
+        canonical=[extracted("209126000555","1,600 KRW")]
+        missing=identify_missing(history,[extracted("209126000999",1000)],
+                                 canonical=canonical,start_month="2026-01")
+        self.assertEqual(set(missing),{"209126000666"})
+        with self.assertRaisesRegex(ValueError,"BAD_ORIGINAL_INVOICE_AMOUNT"):
+            identify_missing([backfill("209126000666","1,700")],
+                             [extracted("209126000999",1000)],
+                             canonical=canonical,start_month="2026-01")
+
     def test_legacy_extract_price_conflict_is_blocked(self):
         with self.assertRaisesRegex(ValueError,"CANONICAL_EXTRACT_INVOICE_AMOUNT_CONFLICT"):
             identify_missing([backfill("209126000888",1500)],
