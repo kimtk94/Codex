@@ -1,0 +1,61 @@
+name: HCC Stage47 Existing Native PV n14 vs Original External Venous n59 Source Reaggregation
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage47_existing_native_pv_14vs59.py"
+      - ".github/workflows/hcc-stage47-existing-nativepv-14vs59.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: hcc-stage47-original-native-pv-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frozen-original-native-14rater1-versus-external59:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate original source-only fixed 73-patient and bootstrap fixture
+        run: python3 research/hcc/ci/mri14_stage47_existing_native_pv_14vs59.py --offline-test
+      - name: Independently reaggregate already-extracted native PV 14 and 59 source patients without new MRI downloads
+        run: |
+          python3 research/hcc/ci/mri14_stage47_existing_native_pv_14vs59.py \
+            --out-dir artifacts/hcc_stage47_nativePV_source_comparison
+      - name: Verify source patient denominators, n14 native rater1 vs 59 original PV, and clinical S0
+        run: |
+          python3 - <<'PY'
+          import json,csv
+          from pathlib import Path
+          p=Path("artifacts/hcc_stage47_nativePV_source_comparison")
+          s=json.loads((p/"stage47_14vs59_native_originalPV_descriptive_summary.json").read_text())
+          with (p/"stage47_nativePV_14rater1_59original_perpatient_sensitivity.csv").open() as f:
+              r=list(csv.DictReader(f))
+          assert len(r)==73
+          assert len({x["patient_id"] for x in r})==73
+          assert sum(x["cohort"].startswith("TCGA") for x in r)==14
+          assert sum(x["cohort"].startswith("OpenSwiss") for x in r)==59
+          assert s["original_source_cohort_internal_n"]==14
+          assert s["independent_source_cohort_external_n"]==59
+          assert abs(s["internal_tcgaliHC_native_pv_rater1_median_abs_change_pct"]-74.8808)<.005
+          assert abs(s["external_openswiss_native_pv_rater1_median_abs_change_pct"]-64.635863)<.002
+          assert not s["exact_MRI_acquisition_scanner_or_segmentation_protocol_equivalence"]
+          assert s["no_new_source_image_download_or_feature_extraction"]
+          assert not s["between_cohort_difference_formal_test_performed"]
+          assert s["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert s["MRI_RNA_biological_tests"]==0
+          assert s["clinical_biological_claim_ceiling"]=="S0"
+          print("HCC_STAGE47_FROZEN_14_NATIVE_RATER1_AND_59_EXTERNAL_DESCRIPTIVE_COMPARE_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage47-source-native-PV-14rater1-59original-descriptive-conditional-GO
+          path: artifacts/hcc_stage47_nativePV_source_comparison/*
+          retention-days: 90
+          if-no-files-found: error

@@ -1,0 +1,69 @@
+name: HCC Stage43 Independently Audit 14 Original MRI PV DICOM 3D Source Artifacts
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage43_full14_source_artifact_audit.py"
+      - ".github/workflows/hcc-stage43-original14-source-artifact-audit.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independently-reconcile-14-verified-original-source-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify frozen 14 source image patient roster with no scientific effect inference
+        run: python3 research/hcc/ci/mri14_stage43_full14_source_artifact_audit.py --offline-test
+      - name: Restore two original Stage41 full-3D PV DICOM patient source artifacts from fixed successful run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-stage41-real-fullstack-*
+          run-id: 41431710438
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/verified_stage41_2
+      - name: Restore twelve original Stage43 full-3D source patient artifacts without rerunning imaging
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-stage43-original-fullstack-*
+          run-id: 41436023580
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/verified_stage43_12
+      - name: Independently verify all fourteen source UIDs, SOP CRC count, per-slice full-resolution pixel scores and clinical HOLD
+        run: |
+          python3 research/hcc/ci/mri14_stage43_full14_source_artifact_audit.py \
+            --stage41-artifact-root artifacts/verified_stage41_2 \
+            --stage43-artifact-root artifacts/verified_stage43_12 \
+            --out-dir artifacts/hcc_stage43_full14_technical_source_audit
+      - name: Guard 14 full3D image provenance against false clinical or biological patient eligibility
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,csv
+          p=Path("artifacts/hcc_stage43_full14_technical_source_audit")
+          j=json.loads((p/"stage43_full14_PV_DICOM_3d_source_evidence_summary.json").read_text())
+          with (p/"stage43_full14_PV_DICOM_3d_source_patient_evidence.csv").open() as f:
+              cases=list(csv.DictReader(f))
+          assert len(cases)==14 and len({r["patient_id"] for r in cases})==14
+          assert j["first_stage41_original_full3d_verified_n"]==2
+          assert j["newly_stage43_original_full3d_verified_n"]==12
+          assert j["original_pv_nifti_dicom_3d_technical_source_verified_n"]==14
+          assert j["source_DICOM_CRC_verified_fullresolution_slices"]>1000
+          assert j["source_fullresolution_Pearson_min"]>.9999
+          assert j["maximum_source_LPS_NIfTI_RAS_physical_error_mm"]<2
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_before_HCC_treatment_authoritative_episode_verified_n"]==0
+          assert j["exact_MRI_index_lesion_to_GDC_RNA_portion_proven_n"]==0
+          assert j["MRI_RNA_biological_tests"]==0 and j["claim_ceiling"]=="S0"
+          print("HCC_STAGE43_INDEPENDENT_SOURCE_14_3D_COMPLETE_BIOLOGY_HOLD_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage43-all14-pv-DICOM-3d-original-source-verified-audit
+          path: artifacts/hcc_stage43_full14_technical_source_audit/*
+          retention-days: 90
+          if-no-files-found: error

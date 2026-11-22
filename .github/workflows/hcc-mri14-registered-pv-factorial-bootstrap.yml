@@ -1,0 +1,94 @@
+name: HCC MRI14 Registered PV 24 Condition Patient Bootstrap QC
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_registered_pv_factorial_patient_bootstrap.py"
+      - ".github/workflows/hcc-mri14-registered-pv-factorial-bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-regpv-factorial-patient-bootstrap-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fixture:
+    name: Validate all 24 condition patient-unit bootstrap null and nonfinite rejection
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "scipy==1.13.1"
+      - name: Lock null/source-only bootstrap and frozen 14 patient universe
+        run: python research/hcc/ci/mri_p0_registered_pv_factorial_patient_bootstrap.py --offline-test
+
+  actual-source:
+    name: SHA256 verify actual 168-row source and compute 24 patient-level interval rows
+    needs: fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "scipy==1.13.1"
+      - name: Recover original registered PV 2x3 factorial aggregate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/hcc_regpv_factorial_bootstrap
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13046135524/zip" \
+            --output artifacts/hcc_regpv_factorial_bootstrap/source_168row_sha_pinned.zip
+      - name: Verify 4 exact source SHA256 and bootstrap 14 independently paired patient units
+        run: |
+          python research/hcc/ci/mri_p0_registered_pv_factorial_patient_bootstrap.py \
+            --source-zip artifacts/hcc_regpv_factorial_bootstrap/source_168row_sha_pinned.zip \
+            --out-dir artifacts/hcc_regpv_factorial_bootstrap/results
+      - name: Enforce source reference and no biological inference
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          p=Path("artifacts/hcc_regpv_factorial_bootstrap/results")
+          with (p/"hcc_registered_pv_factorial_24_condition_4000_patient_bootstrap_ci.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          meta=json.loads((p/"hcc_registered_pv_factorial_bootstrap_provenance_summary.json").read_text())
+          assert len(rows)==24 and len({(r["feature"],r["grid"],r["bin_width"]) for r in rows})==24
+          assert meta["patients_independent"]==14 and meta["n_frozen_source_extraction_rows"]==168
+          assert meta["patient_resamples_with_replacement"]==4000
+          assert meta["MRI_RNA_12_tests"]=="NOT_EXECUTED" and meta["claim_ceiling"]=="S0"
+          assert meta["eligible_n"]=="NOT_ASSESSED" and meta["no_MRI_RNA_data"]
+          assert all(r["claim_ceiling"]=="S0" and r["MRI_RNA_tests_executed"]=="NO" for r in rows)
+          contrast=meta["glcm_contrast"]
+          assert len(contrast)==6
+          assert abs(next(r["median_abs_change_pct"] for r in contrast if r["grid"]=="3mm" and r["bin_width"]==25)-86.59375)<0.0001
+          lines=["## HCC official registered PV, patient-bootstrap CI (methodological only)","",
+                 "- Source original run [#41208617950](https://github.com/kimtk94/Codex/actions/runs/41208617950), 168 source rows, 112 previously verified native25 feature references.",
+                 "- 14 paired patients, 2 expert repeated ratings each, 4,000 bootstrap replicates.",
+                 "- 24 feature/condition estimates compared to pinned original metrics and four member SHA-256.",
+                 "- MRI-RNA 0/12, eligible n NOT ASSESSED, clinical ceiling S0.",
+                 "", "| Condition | GLCM Contrast median abs change (%) [95% CI] | Patient rank rho [95% CI] |",
+                 "|---|---|---|"]
+          for r in contrast:
+              lines.append(f"| {r['grid']} / bw {r['bin_width']} | {r['median_abs_change_pct']} [{r['median_abs_change_pct_ci95_low']}, {r['median_abs_change_pct_ci95_high']}] | {r['patient_rank_rho']} [{r['patient_rank_rho_ci95_low']}, {r['patient_rank_rho_ci95_high']}] |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("HCC_MRI14_REGPV_FACTORIAL_PATIENT_BOOTSTRAP_24_RESULTS_CLINICAL_S0_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri14-registered-pv-factorial-24-condition-paired-patient-bootstrap-ci
+          path: artifacts/hcc_regpv_factorial_bootstrap/results/*
+          retention-days: 90
+          if-no-files-found: warn

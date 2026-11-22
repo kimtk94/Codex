@@ -1,0 +1,78 @@
+{
+  "id": "HCC_IBSI1_CT_CONFIG_A_V1",
+  "source": {
+    "repo": "theibsi/data_sets",
+    "commit": "6da96021bc91faf4c0cb7fd7fa56a4225d2064a8",
+    "image_sha256": "909129fdf99d5f5fd17bc568b1834d31edce8663ea6746c6020720bfc1d7bbcb",
+    "mask_sha256": "0e9243e473b1255c60e6460df465d0b07b65436d6e0c691fe3d17bca0594ae78",
+    "image_shape_xyz": [
+      204,
+      201,
+      60
+    ],
+    "morphological_roi_voxels": 125256,
+    "intensity_roi_voxels": 114596,
+    "license": "CC BY-NC 3.0"
+  },
+  "preprocessing": {
+    "rounding": "nearest_integer",
+    "interpolation": "none",
+    "hu_interval": [
+      -500,
+      400
+    ],
+    "binWidth_hu": 25,
+    "in_plane_direction_count": 4,
+    "GLCM_symmetric": true
+  },
+  "run": "https://github.com/kimtk94/Codex/actions/runs/41186059566",
+  "official_reference": [
+    {
+      "feature": "Mean",
+      "code": "Q4LE",
+      "reference": 13.4,
+      "tolerance": 1.1,
+      "independent": 13.408426123075849,
+      "pyradiomics": 13.408426123075849
+    },
+    {
+      "feature": "Median",
+      "code": "Y12H",
+      "reference": 46,
+      "tolerance": 0.3,
+      "independent": 46,
+      "pyradiomics": 46
+    },
+    {
+      "feature": "InterquartileRange",
+      "code": "SALO",
+      "reference": 56,
+      "tolerance": 0.5,
+      "independent": 56,
+      "pyradiomics": 56
+    },
+    {
+      "feature": "GLCM_2D_averaged_Contrast",
+      "code": "ACUI",
+      "reference": 7.85,
+      "tolerance": 0.26,
+      "independent": 7.851406512761039,
+      "pyradiomics": null
+    },
+    {
+      "feature": "GLCM_2_5D_direction_merged_Contrast",
+      "code": "ACUI",
+      "reference": 5.96,
+      "tolerance": 0.27,
+      "independent": 5.960989939109945,
+      "pyradiomics": 5.96098993910995
+    }
+  ],
+  "cross_impl_2_5D_absolute_difference": 5.329070518200751e-15,
+  "integrator_status": "PASS_CT_A_FIVE_INDEPENDENT_FOUR_PYRADIOMICS",
+  "ct_B_E": "NOT_EXECUTED",
+  "ibsi2_filtered_maps": "NOT_EXECUTED",
+  "hcc18": "PARTIAL",
+  "hcc20": "PENDING",
+  "claim_ceiling": "S0"
+}

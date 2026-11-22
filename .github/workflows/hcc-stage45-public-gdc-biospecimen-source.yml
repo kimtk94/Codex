@@ -1,0 +1,86 @@
+name: HCC Stage45 Public GDC Clinical Biospecimen Source Metadata Verification
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage45_public_gdc_biospecimen_source.py"
+      - ".github/workflows/hcc-stage45-public-gdc-biospecimen-source.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hcc-stage45-public-gdc-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  public-GDC-14case-source-biospecimen-field-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify fail-closed GDC aliquot path and 14-case source-only rules
+        run: python3 research/hcc/ci/mri14_stage45_public_gdc_biospecimen_source.py --offline-test
+      - name: Restore Stage44 validated original DICOM UID and GDC RNA aliquot manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage44-14-original-MRI-study-series-UID-GDC-RNA-treatment-clinical-source-HOLD
+          run-id: 41439608602
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage44_original_UID_GDC
+      - name: Verify immutable 14 patient selected lesion and RNA source pairing are NOT preapproved
+        run: |
+          python3 - <<'PY'
+          import csv,json
+          from pathlib import Path
+          p=Path("artifacts/stage44_original_UID_GDC")
+          j=json.loads((p/"stage44_original_MRI_GDC_clinical_source_summary.json").read_text())
+          with (p/"stage44_original_MRI_UID_GDC_RNA_treatment_14patient_evidence.csv").open() as f:
+              r=list(csv.DictReader(f))
+          assert len(r)==14 and len({x["patient_id"] for x in r})==14
+          assert j["source_image_slices_fullres_verified"]==1095
+          assert j["original_native_PV_to_source_DICOM_full3d_technical_verified"]==14
+          assert j["GDC_primary_tumor_case_barcode_sample_linked"]==14
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biology_tests"]==0 and j["claim_ceiling"]=="S0"
+          assert all(x["verified_same_index_MRI_tumor_as_GDC_RNA_aliquot"]=="NOT_ASSESSED" for x in r)
+          print("HCC_STAGE45_IMMUTABLE_STAGE44_ORIGINAL_14_GDC_RNA_SOURCE_HOLD_PASS")
+          PY
+      - name: Query public official GDC cases and RNA files API and audit original biospecimen sample-portion-analyte-aliquot lineage
+        run: |
+          python3 research/hcc/ci/mri14_stage45_public_gdc_biospecimen_source.py \
+            --stage44-csv artifacts/stage44_original_UID_GDC/stage44_original_MRI_UID_GDC_RNA_treatment_14patient_evidence.csv \
+            --out-dir artifacts/hcc_stage45_public_gdc
+      - name: Independently confirm true source availability results do not assert MRI lesion identity or MRI before HCC therapy
+        run: |
+          python3 - <<'PY'
+          import json,csv
+          from pathlib import Path
+          d=Path("artifacts/hcc_stage45_public_gdc")
+          s=json.loads((d/"stage45_public_source_biospecimen_feasibility_summary.json").read_text())
+          with (d/"stage45_public_GDC_molecular_biospecimen_source_14case.csv").open() as f:
+              r=list(csv.DictReader(f))
+          assert len(r)==14 and len({x["patient_id"] for x in r})==14
+          assert s["original_DICOM_PV_NIfTI_technical_source_verified_n"]==14
+          assert s["published_LiverHccSeg_dataset_board_certified_readers"]==2
+          assert s["independent_current_index_roi_radiologist_approved_n"]==0
+          assert 0<=s["case_level_public_biospecimen_aliquot_chains_returned"]<=14
+          assert 0<=s["public_RNA_file_UUID_MD5_matches"]<=14
+          assert s["pretreatment_HCC_specific_authoritative_episode_verified_n"]==0
+          assert s["MRI_selected_index_lesion_to_RNA_aliquot_physical_bridge_verified_n"]==0
+          assert not s["TCIADICOM_shifted_dates_subtract_GDC_relative_days_allowed"]
+          assert s["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert s["MRI_RNA_biological_tests"]==0 and s["claim_ceiling"]=="S0"
+          assert all(x["specific_MRI_before_any_HCC_treatment"]=="NOT_ASSESSED" for x in r)
+          assert all(x["actual_MRI_index_lesion_to_GDC_RNA_tissue_proven"]=="NOT_ASSESSED" for x in r)
+          assert all(x["new_independent_index_roi_radiologist_review"]=="NOT_ASSESSED" for x in r)
+          assert all(int(x["MRI_RNA_biological_tests"])==0 and x["claim_ceiling"]=="S0" for x in r)
+          print("HCC_STAGE45_PUBLIC_GDC_SOURCE_METADATA_AUDIT_CLINICAL_S0_GUARD_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage45-14-original-MRI-GDC-biospecimen-public-source-feasibility
+          path: artifacts/hcc_stage45_public_gdc/*
+          retention-days: 90
+          if-no-files-found: error

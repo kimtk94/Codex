@@ -1,0 +1,99 @@
+name: HCC Stage38 Original MRI DICOM Series Header 14-Patient Parallel 4-Shard Audit
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage38_original_dicom_series_header_shards.py"
+      - ".github/workflows/hcc-stage38-original-dicom-series-4-shards.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-stage38-original-dicom-series-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  original-DICOM-series-shards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pinned DICOM header parser
+        run: python3 -m pip install pydicom==3.0.1
+      - name: Test source phase label ambiguity and frozen cases
+        run: python3 research/hcc/ci/mri14_stage38_original_dicom_series_header_shards.py --offline-test
+      - name: Read up to 24 original source DICOM directories for each assigned case
+        run: |
+          python3 research/hcc/ci/mri14_stage38_original_dicom_series_header_shards.py \
+            --shards 4 --shard ${{ matrix.shard }} --max-folders 24 \
+            --out-dir artifacts/hcc_stage38_source_series
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage38-original-dicom-series-shard-${{ matrix.shard }}
+          path: artifacts/hcc_stage38_source_series/*
+          retention-days: 90
+          if-no-files-found: warn
+
+  frozen-14-source-series-aggregate:
+    needs: original-DICOM-series-shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-stage38-original-dicom-series-shard-*
+          path: artifacts/hcc_stage38_source_series
+          merge-multiple: true
+      - name: Aggregate all 14 original cases, reject missing shards and false selected-PV / clinical promotion
+        run: |
+          python3 research/hcc/ci/mri14_stage38_original_dicom_series_header_shards.py \
+            --aggregate --shards 4 --max-folders 24 \
+            --out-dir artifacts/hcc_stage38_source_series
+      - name: Independently validate source series inventory and clinical HOLD
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,csv
+          d=Path("artifacts/hcc_stage38_source_series")
+          j=json.loads((d/"stage38_original14_DICOM_series_header_source_summary.json").read_text())
+          with (d/"stage38_original14_patient_source_series_priority.csv").open() as f:
+              cases=list(csv.DictReader(f))
+          with (d/"stage38_original14_source_DICOM_series_header_inventory.csv").open() as f:
+              series=list(csv.DictReader(f))
+          assert len(cases)==14 and len(set(x["patient_id"] for x in cases))==14
+          assert len(series)==j["original_source_directory_sample_count"]
+          assert j["source_header_valid_samples"] <= len(series)
+          assert j["source_directories_not_sampled_due_to_cap"]>=0
+          assert j["source_selected_PV_series_confirmed"]==0
+          assert j["source_selected_PV_NIfTI_voxel_compatible_confirmed"]==0
+          assert j["MRI_before_HCC_treatment_confirmed"]==0
+          assert j["RNA_same_index_tumor_confirmed"]==0
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biological_tests"]==0
+          assert j["claim_ceiling"]=="S0"
+          assert all(x["clinical_eligible"]=="NOT_ASSESSED" for x in cases)
+          print("HCC_STAGE38_FOUR_SHARDS_14_ORIGINAL_TCGA_CASES_SOURCE_SERIES_QC_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage38-14-cases-original-DICOM-series-header-aggregate
+          path: |
+            artifacts/hcc_stage38_source_series/stage38_original14*
+            artifacts/hcc_stage38_source_series/stage38_source_series_header_candidate_report.md
+          retention-days: 90
+          if-no-files-found: error
