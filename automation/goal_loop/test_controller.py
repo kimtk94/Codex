@@ -15,6 +15,7 @@ from automation.goal_loop.controller import (
     unsafe_ci_gate_failed, verification_source_context,
     literal_contract_examples, retry_temperature, pr_head_relation,
     select_local_model, require_local_model,
+    ollama_generation_timeout, ollama_proposal,
 )
 
 
@@ -435,6 +436,35 @@ class ControllerSafetyTests(unittest.TestCase):
         )
         self.assertFalse(unsafe_ci_gate_failed(goal, [item("unrelated")]))
         self.assertFalse(unsafe_ci_gate_failed(goal, [item("main-write-guard", "external-app")]))
+
+    def test_bounded_ollama_request_timeout_for_opt_in_7b(self):
+        self.assertEqual(ollama_generation_timeout("qwen25coder3b-16k"), 200)
+        self.assertEqual(ollama_generation_timeout("qwen2.5-coder:7b"), 600)
+        self.assertEqual(ollama_generation_timeout("unrecognized"), 200)
+
+    def test_ollama_timeout_records_model_and_limit(self):
+        with patch("automation.goal_loop.controller.select_local_model",
+                   return_value="qwen2.5-coder:7b"), \
+             patch("automation.goal_loop.controller.urllib.request.urlopen",
+                   side_effect=TimeoutError("model slow")) as call:
+            with self.assertRaisesRegex(
+                Hold,
+                r"LOCAL_OLLAMA_GENERATION_TIMEOUT:model=qwen2[.]5-coder:7b:limit=600",
+            ):
+                ollama_proposal(self.root, self.load(), {"verification": "REMOTE_CI_ONLY"})
+        self.assertEqual(call.call_args.kwargs["timeout"], 600)
+
+    def test_ollama_request_timeout_is_default_for_3b(self):
+        reply = {"message": {"content": json.dumps({
+            "path": BASE["allowed_files"][0], "content": "x = 2\n",
+        })}}
+        with patch("automation.goal_loop.controller.select_local_model",
+                   return_value="qwen25coder3b-16k"), \
+             patch("automation.goal_loop.controller.urllib.request.urlopen",
+                   return_value=io.BytesIO(json.dumps(reply).encode())) as call:
+            value = ollama_proposal(self.root, self.load(), {})
+        self.assertEqual(value["content"], "x = 2\n")
+        self.assertEqual(call.call_args.kwargs["timeout"], 200)
 
     def test_override_model_remains_explicitly_allowlisted(self):
         goal = self.load()

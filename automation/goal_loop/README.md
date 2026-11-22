@@ -52,6 +52,35 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\automation\goal_loop\
 새 터미널에서는 다시 지정해야 합니다. 모델 변경으로 체크포인트의
 목표 해시, 기존 PR, 전체 12회 시도 예산이 초기화되지 않습니다.
 
+## Ollama 7B Timeout 진단 (기존 측정: RAM 16GB)
+
+`LOCAL_OLLAMA_UNAVAILABLE:TimeoutError`는 Ollama 모델이 **200초 동안**
+응답을 완료하지 못한 기존 컨트롤러 오류입니다. 서버에 연결되지 않았다는
+증거는 아닙니다. 7B 선택 시 생성 요청 타임아웃을 **600초**로 늘리고,
+선택한 모델과 제한 시간을 콘솔에 기록합니다. 3B의 기존 **200초**는 유지하며
+사용자 측정값(3B 21.39 tok/s, Qwen3 4B CPU 6.58 tok/s)을 변경하지 않습니다.
+
+PowerShell에서 아래를 확인한 후 1회 실행하십시오.
+
+```powershell
+ollama ps
+ollama list
+$env:GOAL_LOOP_MODEL = "qwen2.5-coder:7b"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\automation\goal_loop\windows_worker.ps1"
+```
+
+`ollama ps`에 **100% CPU**로 표시되거나 생성이 반복해서 타임아웃되면,
+7B의 이 노트북 성능은 미검증이므로 3B로 돌아가거나 별도 성능 검증을
+해야 합니다. 모델 설치와 RAM 업그레이드는 자동으로 시행하지 않습니다.
+
+```powershell
+Remove-Item Env:GOAL_LOOP_MODEL -ErrorAction SilentlyContinue
+```
+
+`9/12` 같은 이전 반복 횟수는 그대로 남습니다. 모델 전환 또는 HTTP
+타임아웃 변경은 시도 횟수를 초기화하지 않으며, CI PASS가 아닌
+`HOLD`에는 자동 병합이 허용되지 않습니다.
+
 ## What a goal document needs
 
 - `docs/...md`: precise objective, input evidence, functional acceptance criteria, hold conditions
