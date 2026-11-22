@@ -9,6 +9,8 @@ on:
       - 'automation/css_mail/test_qq_invoice_parity_audit.py'
       - 'automation/css_mail/invoice_source_freshness_monitor.py'
       - 'automation/css_mail/test_invoice_source_freshness_monitor.py'
+      - 'automation/css_mail/invoice_provenance_triage.py'
+      - 'automation/css_mail/test_invoice_provenance_triage.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
   push:
     branches: [main]
@@ -16,6 +18,8 @@ on:
       - 'automation/css_mail/qq_invoice_parity_audit.py'
       - 'automation/css_mail/invoice_source_freshness_monitor.py'
       - 'automation/css_mail/test_invoice_source_freshness_monitor.py'
+      - 'automation/css_mail/invoice_provenance_triage.py'
+      - 'automation/css_mail/test_invoice_provenance_triage.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
 permissions:
   contents: read
@@ -35,6 +39,7 @@ jobs:
         run: |
           python3 -m unittest automation.css_mail.test_qq_invoice_parity_audit -v
           python3 -m unittest automation.css_mail.test_invoice_source_freshness_monitor -v
+          python3 -m unittest automation.css_mail.test_invoice_provenance_triage -v
   audit:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
