@@ -6,6 +6,7 @@ from email.parser import Parser
 from mail_only_invoice_coverage_audit import (
     identify_missing,original_proof,net,numeric,
     audit_with_original_imap,select_extracted_original_candidates,
+    verify_backfill_freshness,write_private_safe_report,
 )
 
 
@@ -272,6 +273,79 @@ class MailOnlyTests(unittest.TestCase):
             [q],[e],[extracted("209126000001",900)])
         self.assertEqual((candidates,held),({},1))
         self.assertEqual(reasons,{"EXTRACT_PROVENANCE_UNVERIFIED":1})
+
+    def test_backfill_scan_is_fresh_and_explicit(self):
+        import datetime as dt
+        now=dt.datetime(2026,11,22,12,0,tzinfo=dt.timezone.utc)
+        rows=[{"year":"2026","status":"SCAN_COMPLETE",
+               "last_run_utc":"2026-11-22T08:35:12+00:00"}]
+        check=verify_backfill_freshness(rows,now=now)
+        self.assertEqual(check["status"],"SOURCE_FRESH")
+        self.assertLess(check["age_hours"],4)
+
+    def test_stale_or_failed_backfill_cannot_pass(self):
+        import datetime as dt
+        now=dt.datetime(2026,11,22,12,0,tzinfo=dt.timezone.utc)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_STALE"):
+            verify_backfill_freshness([
+                {"year":"2026","status":"SCAN_COMPLETE",
+                 "last_run_utc":"2026-11-19T00:00:00+00:00"}
+            ],now=now)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_NOT_COMPLETE"):
+            verify_backfill_freshness([
+                {"year":"2026","status":"SCAN_PARTIAL",
+                 "last_run_utc":"2026-11-22T11:00:00+00:00"}
+            ],now=now)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_CLOCK_SKEW"):
+            verify_backfill_freshness([
+                {"year":"2026","status":"SCAN_COMPLETE",
+                 "last_run_utc":"2026-11-23T12:00:00+00:00"}
+            ],now=now)
+
+    def test_invalid_backfill_header_and_naive_timestamp_block(self):
+        import datetime as dt
+        now=dt.datetime(2026,11,22,12,0,tzinfo=dt.timezone.utc)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_SCHEMA_MISSING"):
+            verify_backfill_freshness([],now=now)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_TIMESTAMP_INVALID"):
+            verify_backfill_freshness([
+                {"year":"2026","status":"SCAN_COMPLETE",
+                 "last_run_utc":"2026-11-22T10:00:00"}
+            ],now=now)
+
+    def test_sanitized_artifact_json_is_parseable_and_allowlisted(self):
+        import json,tempfile,os
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/"audit.json"
+            with mock.patch.dict(os.environ,{"INVOICE_AUDIT_SUMMARY_PATH":str(p)}):
+                write_private_safe_report({
+                    "status":"HOLD","qq_only":25,
+                    "extract_eligible":34,"extract_metadata_hold":2,
+                    "source_writes":0,"revenue_writes":0,
+                    "private_invoice":"209126999999",
+                    "private_address":"private@example.com",
+                    "private_amount":123450000,
+                    "backfill":{"status":"SOURCE_FRESH",
+                                "last_scan_utc":"2026-11-22T08:00:00+00:00",
+                                "age_hours":3.0}
+                })
+            data=json.loads(p.read_text(encoding="utf-8"))
+            self.assertEqual(data["status"],"HOLD")
+            self.assertEqual(data["qq_only"],25)
+            self.assertEqual(data["extract_metadata_hold"],2)
+            self.assertEqual(data["source_writes"],0)
+            serialized=p.read_text(encoding="utf-8")
+            self.assertNotIn("209126999999",serialized)
+            self.assertNotIn("private@example.com",serialized)
+            self.assertNotIn("123450000",serialized)
+            self.assertTrue(serialized.endswith("\n"))
+
+    def test_missing_report_path_causes_no_side_effects(self):
+        import os
+        with mock.patch.dict(os.environ,{"INVOICE_AUDIT_SUMMARY_PATH":""}):
+            self.assertIsNone(write_private_safe_report({"status":"HOLD"}))
+
 
 
 if __name__=="__main__":
