@@ -7,6 +7,7 @@ from mail_only_invoice_coverage_audit import (
     identify_missing,original_proof,net,numeric,
     audit_with_original_imap,select_extracted_original_candidates,
     verify_backfill_freshness,write_private_safe_report,
+    classify_audit_failure,
 )
 
 
@@ -377,6 +378,20 @@ class MailOnlyTests(unittest.TestCase):
                 expected,imap_factory=FakeIMAP)
         self.assertEqual((len(verified),len(blocked),len(excluded)),(1,0,0))
         self.assertEqual(verified["209126000887"]["amount"],12012000)
+
+
+    def test_operational_failure_states_are_separate(self):
+        import imaplib
+        self.assertEqual(classify_audit_failure(
+            ValueError("BACKFILL_AUDIT_STALE")),"STALE")
+        self.assertEqual(classify_audit_failure(
+            ValueError("BACKFILL_AUDIT_NOT_COMPLETE")),"SOURCE_UNAVAILABLE")
+        self.assertEqual(classify_audit_failure(
+            ConnectionError("synthetic network down")),"SOURCE_UNAVAILABLE")
+        self.assertEqual(classify_audit_failure(
+            imaplib.IMAP4.error("synthetic IMAP auth denied")),"SOURCE_UNAVAILABLE")
+        self.assertEqual(classify_audit_failure(
+            ValueError("CANONICAL_EXTRACT_INVOICE_AMOUNT_CONFLICT")),"BLOCK")
 
 
 
