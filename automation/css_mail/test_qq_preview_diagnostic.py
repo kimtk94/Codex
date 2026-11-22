@@ -1,7 +1,7 @@
 """Synthetic-only redaction and readiness tests; never use live credentials."""
 import json
 import unittest
-from automation.css_mail.qq_preview_diagnostic import classify_preview
+from automation.css_mail.qq_preview_diagnostic import classify_preview, summarize_uid_search_reply
 
 
 class SafePreviewDiagnosticTests(unittest.TestCase):
@@ -73,6 +73,25 @@ class SafePreviewDiagnosticTests(unittest.TestCase):
                  "would_update_cursor_folders=0 blocked=0 "+vals+
                  "\nQQ_BACKFILL_PREVIEW_ONLY_NOT_COMMITTED")
             self.assertEqual(classify_preview(2,txt,"")["status"],"HOLD")
+
+
+    def test_search_response_uses_allowlisted_status_and_shape(self):
+        cases = [
+            ("OK", [b""], {"status_class":"OK","row_class":"BYTES"}),
+            ("NO", None, {"status_class":"NO","row_class":"NON_SEQUENCE"}),
+            ("BAD", [], {"status_class":"BAD","row_class":"EMPTY_SEQUENCE"}),
+            ("CUSTOMER_private@invalid.example", [b"AMOUNT_1234"],
+             {"status_class":"OTHER","row_class":"BYTES"}),
+            ("OK", ["UID customer@example.com"],
+             {"status_class":"OK","row_class":"FIRST_NOT_BYTES"}),
+        ]
+        for status, rows, expected in cases:
+            observed = summarize_uid_search_reply(status, rows)
+            self.assertEqual(observed, expected)
+            payload = json.dumps(observed)
+            self.assertNotIn("CUSTOMER", payload)
+            self.assertNotIn("AMOUNT", payload)
+            self.assertNotIn("customer@example.com", payload)
 
 
 if __name__=="__main__":
