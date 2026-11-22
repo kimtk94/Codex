@@ -169,6 +169,23 @@ def parsed_matches(value, expected):
 def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
     """Use readonly EXAMINE and metadata-only FETCH; fail closed on missing UID epoch."""
     totals = Counter()
+    # Stable zero-valued diagnostics make audit output and test assertions
+    # independent of whether a particular failure category occurred.
+    for label in ("original_mime_verified",
+                  "historical_single_chunk_parser_would_match",
+                  "fragmented_mime_legacy_parser_gap",
+                  "blank_month_qq_extract_uid_conflict",
+                  "imap_arrival_metadata_available",
+                  "imap_arrival_metadata_unavailable",
+                  "original_invoice_issue_date_proved",
+                  "non_official_or_missing_header",
+                  "mime_filename_or_identity_mismatch",
+                  "cursor_inconsistent",
+                  "ingest_metadata_missing",
+                  "ingest_uid_or_epoch_conflict",
+                  "mime_filename_missing",
+                  "mime_fetch_unavailable"):
+        totals[label] = 0
     totals.update({x["category"]: 0 for x in targets})
     totals["targeted"] = len(targets)
     if not targets:
