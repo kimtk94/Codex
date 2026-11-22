@@ -57,9 +57,9 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(evaluate_case(c,approval(c,expires_at="2026-11-22T12:00:00Z"),
                                        b,a,True,NOW),"APPROVAL_EXPIRED")
         self.assertEqual(evaluate_case(c,approval(c),b,a,True,NOW),"APPROVAL_UNTRUSTED")
-        # Even an externally asserted proof is not a verified single-writer lock.
+        # A caller-controlled flag is not trusted authentication or a lock.
         self.assertEqual(evaluate_case(c,approval(c,_authenticated_approval_proof=True),
-                                       b,a,True,NOW),"SERIALIZATION_UNPROVEN")
+                                       b,a,True,NOW),"APPROVAL_UNTRUSTED")
     def test_cursor_change_sink_insert_and_missing_source(self):
         c=case();b,a=snaps()
         a["cursor"][0]["last_uid"]="501"

@@ -108,10 +108,11 @@ def evaluate_case(case, approval, before, after, proof_ok, now):
         return "APPROVAL_EXPIRED"
     # Never trust an unverified approval claim. A future implementation needs
     # an independent authenticated approver + immutable receipt provenance.
-    if not approval.get("_authenticated_approval_proof"):
-        return "APPROVAL_UNTRUSTED"
-    # A claimed lock in JSON is never actual exclusion of other writers.
-    return "SERIALIZATION_UNPROVEN"
+    # Even an assertion like _authenticated_approval_proof=True in JSON is
+    # untrusted. An independent verifier must be implemented and reviewed
+    # in a future PR before any writer could use authenticated permissions.
+    # This module accepts no authority-bearing input or locking claim.
+    return "APPROVAL_UNTRUSTED"
 
 
 def plan_cases(cases, approvals, before, after, proofs, now):
