@@ -124,3 +124,89 @@ def resolve_2026_native_krw_product_signature(source_service_name, index_rows):
         and isinstance(row.get("product_signature"), str)
     }
     return next(iter(signatures)) if len(signatures) == 1 else None
+
+
+
+def resolve_2026_native_krw_signature_by_report_geometry(
+    source_service_name, report_process_lines, index_rows
+):
+    """Resolve a subtype only AFTER exact authenticated Product master identity.
+
+    Multiple 2026 original-KRW signatures may share the same Product service
+    name. Use the COMPLETE source Report Process ID + data unit + data size
+    fingerprint to select one unambiguous signature *within that service*.
+    Never use Process geometry to guess a service name, infer a per-sample
+    rate, or authorize a new quotation.
+    """
+    from collections import Counter, defaultdict
+    from decimal import Decimal, InvalidOperation
+
+    if (not isinstance(source_service_name, str) or not source_service_name.strip()
+        or not isinstance(report_process_lines, list)
+        or not 1 <= len(report_process_lines) <= 100
+        or not isinstance(index_rows, list)):
+        return None
+
+    def fingerprint(row):
+        if not isinstance(row, dict):
+            return None
+        process = row.get("process_id")
+        unit = row.get("data_unit")
+        data_size = row.get("data_size")
+        if (not isinstance(process, str) or not _REPORT_ID.fullmatch(process)
+            or unit not in _ALLOWED_UNITS):
+            return None
+        normalized_unit = "Gb" if unit in ("G raw data", "Gb") else unit
+        if normalized_unit == "NA" and data_size in (None, ""):
+            normalized_size = ""
+        else:
+            if data_size in (None, "") or isinstance(data_size, bool):
+                return None
+            try:
+                size = Decimal(str(data_size))
+            except (InvalidOperation, ValueError, TypeError):
+                return None
+            if not size.is_finite() or size <= 0:
+                return None
+            normalized_size = format(size.normalize(), "f")
+        return (process, normalized_unit, normalized_size)
+
+    expected = [fingerprint(x) for x in report_process_lines]
+    if any(x is None for x in expected):
+        return None
+    expected_counts = Counter(expected)
+    grouped = defaultdict(list)
+    for row in index_rows:
+        if not isinstance(row, dict) or row.get("product_name") != source_service_name:
+            continue
+        quote_id = row.get("quote_id")
+        signature = row.get("product_signature")
+        if (not isinstance(quote_id, str) or not quote_id
+            or not isinstance(signature, str) or not signature):
+            return None
+        grouped[(quote_id, signature)].append(row)
+
+    matched = set()
+    for (quote_id, signature), rows in grouped.items():
+        # Validate the entire historical Quote/Product group before matching;
+        # never filter out an ineligible row and match a misleading subset.
+        eligible = all(
+            row.get("source_verified") is True
+            and row.get("source_kind") == "VERIFIED_SFDC_KRW_PROCESS_PRICE"
+            and row.get("currency") == "KRW"
+            and row.get("was_usd_converted") is False
+            and row.get("vat_basis") == "VAT_EXCLUDED"
+            and row.get("approval_status") == "APPROVED"
+            and row.get("active") is True
+            and isinstance(row.get("created_date"), str)
+            and row["created_date"].startswith("2026-")
+            for row in rows
+        )
+        if not eligible:
+            continue
+        actual = [fingerprint(x) for x in rows]
+        if any(x is None for x in actual):
+            continue
+        if Counter(actual) == expected_counts:
+            matched.add(signature)
+    return next(iter(matched)) if len(matched) == 1 else None
