@@ -5,6 +5,7 @@ No model output is ever executed as a command. Acceptance and CI remain independ
 """
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -195,6 +196,10 @@ def report_state(root, goal, state, evidence):
 
 
 def run(root, goal, *, dry_run=False):
+    goal_sha256 = hashlib.sha256(
+        json.dumps(goal, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        + (root / goal["document"]).read_bytes()
+    ).hexdigest()
     checkpoint = Path.home() / ".goal-loop" / goal["goal_id"] / "latest.json"
     prior = {}
     if checkpoint.is_file():
@@ -208,7 +213,10 @@ def run(root, goal, *, dry_run=False):
     history = previous.get("iterations", [])
     if not isinstance(history, list) or len(history) > 12:
         raise Hold("INVALID_ITERATION_HISTORY")
-    evidence = {"iterations": history, "mode": "dry-run" if dry_run else "worktree-pr-only"}
+    if previous.get("goal_sha256") is not None and previous["goal_sha256"] != goal_sha256:
+        raise Hold("GOAL_DOCUMENT_CHANGED_REQUIRES_NEW_REVIEW")
+    evidence = {"iterations": history, "goal_sha256": goal_sha256,
+                "mode": "dry-run" if dry_run else "worktree-pr-only"}
     if dry_run:
         evidence["note"] = "No model, git write, checkpoint write, or remote action performed."
         payload = {"goal_id": goal["goal_id"], "state": "READY", "evidence": evidence}
