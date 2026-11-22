@@ -3,9 +3,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from automation.goal_loop.controller import (
-    Hold, acceptance_check_name, apply_proposal, load_goal,
+    Hold, acceptance_check_name, apply_proposal, load_goal, run,
     unsafe_ci_gate_failed,
 )
 from automation.goal_loop.source_quality import (
@@ -138,6 +139,27 @@ class V2QualityTests(unittest.TestCase):
             apply_proposal(self.root, goal, {"path": goal["allowed_files"][0],
                                              "content": bad})
         self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_invalid_v2_model_source_retries_within_goal_budget(self):
+        bad = VALID_SOURCE + "\\nassert normalize_status('unknown') == 'HOLD'\\n"
+        def fake_command(args, *unused, **kwargs):
+            if args[:4] == ["git", "remote", "get-url", "origin"]:
+                return {"ok": True, "code": 0,
+                        "output": "https://github.com/kimtk94/Codex.git\\n"}
+            return {"ok": True, "code": 0, "output": ""}
+        with patch("pathlib.Path.home", return_value=self.root), \\
+             patch("automation.goal_loop.controller.require_local_model"), \\
+             patch("automation.goal_loop.controller.shutil.which", return_value="git"), \\
+             patch("automation.goal_loop.controller.run_cmd", side_effect=fake_command), \\
+             patch("automation.goal_loop.controller.ollama_proposal",
+                   return_value={"path": self.goal["allowed_files"][0],
+                                 "content": bad}) as model:
+            result = run(self.root, self.parsed_goal())
+        self.assertEqual(result["state"], "STATIC_QUALITY_HOLD")
+        self.assertEqual(len(result["evidence"]["iterations"]), 2)
+        self.assertEqual(model.call_count, 2)
+        self.assertTrue(all(i["static_rejected"] for i in result["evidence"]["iterations"]))
+        self.assertNotIn("pr_url", result["evidence"])
 
     def test_apply_proposal_quality_accepts_nonexecuted_source(self):
         goal = self.parsed_goal()
