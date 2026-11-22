@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only historical QQ TAX INVOICE backfill; never changes source or mail."""
+"""QQ invoice evidence writer: read-only source IMAP, guarded Google Sheets outputs."""
 import datetime as dt, imaplib, json, os, re, sys, urllib.parse
 from collections import Counter
 from email.parser import BytesParser
@@ -105,9 +105,8 @@ def main():
             seeded+=1
         print("QQ_BACKFILL_SEEDED year=2026 verified_existing="+str(seeded)+
               " known_uids="+str(len(known_uids)),flush=True)
-        if seeded:
-            call(s,"PUT","/values/"+quote("A1")+"?valueInputOption=RAW",
-                json={"values":[HEAD]+list(by_invoice.values())})
+        # Never write seeded evidence before IMAP preflight and source review.
+        # Persist the merged in-memory rows once, before the safe cursor.
     scanned=0; matches=0; fetched=0; folders=0; filename_candidates=0; filename_parsed=0
     limit=int(os.getenv("BACKFILL_MAX_MATCHES","2500"))
     unfinished=False; prior_skipped=0; last_by_folder={}
