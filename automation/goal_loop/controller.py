@@ -150,6 +150,8 @@ def apply_proposal(root, goal, proposal):
         except SyntaxError as exc:
             raise Hold("MODEL_SYNTAX_ERROR") from exc
     destination = root / path
+    if destination.is_symlink() or not destination.is_file():
+        raise Hold("MODEL_TARGET_NOT_REGULAR_FILE")
     tmp = destination.with_suffix(destination.suffix + ".goal-tmp")
     try:
         tmp.write_text(content, encoding="utf-8")
@@ -193,12 +195,13 @@ def pr_checks(root, goal, pr_url, deadline, expected_sha):
             {"name": c.get("name"), "status": c.get("status"),
              "conclusion": c.get("conclusion"), "head_sha": c.get("head_sha"),
              "id": c.get("id"), "url": c.get("html_url"),
-             "run_id": (c.get("check_suite") or {}).get("id")}
+             "app_slug": (c.get("app") or {}).get("slug")}
             for c in checks if isinstance(c, dict)
         ]
         verified = {
             c["name"]: c for c in last
             if c["head_sha"] == expected_sha and c.get("status") == "completed"
+            and c.get("app_slug") == "github-actions"
             and isinstance(c.get("name"), str)
         }
         required = goal["required_checks"]
@@ -260,7 +263,7 @@ def run(root, goal, *, dry_run=False):
     history = previous.get("iterations", [])
     if not isinstance(history, list) or len(history) > 12:
         raise Hold("INVALID_ITERATION_HISTORY")
-    if previous.get("goal_sha256") is not None and previous["goal_sha256"] != goal_sha256:
+    if previous and previous.get("goal_sha256") != goal_sha256:
         raise Hold("GOAL_DOCUMENT_CHANGED_REQUIRES_NEW_REVIEW")
     evidence = {"iterations": history, "goal_sha256": goal_sha256,
                 "mode": "dry-run" if dry_run else "worktree-pr-only"}
