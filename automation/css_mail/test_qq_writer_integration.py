@@ -197,7 +197,9 @@ class WriterIntegrationTests(unittest.TestCase):
     def test_preview_of_valid_source_never_writes_sheets_or_cursor(self):
         mail=FakeMail({101:[attachment("209126000701")]})
         sheets=FakeSheet()
-        run_writer(mail,sheets,mode="PREVIEW",approved=False)
+        with self.assertRaises(SystemExit) as outcome:
+            run_writer(mail,sheets,mode="PREVIEW",approved=False)
+        self.assertEqual(outcome.exception.code,2)  # not committed
         self.assertEqual(sheets.puts,[])
         self.assertEqual(sheets.cursor[1][3],"100")
         self.assertEqual(len(sheets.qq),1)
