@@ -1,0 +1,74 @@
+"""Synthetic-only workflow writer scope checks; no API calls or credentials."""
+import json
+import unittest
+from automation.css_mail.qq_replay_writer_exclusion_audit import (
+    assess, LEGACY_WRITER, SAFE_WRITER, MAIN_WORKFLOW, TARGET
+)
+
+
+def baseline():
+    main = ("name: QQ Backfill\non: workflow_dispatch\njobs:\n"
+            "  offline-tests:\n    runs-on: ubuntu-latest\n"
+            "  safe-preview:\n    env:\n"
+            "      BACKFILL_WRITE_MODE: 'PREVIEW'\n"
+            "    run: python3 -m py_compile " + SAFE_WRITER)
+    year2025 = ("name: QQ 2025\njobs:\n  backfill:\n"
+                "    env:\n      BACKFILL_YEAR: '2025'\n"
+                "    run: python3 " + LEGACY_WRITER)
+    scripts = {SAFE_WRITER: 'if mode == "APPLY": raise RuntimeError("GATE")',
+               LEGACY_WRITER:'def main(): pass'}
+    return {MAIN_WORKFLOW: main, "qq-2025-invoice-backfill.yml": year2025}, scripts
+
+
+class WriterBoundaryTests(unittest.TestCase):
+    def test_safe_known_workflows_still_hold_unproven_exclusion(self):
+        workflows, scripts = baseline()
+        r = assess(workflows, scripts)
+        self.assertEqual(r["blocking_rule_count"], 0)
+        self.assertEqual(r["bounded_2025_legacy_entries"], 1)
+        self.assertEqual(r["writer_exclusion_verified"], 0)
+        self.assertEqual(r["atomic_cas_verified"], 0)
+        self.assertEqual(r["status"], "HOLD")
+        self.assertNotIn(TARGET, json.dumps(r))
+    def test_2026_apply_job_is_detected(self):
+        workflows, scripts = baseline()
+        workflows[MAIN_WORKFLOW] += (
+            "\n  backfill:\n      BACKFILL_WRITE_MODE: 'APPLY'")
+        r=assess(workflows, scripts)
+        self.assertIn("APPLY_WORKFLOW_ENABLED",r["blocking_rule_codes"])
+    def test_secondary_stage_reference_blocks(self):
+        workflows, scripts = baseline()
+        workflows["other.yml"] = "BACKFILL_TAB: '" + TARGET + "'"
+        r=assess(workflows, scripts)
+        self.assertEqual(r["independent_2026_stage_references"],1)
+        self.assertIn("INDEPENDENT_2026_STAGE_REFERENCE",r["blocking_rule_codes"])
+    def test_legacy_without_fixed_year_is_unbounded(self):
+        workflows, scripts = baseline()
+        workflows["unknown.yml"] = "run: python3 " + LEGACY_WRITER
+        r=assess(workflows, scripts)
+        self.assertEqual(r["unbounded_legacy_entries"],1)
+        self.assertIn("LEGACY_WRITER_NOT_YEAR_PINNED",r["blocking_rule_codes"])
+    def test_missing_explicit_preview_is_fatal(self):
+        workflows, scripts = baseline()
+        workflows[MAIN_WORKFLOW] = workflows[MAIN_WORKFLOW].replace(
+            "'PREVIEW'", "'APPLY'")
+        r=assess(workflows, scripts)
+        self.assertIn("PREVIEW_NOT_PINNED",r["blocking_rule_codes"])
+    def test_missing_sources_or_workflow_fail_closed(self):
+        workflows, scripts = baseline()
+        with self.assertRaisesRegex(ValueError,"REPLAY_2026_WORKFLOW_MISSING"):
+            assess({}, scripts)
+        with self.assertRaisesRegex(ValueError,"REPLAY_BACKFILL_WRITER_SOURCE_MISSING"):
+            assess(workflows, {})
+    def test_unknown_future_writers_cannot_be_authorized(self):
+        workflows, scripts = baseline()
+        workflows["unknown-script.yml"] = "run: python3 dynamic_entrypoint.py"
+        r=assess(workflows,scripts)
+        self.assertEqual(r["writer_exclusion_verified"],0)
+        self.assertEqual(r["cross_workflow_lock_verified"],0)
+        self.assertEqual(r["approval_authenticated"],0)
+        self.assertEqual(r["stage_writes"],0)
+
+
+if __name__ == "__main__":
+    unittest.main()
