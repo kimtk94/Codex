@@ -8,6 +8,4 @@ def normalize_status(value):
         return 'PASS'
     if normalized in ['UNKNOWN', 'ERROR']:
         return 'FAIL'
-    if normalized in ['PASS', 'FAIL', 'UNKNOWN', 'ERROR']:
-        return normalized
-    return 'UNKNOWN'
+    return 'HOLD'
