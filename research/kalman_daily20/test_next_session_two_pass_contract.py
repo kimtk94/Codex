@@ -13,7 +13,8 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from forward_shadow import journal_bytes
-from prospective_seal_attestation import CORE
+from prospective_seal_attestation import CORE, fingerprint
+from bear_forward import VERSION as BEAR_VERSION
 from test_prospective_seal_attestation import fake_prospective
 from next_session_two_pass_contract import (
     VERSION, BEAR_JOURNAL, BULL_JOURNAL, SNAP_PREFIX,
@@ -53,6 +54,21 @@ def test_file_fixture(root, *, bull_override=None, bear_override=None):
     for path in (bull, bear, stability / "snapshots"):
         path.mkdir(parents=True, exist_ok=True)
     snapshot, _, _, bull_events, bear_events = fake_prospective()
+    # The deep first-seal fixture verifies hashes, but the production Bear
+    # journal parser additionally insists on signed eligibility, version,
+    # per-feature SHA and shadow-policy fields. Make the synthetic journal
+    # satisfy BOTH checks, never relax actual production validation.
+    for i, event in enumerate(bear_events):
+        symbol = event["symbol"]
+        event["eligible"] = True
+        event["model_version"] = BEAR_VERSION
+        event["shadow_only"] = False
+        event["feature_sha256"] = snapshot["models"][symbol]["feature_sha256"]
+        event["prev_hash"] = ("0" * 64 if i == 0
+                              else bear_events[i-1]["hash"])
+        event["hash"] = fingerprint(
+            {key: value for key, value in event.items() if key != "hash"})
+        snapshot["models"][symbol]["frozen_signal_hashes"][event["family"]] = event["hash"]
     b_raw = (bull_override if bull_override is not None
              else journal_bytes(bull_events))
     br_raw = (bear_override if bear_override is not None
