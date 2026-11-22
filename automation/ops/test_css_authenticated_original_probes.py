@@ -14,9 +14,9 @@ from css_authenticated_original_probes import (
 def mail_folders():
     return {
         "INBOX": {"folder": "INBOX", "uidvalidity": "256", "uids": ["1", "2"],
-                  "recent_uids": ["2"], "scan_uids": ["1", "2"]},
+                  "recent_uids": ["2"], "scan_uids": ["1", "2"], "year_uids": ["1", "2"]},
         "SENT": {"folder": "Sent Messages", "uidvalidity": "512", "uids": ["3"],
-                 "recent_uids": ["3"], "scan_uids": ["3"]},
+                 "recent_uids": ["3"], "scan_uids": ["3"], "year_uids": ["3"]},
     }
 
 
@@ -59,6 +59,49 @@ class OriginalProbesTests(unittest.TestCase):
         self.assertEqual(result["recent_3d_state"], "PASS_UID_ONLY")
         self.assertEqual(result["scan_60d_state"], "PASS_UID_ONLY")
         self.assertEqual(result["uid_coverage_state"], "HISTORICAL_SINK_LAG")
+
+    def test_one_year_priority_is_separate_from_full_mailbox_history(self):
+        folders=mail_folders()
+        folders["INBOX"]["uids"]=["1","2","99"]
+        # Only one old UID is absent. 1 is between 61 and 365 days,
+        # while 99 is older than 365 days and excluded from current review.
+        folders["INBOX"]["scan_uids"]=["2"]
+        folders["INBOX"]["year_uids"]=["1","2"]
+        result=validate_mail_coverage(folders,["INBOX|256|2","Sent Messages|512|3"])
+        self.assertEqual(2,result["missing_uid_count"])
+        self.assertEqual(0,result["recent_3d_missing_uid_count"])
+        self.assertEqual(0,result["scan_60d_missing_uid_count"])
+        self.assertEqual(1,result["scan_365d_missing_uid_count"])
+        self.assertEqual("SINK_LAG",result["scan_365d_state"])
+        self.assertEqual(1,result["historical_61_to_365d_uid_gap"])
+        self.assertEqual(1,result["historical_outside_365d_uid_gap"])
+        self.assertEqual("IMAP_INTERNALDATE_DAY_GRAIN_ROLLING_365D",result["window_scope"])
+        self.assertFalse(result["mime_body_verified"])
+
+    def test_365d_window_requires_all_folders_and_hierarchy(self):
+        folders=mail_folders()
+        del folders["SENT"]["year_uids"]
+        with self.assertRaisesRegex(ValueError,"WINDOW_EVIDENCE_MISSING"):
+            validate_mail_coverage(folders,["INBOX|256|2"])
+        folders=mail_folders()
+        folders["INBOX"]["year_uids"]=["2"]
+        with self.assertRaisesRegex(ValueError,"WINDOW_HIERARCHY_INVALID"):
+            validate_mail_coverage(folders,["INBOX|256|2"])
+        folders=mail_folders()
+        folders["INBOX"]["year_uids"]=["1","2","999"]
+        with self.assertRaisesRegex(ValueError,"WINDOW_NOT_SUBSET_OF_ALL"):
+            validate_mail_coverage(folders,["INBOX|256|2"])
+
+    def test_year_uid_parity_not_claimed_for_older_history(self):
+        folders=mail_folders()
+        folders["INBOX"]["uids"]=["1","2","99"]
+        folders["INBOX"]["recent_uids"]=["2"]
+        folders["INBOX"]["scan_uids"]=["2"]
+        folders["INBOX"]["year_uids"]=["2"]
+        result=validate_mail_coverage(folders,["INBOX|256|2","Sent Messages|512|3"])
+        self.assertEqual("PASS_UID_ONLY",result["scan_365d_state"])
+        self.assertEqual(2,result["historical_outside_365d_uid_gap"])
+        self.assertEqual("HISTORICAL_SINK_LAG",result["uid_coverage_state"])
 
     def test_window_search_must_succeed_not_implicitly_zero(self):
         folders = mail_folders()
