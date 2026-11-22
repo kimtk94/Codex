@@ -512,6 +512,46 @@ jobs:
                 "independent factors",r["independent_factor_certified"],"/25",
                 "issuer cash gaps",r["issuer_specific_cash_gaps"])
           PY
+      - name: Check official publisher source routes and re-fetch Cboe VIX history (HOLD)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/official_close_source_access.py \
+              --independent output/daily20/research/source_finality/independent_feed.json \
+              --reference output/daily20/research/source_finality/selected_reference.json \
+              --venue output/daily20/research/source_finality/venue_identity.json \
+              --obligations output/daily20/research/official_price_proof_obligations/report.json \
+              --out-dir output/daily20/research/official_close_access
+          else
+            python research/kalman_daily20/official_close_source_access.py \
+              --independent output/daily20/research/source_finality/independent_feed.json \
+              --reference output/daily20/research/source_finality/selected_reference.json \
+              --venue output/daily20/research/source_finality/venue_identity.json \
+              --obligations output/daily20/research/official_price_proof_obligations/report.json \
+              --out-dir output/daily20/research/official_close_access --probe-cboe
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          root=Path("output/daily20/research/official_close_access")
+          report=json.loads((root/"report.json").read_text())
+          assert report["version"]=="daily20-primary-publisher-access-v1"
+          assert report["status"]=="PRIMARY_PUBLISHER_ACCESS_AND_CERTIFICATION_RESEARCH_HOLD"
+          assert report["research_only"] and not report["live_execution"]
+          assert not report["strategy_promoted"] and not report["production_writes"]
+          assert len(report["rows"])==26
+          assert report["official_close_certified"]==0 and report["official_close_required"]==26
+          assert report["independent_corporate_factors_certified"]==0
+          assert report["equities_missing_primary_numeric_evidence"]==25
+          assert sum(report["access_route_counts"].values())==25
+          assert all(not row["point_in_time_close_certified"] for row in report["rows"])
+          archive=root/"cboe_vix_public_source.csv.gz"
+          if archive.exists():
+              assert report["raw_publication_gzip_sha256"]==hashlib.sha256(archive.read_bytes()).hexdigest()
+          print("DAILY20_PRIMARY_OFFICIAL_ROUTE_HOLD",report["session"],
+                report["access_route_counts"],
+                "CBOE_SECOND_CAPTURE",report["cboe_publisher_recheck"]["recheck_status"],
+                "SOURCE_FINALITY_CERTIFIED",report["official_close_certified"],"/26")
+          PY
       - name: Record original QQQ 2018 trust amendment (date rule only; no paid cash)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
