@@ -199,8 +199,31 @@ class ControllerSafetyTests(unittest.TestCase):
                 time.monotonic() + 5, expected,
             )
         self.assertEqual(state, "PASS")
-        self.assertEqual(calls["pr"], 2)
+        self.assertEqual(calls["pr"], 3)
         self.assertEqual(calls["api"], 1)
+
+    def test_real_git_head_ancestry_classification(self):
+        # Verify local Git's actual exit semantics, not only mocked commands.
+        root = self.root
+        for cmd in (
+            ["git", "init", "-q"],
+            ["git", "add", "-A"],
+            ["git", "-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
+             "commit", "-q", "-m", "baseline"],
+        ):
+            self.assertTrue(run_cmd(cmd, root)["ok"], cmd)
+        original = run_cmd(["git", "rev-parse", "HEAD"], root)["output"].strip()
+        self.file.write_text("x = 2\n", encoding="utf-8")
+        for cmd in (
+            ["git", "add", "-A"],
+            ["git", "-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
+             "commit", "-q", "-m", "agent improvement"],
+        ):
+            self.assertTrue(run_cmd(cmd, root)["ok"], cmd)
+        improved = run_cmd(["git", "rev-parse", "HEAD"], root)["output"].strip()
+        self.assertEqual(pr_head_relation(root, original, improved), "STALE_PR_API")
+        self.assertEqual(pr_head_relation(root, improved, original), "REMOTE_ADVANCED")
+        self.assertEqual(pr_head_relation(root, improved, improved), "MATCH")
 
     def test_remote_advanced_does_not_attest_stale_commit(self):
         expected = "a" * 40
