@@ -64,11 +64,11 @@ def evaluate_case(case, approval, before, after, proof_ok, now):
         return "CURSOR_CHANGED"
     if before.get("audit") != after.get("audit"):
         return "CURSOR_CHANGED"
-    if any(before.get(t) != after.get(t) for t in ("qq", "css", "extract")):
-        return "SNAPSHOT_CHANGED"
     if any(str(row.get("invoice_number") or "") == key
            for tab in ("qq", "css") for row in after.get(tab, [])):
         return "SINK_ALREADY_PRESENT"
+    if any(before.get(t) != after.get(t) for t in ("qq", "css", "extract")):
+        return "SNAPSHOT_CHANGED"
     if approval is None:
         return "APPROVAL_ABSENT"
     if not isinstance(approval, dict) or approval.get("decision") != "APPROVED":

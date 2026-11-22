@@ -15,7 +15,7 @@ def case(n="209126000001"):
     return {"invoice_number":n, "amount_krw":"1000", "imap_folder":"INBOX",
             "imap_uid":"410", "uidvalidity":"1234", "evidence":"OFFICIAL"}
 def snaps():
-    v={"cursor":[{"folder":"INBOX","uidvalidity":"1234","last_uid":"500"}],
+    v={"cursor":[{"year":"2026","folder":"INBOX","uidvalidity":"1234","last_uid":"500"}],
        "audit":[{"status":"SCAN_COMPLETE"}],"qq":[],"css":[]}
     return v,{"cursor":[x.copy() for x in v["cursor"]],
               "audit":[x.copy() for x in v["audit"]],"qq":[],"css":[]}
