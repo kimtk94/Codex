@@ -223,7 +223,15 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
             # Old incremental backfill checked each chunk separately.
             # The original issued proof reassembled fragmented MIME filenames.
             old_names = [name for part in chunks for name in filenames(part)]
-            joined_names = filenames(b"".join(chunks))
+            # IMAP tuple[0] may contain FETCH framing bytes between the actual
+            # literal tuple[1] fragments. Joining all bytes can corrupt a
+            # filename; first reassemble only literal payloads.
+            literal_parts = [item[1] for item in payload or []
+                             if isinstance(item, tuple) and len(item) > 1
+                             and isinstance(item[1], bytes)]
+            joined_names = filenames(b"".join(literal_parts)) if literal_parts else []
+            joined_names += filenames(b" ".join(literal_parts)) if literal_parts else []
+            joined_names += filenames(b"".join(chunks))
             joined_names += filenames(b" ".join(chunks))
             matching_old = any(parsed_matches(parser(n), e) for n in old_names)
             matching_joined = any(parsed_matches(parser(n), e) for n in joined_names)
