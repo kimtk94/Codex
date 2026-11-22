@@ -147,10 +147,10 @@ class V2QualityTests(unittest.TestCase):
                 return {"ok": True, "code": 0,
                         "output": "https://github.com/kimtk94/Codex.git\\n"}
             return {"ok": True, "code": 0, "output": ""}
-        with patch("pathlib.Path.home", return_value=self.root), \\
-             patch("automation.goal_loop.controller.require_local_model"), \\
-             patch("automation.goal_loop.controller.shutil.which", return_value="git"), \\
-             patch("automation.goal_loop.controller.run_cmd", side_effect=fake_command), \\
+        with patch("pathlib.Path.home", return_value=self.root), \
+             patch("automation.goal_loop.controller.require_local_model"), \
+             patch("automation.goal_loop.controller.shutil.which", return_value="git"), \
+             patch("automation.goal_loop.controller.run_cmd", side_effect=fake_command), \
              patch("automation.goal_loop.controller.ollama_proposal",
                    return_value={"path": self.goal["allowed_files"][0],
                                  "content": bad}) as model:
