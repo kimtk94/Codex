@@ -7,7 +7,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/qq-2026-invoice-backfill.yml'
-      - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
@@ -39,10 +39,10 @@ jobs:
       - name: Install Google Sheets API dependencies
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Preflight Python syntax
-        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py automation/css_mail/qq_safe_backfill_ingest.py
+        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill_2026_safe.py automation/css_mail/tax_invoice_extract.py automation/css_mail/qq_safe_backfill_ingest.py
       - name: Gate writer with offline cursor and original-proof regression
         run: |
           python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
           python3 -m unittest automation.css_mail.test_qq_safe_backfill_ingest -v
       - name: Backfill 2026 QQ invoice evidence (read-only IMAP)
-        run: python3 automation/css_mail/qq_historical_invoice_backfill.py
+        run: python3 automation/css_mail/qq_historical_invoice_backfill_2026_safe.py
