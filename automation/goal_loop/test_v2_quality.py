@@ -145,7 +145,7 @@ class V2QualityTests(unittest.TestCase):
         def fake_command(args, *unused, **kwargs):
             if args[:4] == ["git", "remote", "get-url", "origin"]:
                 return {"ok": True, "code": 0,
-                        "output": "https://github.com/kimtk94/Codex.git\\n"}
+                        "output": "https://github.com/kimtk94/Codex.git\n"}
             return {"ok": True, "code": 0, "output": ""}
         with patch("pathlib.Path.home", return_value=self.root), \
              patch("automation.goal_loop.controller.require_local_model"), \
