@@ -76,10 +76,14 @@ def assess_writer_cursor_order(source):
                 ):
                     start.append(node.lineno)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr != "uid" or not node.args:
-                continue
-            arg = node.args[0]
-            if isinstance(arg, ast.Constant) and arg.value == "FETCH":
+            if node.func.attr == "uid" and node.args:
+                arg = node.args[0]
+                if isinstance(arg, ast.Constant) and arg.value == "FETCH":
+                    fetch.append(node.lineno)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            # The hardened writer delegates original-header/MIME FETCH
+            # handling to a separately tested, side-effect-free helper.
+            if node.func.id == "evaluate_candidate":
                 fetch.append(node.lineno)
     if not start or not fetch:
         raise ValueError("WRITER_CURSOR_ORDER_UNVERIFIED")
