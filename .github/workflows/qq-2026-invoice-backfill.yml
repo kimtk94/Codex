@@ -26,6 +26,8 @@ jobs:
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       BACKFILL_YEAR: '2026'
+      # Stage 1 rollout: only original IMAP and Sheets GET; never write.
+      BACKFILL_WRITE_MODE: 'PREVIEW'
       BACKFILL_TAB: 'QQ 2026 Invoice Backfill'
       BACKFILL_MAX_MATCHES: '4500'
       BACKFILL_DIAGNOSTIC_VERSION: '2026-10-23-v4-full-ledger'
