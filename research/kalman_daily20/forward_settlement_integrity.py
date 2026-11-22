@@ -169,6 +169,22 @@ def audit(spec, market, asof, bull_events, bear_events, *,
             "SETTLED_INDEX_NOT_UNIQUE")
     import exchange_calendars as xc
     calendar = xc.get_calendar("XNYS")
+    # Preflight every due event before loading ANY vendor prices. Otherwise an
+    # unrelated missing Parquet could mask a broken settled-journal invariant.
+    calendar_windows = {}
+    for date in sorted({key[0] for key in bull}):
+        _, window = nyse_dates(date, calendar=calendar)
+        calendar_windows[date] = window
+    for date, symbol in sorted(bull):
+        window = calendar_windows[date]
+        due = str(window[4].date()) <= asof
+        for family in FAMILIES:
+            is_settled = (date, symbol, family) in expected
+            require(not (due and not is_settled),
+                    "MATURED_4TH_SESSION_UNSETTLED:" +
+                    ":".join((date, symbol, family)))
+            require(not (not due and is_settled),
+                    "PREMATURE_4TH_SESSION_SETTLEMENT")
     cache, rows = {}, []
     counts = Counter()
     for date, symbol in sorted(bull):
@@ -176,7 +192,7 @@ def audit(spec, market, asof, bull_events, bear_events, *,
             identity = (date, symbol, family)
             original = (bull[(date, symbol)] if family == "BULL_LOGISTIC"
                         else bear[identity])
-            _, window = nyse_dates(date, calendar=calendar)
+            window = calendar_windows[date]
             entry_date, exit_date = str(window[1].date()), str(window[4].date())
             settled = expected.get(identity)
             due = exit_date <= asof
