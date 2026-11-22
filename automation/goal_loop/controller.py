@@ -195,37 +195,87 @@ def report_state(root, goal, state, evidence):
 
 
 def run(root, goal, *, dry_run=False):
-    evidence = {"iterations": [], "mode": "dry-run" if dry_run else "worktree-pr-only"}
+    checkpoint = Path.home() / ".goal-loop" / goal["goal_id"] / "latest.json"
+    prior = {}
+    if checkpoint.is_file():
+        try:
+            prior = json.loads(checkpoint.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as exc:
+            raise Hold("INVALID_LOCAL_CHECKPOINT") from exc
+        if prior.get("goal_id") != goal["goal_id"]:
+            raise Hold("CHECKPOINT_ID_MISMATCH")
+    previous = prior.get("evidence", {}) if isinstance(prior.get("evidence", {}), dict) else {}
+    history = previous.get("iterations", [])
+    if not isinstance(history, list) or len(history) > 12:
+        raise Hold("INVALID_ITERATION_HISTORY")
+    evidence = {"iterations": history, "mode": "dry-run" if dry_run else "worktree-pr-only"}
     if dry_run:
         evidence["note"] = "No model, git write, or remote action performed."
         return report_state(root, goal, "READY", evidence)
+    if len(history) >= 12:
+        raise Hold("TOTAL_ITERATION_BUDGET_EXHAUSTED")
     for app in ("git", "gh"):
         if not shutil.which(app):
             raise Hold("MISSING_TOOL:" + app)
+    prior_branch = previous.get("branch")
+    pr_url = previous.get("pr_url")
+    if prior_branch is not None and (
+        not isinstance(prior_branch, str)
+        or not re.fullmatch(r"agent/" + re.escape(goal["goal_id"]) + r"-[0-9]{14}", prior_branch)
+    ):
+        raise Hold("INVALID_RESUME_BRANCH")
+    if pr_url is not None and (
+        not isinstance(pr_url, str)
+        or not re.fullmatch(r"https://github\.com/kimtk94/Codex/pull/[0-9]+", pr_url)
+        or not prior_branch
+    ):
+        raise Hold("INVALID_RESUME_PR")
     run_cmd(["gh", "auth", "status"], root, timeout=20, checked=True)
     run_cmd(["git", "fetch", "origin", goal["base_branch"]], root, timeout=90, checked=True)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
-    branch = "agent/" + goal["goal_id"] + "-" + stamp
+    branch = prior_branch or ("agent/" + goal["goal_id"] + "-" + stamp)
     work_dir = Path(tempfile.mkdtemp(prefix="goal-loop-"))
-    # Worktree requires the destination not to exist.
     work_dir.rmdir()
     start = time.monotonic()
     deadline = start + goal["max_minutes"] * 60
-    pr_url = None
     state = "HOLD"
     try:
-        run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir), "origin/" + goal["base_branch"]], root, timeout=90, checked=True)
+        if prior_branch:
+            run_cmd(["git", "fetch", "origin", prior_branch], root, timeout=90, checked=True)
+            exists = run_cmd(["git", "show-ref", "--verify", "refs/heads/" + branch], root)
+            if exists["ok"]:
+                run_cmd(["git", "worktree", "add", str(work_dir), branch], root, timeout=90, checked=True)
+            else:
+                run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir), "origin/" + branch], root, timeout=90, checked=True)
+            run_cmd(["git", "merge", "--ff-only", "origin/" + branch], work_dir, timeout=40, checked=True)
+        else:
+            run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir), "origin/" + goal["base_branch"]], root, timeout=90, checked=True)
+        evidence["branch"] = branch
+        if pr_url:
+            evidence["pr_url"] = pr_url
+        report_state(root, goal, "RUNNING", evidence)
+        if pr_url:
+            verdict, checks = pr_checks(work_dir, goal, pr_url, min(deadline, time.monotonic() + 120))
+            evidence["last_ci"] = {"verdict": verdict, "checks": checks}
+            if verdict == "PASS":
+                return report_state(root, goal, "CI_PASS_REVIEW_REQUIRED", evidence)
+            if any(c.get("name") == "main-write-guard" and c.get("bucket") != "pass" for c in checks):
+                return report_state(root, goal, "HOLD_SECURITY_GATE", evidence)
         for index in range(1, goal["max_iterations"] + 1):
             if time.monotonic() >= deadline:
                 state = "TIME_BUDGET_EXHAUSTED"
                 break
+            if len(evidence["iterations"]) >= 12:
+                state = "TOTAL_ITERATION_BUDGET_EXHAUSTED"
+                break
             local = test_goal(work_dir, goal)
-            iteration = {"number": index, "test_before": local}
+            iteration = {"number": len(evidence["iterations"]) + 1, "test_before": local}
             evidence["iterations"].append(iteration)
             proposal = ollama_proposal(work_dir, goal, local)
             iteration["edited"] = apply_proposal(work_dir, goal, proposal)
             after = test_goal(work_dir, goal)
             iteration["test_after"] = after
+            report_state(root, goal, "RUNNING", evidence)
             if not after["passed"]:
                 state = "RETRY_LOCAL_TEST"
                 continue
@@ -246,6 +296,7 @@ def run(root, goal, *, dry_run=False):
                 ], work_dir, timeout=60, checked=True)
                 pr_url = p["output"].strip().splitlines()[0]
                 evidence["pr_url"] = pr_url
+            report_state(root, goal, "RUNNING", evidence)
             verdict, checks = pr_checks(work_dir, goal, pr_url, deadline)
             iteration["remote_ci"] = {"verdict": verdict, "checks": checks}
             if verdict == "PASS":
