@@ -140,5 +140,47 @@ class MailOnlyTests(unittest.TestCase):
                 [extracted("209126000001",1)])
 
 
+    def test_full_2026_both_projection_sources_preserve_older_unmatched(self):
+        # Full-year proof must not mislabel already-recorded legacy rows as gaps.
+        history=[
+            backfill("209126000111",1200,month="2026-08"),
+            backfill("209126000222",1300,month="2026-09"),
+            backfill("209126000333",1400,month="2026-10"),
+            backfill("209126000444",1500,month="2026-11"),
+            backfill("209126000555",1600,month="2026-11"),
+        ]
+        ext=[extracted("209126000333",1400)]
+        legacy=[extracted("209126000555",1600)]
+        missing=identify_missing(history,ext,canonical=legacy,start_month="2026-01")
+        self.assertEqual(set(missing),{
+            "209126000111","209126000222","209126000444"
+        })
+
+    def test_legacy_extract_price_conflict_is_blocked(self):
+        with self.assertRaisesRegex(ValueError,"CANONICAL_EXTRACT_INVOICE_AMOUNT_CONFLICT"):
+            identify_missing([backfill("209126000888",1500)],
+                             [extracted("209126000999",1000)],
+                             canonical=[extracted("209126000999",2000)],
+                             start_month="2026-01")
+
+    def test_one_mail_uid_may_have_multiple_distinct_invoices(self):
+        missing=identify_missing([
+            backfill("209126000111",1200,month="2026-08"),
+            backfill("209126000222",1300,month="2026-09")
+        ], [extracted("209126000999",900)],
+           canonical=[extracted("209126000888",800)],start_month="2026-01")
+        self.assertEqual(len(missing),2)
+        self.assertEqual({v[-1] for v in missing.values()},{"41234"})
+
+    def test_public_main_does_not_print_invoice_ids_or_amounts(self):
+        import inspect
+        from mail_only_invoice_coverage_audit import main
+        source=inspect.getsource(main)
+        self.assertNotIn('invoice="+inv',source)
+        self.assertNotIn('gross_krw="+str',source)
+        self.assertNotIn('net_krw="+str',source)
+        self.assertIn("MAIL_ONLY_PRIVATE_EVIDENCE_REDACTED",source)
+
+
 if __name__=="__main__":
     unittest.main()
