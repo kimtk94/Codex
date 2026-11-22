@@ -13,6 +13,8 @@ on:
       - 'automation/css_mail/test_invoice_provenance_triage.py'
       - 'automation/css_mail/qq_targeted_backfill_proof.py'
       - 'automation/css_mail/test_qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/qq_precursor_replay_readiness.py'
+      - 'automation/css_mail/test_qq_precursor_replay_readiness.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
@@ -30,6 +32,8 @@ on:
       - 'automation/css_mail/test_invoice_provenance_triage.py'
       - 'automation/css_mail/qq_targeted_backfill_proof.py'
       - 'automation/css_mail/test_qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/qq_precursor_replay_readiness.py'
+      - 'automation/css_mail/test_qq_precursor_replay_readiness.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
@@ -57,6 +61,7 @@ jobs:
           python3 -m unittest automation.css_mail.test_invoice_source_freshness_monitor -v
           python3 -m unittest automation.css_mail.test_invoice_provenance_triage -v
           python3 -m unittest automation.css_mail.test_qq_targeted_backfill_proof -v
+          python3 -m unittest automation.css_mail.test_qq_precursor_replay_readiness -v
           python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
           python3 -m unittest automation.css_mail.test_qq_safe_backfill_ingest -v
   audit:
@@ -165,6 +170,10 @@ jobs:
           allowed=("status","target_count","PRE_CURSOR_MISSING",
                    "POST_CURSOR_PENDING","BLANK_ISSUED_MONTH",
                    "original_mime_verified","fragmented_mime_legacy_parser_gap",
+                   "replay_precursor_target_count","replay_source_proved_hold",
+                   "replay_stage_writes_approved","replay_canonical_writes_approved",
+                   "replay_official_issue_date_proved","replay_persisted_receipts",
+                   "replay_current_sink_readback_proved",
                    "historical_single_chunk_parser_would_match",
                    "imap_arrival_metadata_available",
                    "imap_arrival_metadata_unavailable",
