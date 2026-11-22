@@ -195,6 +195,7 @@ def pr_checks(root, goal, pr_url, deadline, expected_sha):
             {"name": c.get("name"), "status": c.get("status"),
              "conclusion": c.get("conclusion"), "head_sha": c.get("head_sha"),
              "id": c.get("id"), "url": c.get("html_url"),
+             "details_url": c.get("details_url"),
              "app_slug": (c.get("app") or {}).get("slug")}
             for c in checks if isinstance(c, dict)
         ]
@@ -215,21 +216,28 @@ def pr_checks(root, goal, pr_url, deadline, expected_sha):
     return "TIMEOUT", last
 
 
-def ci_failure_feedback(root, checks):
-    """Read failure logs as bounded UNTRUSTED DATA, never evaluate them."""
+def ci_failure_feedback(root, goal, checks):
+    """Read only bounded logs from our CI workflow; treat text as untrusted."""
     feedback = []
     for check in checks:
         if check.get("conclusion") not in ("failure", "timed_out"):
             continue
-        url = check.get("url")
-        if not isinstance(url, str) or "github.com/kimtk94/Codex/" not in url:
-            continue
-        # Avoid processing uncontrolled URLs. CI check names and job URLs suffice
-        # to indicate a failed gate; detailed logs remain on GitHub for review.
-        feedback.append({"name": str(check.get("name"))[:150],
-                         "conclusion": check.get("conclusion"),
-                         "url": url})
-    return feedback[:10]
+        details = check.get("details_url")
+        obj = {"name": str(check.get("name"))[:150],
+               "conclusion": check.get("conclusion"),
+               "url": str(check.get("url"))[:250]}
+        if isinstance(details, str):
+            match = re.match(r"^https://github\.com/kimtk94/Codex/actions/runs/([0-9]+)(?:/job/[0-9]+)?$", details)
+            if match:
+                result = run_cmd(["gh", "run", "view", match.group(1),
+                                  "--repo", goal["repo"], "--log-failed"],
+                                 root, timeout=50)
+                if result["ok"]:
+                    obj["untrusted_log_excerpt"] = result["output"][-4500:]
+        feedback.append(obj)
+        if len(feedback) >= 3:
+            break
+    return feedback
 
 
 def report_state(root, goal, state, evidence):
@@ -327,6 +335,8 @@ def run(root, goal, *, dry_run=False):
             evidence["last_ci"] = {"verdict": verdict, "checks": checks}
             if verdict == "PASS":
                 return report_state(root, goal, "CI_PASS_REVIEW_REQUIRED", evidence)
+            if verdict == "TIMEOUT":
+                return report_state(root, goal, "CI_PENDING", evidence)
             if any(c.get("name") == "main-write-guard" and c.get("conclusion") not in (None, "success") for c in checks):
                 return report_state(root, goal, "HOLD_SECURITY_GATE", evidence)
         for index in range(1, goal["max_iterations"] + 1):
@@ -338,7 +348,7 @@ def run(root, goal, *, dry_run=False):
                 break
             feedback = {"verification": "REMOTE_CI_ONLY",
                         "previous_checks": evidence.get("last_ci", {}),
-                        "failures": ci_failure_feedback(work_dir,
+                        "failures": ci_failure_feedback(work_dir, goal,
                                    evidence.get("last_ci", {}).get("checks", []))}
             iteration = {"number": len(evidence["iterations"]) + 1,
                          "local_code_execution": False}
