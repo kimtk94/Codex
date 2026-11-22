@@ -236,7 +236,9 @@ def build(*, phase, current, run_id, run_attempt, session=None,
         scope = None
         prior_status = ("PRIOR_ARCHIVE_REPORT_MISSING_LEGACY_HOLD"
                         if prior_present else "PR_OR_OFFLINE_NO_PRIOR_REFERENCE_HOLD")
-    if replay is not None or stability is not None:
+    require((replay is None) == (stability is None),
+            "RUNTIME_PARTIAL_REPLAY_EVIDENCE")
+    if replay is not None:
         require(isinstance(replay, dict) and isinstance(stability, dict)
                 and replay.get("session") == stability.get("session") == session
                 and replay.get("version") == "daily20-replay-reconciliation-v1"
