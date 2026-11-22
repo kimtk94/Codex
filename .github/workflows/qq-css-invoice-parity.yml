@@ -11,6 +11,8 @@ on:
       - 'automation/css_mail/test_invoice_source_freshness_monitor.py'
       - 'automation/css_mail/invoice_provenance_triage.py'
       - 'automation/css_mail/test_invoice_provenance_triage.py'
+      - 'automation/css_mail/qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/test_qq_targeted_backfill_proof.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
   push:
     branches: [main]
@@ -20,6 +22,8 @@ on:
       - 'automation/css_mail/test_invoice_source_freshness_monitor.py'
       - 'automation/css_mail/invoice_provenance_triage.py'
       - 'automation/css_mail/test_invoice_provenance_triage.py'
+      - 'automation/css_mail/qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/test_qq_targeted_backfill_proof.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
 permissions:
   contents: read
@@ -40,6 +44,7 @@ jobs:
           python3 -m unittest automation.css_mail.test_qq_invoice_parity_audit -v
           python3 -m unittest automation.css_mail.test_invoice_source_freshness_monitor -v
           python3 -m unittest automation.css_mail.test_invoice_provenance_triage -v
+          python3 -m unittest automation.css_mail.test_qq_targeted_backfill_proof -v
   audit:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -108,5 +113,62 @@ jobs:
         with:
           name: qq-css-source-freshness-aggregate
           path: qq-css-source-freshness.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  qq-targeted-readonly-proof:
+    # Reuses the existing 02:20 UTC schedule; never runs private IMAP on PR.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 15
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      QQ_TARGETED_PROOF_SUMMARY_PATH: qq-targeted-original-proof.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only mail and Sheets dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Test import and syntax
+        run: python3 -m py_compile automation/css_mail/qq_targeted_backfill_proof.py
+      - name: Diagnose prior-cursor original invoices and blank issue-month metadata (no writes)
+        run: python3 automation/css_mail/qq_targeted_backfill_proof.py
+      - name: Summarize aggregate original proof only
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["QQ_TARGETED_PROOF_SUMMARY_PATH"])
+          summary=json.loads(p.read_text()) if p.exists() else {"status":"SOURCE_UNAVAILABLE"}
+          allowed=("status","target_count","PRE_CURSOR_MISSING",
+                   "POST_CURSOR_PENDING","BLANK_ISSUED_MONTH",
+                   "original_mime_verified","fragmented_mime_legacy_parser_gap",
+                   "historical_single_chunk_parser_would_match",
+                   "imap_arrival_metadata_available",
+                   "imap_arrival_metadata_unavailable",
+                   "original_invoice_issue_date_proved",
+                   "blank_month_qq_extract_uid_conflict",
+                   "non_official_or_missing_header","mime_filename_or_identity_mismatch",
+                   "cursor_inconsistent","business_writes","qq_cursor_writes",
+                   "scan_at","verified_at")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a",encoding="utf-8") as output:
+              output.write("### Targeted QQ prior-cursor/blank-month original proof (READ-ONLY)\n")
+              for field in allowed:
+                  if field in summary:output.write(f"- {field}: {summary[field]}\n")
+          PY
+      - name: Retain identifier-free proof counters (30 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qq-targeted-proof-aggregate
+          path: qq-targeted-original-proof.json
           if-no-files-found: warn
           retention-days: 30
