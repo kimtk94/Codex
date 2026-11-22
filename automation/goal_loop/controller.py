@@ -259,7 +259,7 @@ def run(root, goal, *, dry_run=False):
             evidence["last_ci"] = {"verdict": verdict, "checks": checks}
             if verdict == "PASS":
                 return report_state(root, goal, "CI_PASS_REVIEW_REQUIRED", evidence)
-            if any(c.get("name") == "main-write-guard" and c.get("bucket") != "pass" for c in checks):
+            if any(c.get("name") == "main-write-guard" and c.get("bucket") in ("fail", "cancel") for c in checks):
                 return report_state(root, goal, "HOLD_SECURITY_GATE", evidence)
         for index in range(1, goal["max_iterations"] + 1):
             if time.monotonic() >= deadline:
@@ -302,7 +302,7 @@ def run(root, goal, *, dry_run=False):
             if verdict == "PASS":
                 state = "CI_PASS_REVIEW_REQUIRED"
                 break
-            if any(c.get("name") == "main-write-guard" and c.get("bucket") != "pass" for c in checks):
+            if any(c.get("name") == "main-write-guard" and c.get("bucket") in ("fail", "cancel") for c in checks):
                 state = "HOLD_SECURITY_GATE"
                 break
             state = "CI_" + verdict
@@ -322,7 +322,17 @@ def main():
     try:
         result = run(root, goal, dry_run=args.dry_run)
     except (Hold, subprocess.TimeoutExpired) as exc:
-        report_state(root, goal, "HOLD", {"reason": str(exc)})
+        latest = Path.home() / ".goal-loop" / goal["goal_id"] / "latest.json"
+        evidence = {}
+        if latest.is_file():
+            try:
+                existing = json.loads(latest.read_text(encoding="utf-8"))
+                if existing.get("goal_id") == goal["goal_id"] and isinstance(existing.get("evidence"), dict):
+                    evidence = existing["evidence"]
+            except (OSError, ValueError):
+                pass
+        evidence["reason"] = str(exc)
+        report_state(root, goal, "HOLD", evidence)
         raise SystemExit(2)
     if result["state"] not in ("READY", "CI_PASS_REVIEW_REQUIRED"):
         raise SystemExit(2)
