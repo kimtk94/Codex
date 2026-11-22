@@ -73,11 +73,38 @@ jobs:
       - name: Check actual QQ source and fail closed before stage writes
         run: |
           python3 - <<'PY'
-          import re,subprocess,sys
+          import json,re,subprocess,sys
           cmd=[sys.executable,"automation/css_mail/qq_historical_invoice_backfill_2026_safe.py"]
           completed=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-          previews=[s for s in completed.stdout.splitlines()
-                    if s.startswith("QQ_BACKFILL_PROOF_FIRST_PREVIEW ")]
+          allowed={"KNOWN_UID_WITH_VALID_EVIDENCE",
+                   "ORIGINAL_ISSUED_PROOF_PERSISTED",
+                   "ORIGINAL_NONOFFICIAL_HEADER_VERIFIED",
+                   "FETCH_FAILED","ORIGINAL_HEADER_UNAVAILABLE",
+                   "MIME_PARSER_UNRESOLVED","AMOUNT_CONFLICT",
+                   "ARRIVAL_VALID_ARRIVAL_DATE","ARRIVAL_UNSUPPORTED_FORMAT",
+                   "ARRIVAL_TOKEN_ABSENT","ARRIVAL_FETCH_ERROR"}
+          for line in completed.stdout.splitlines():
+              if line.startswith("QQ_BACKFILL_PARSER_DIAGNOSTIC "):
+                  raw=line.split(" fallback_verified=",1)[0].split(
+                      "QQ_BACKFILL_PARSER_DIAGNOSTIC ",1)[1]
+                  try:
+                      counters=json.loads(raw)
+                      safe={k:int(v) for k,v in counters.items()
+                            if k in allowed and isinstance(v,int)}
+                      print("QQ_SAFE_PREVIEW_REASON_COUNTS="+
+                            json.dumps(safe,sort_keys=True))
+                  except (ValueError,TypeError):
+                      print("QQ_SAFE_PREVIEW_REASON_REPORT_UNAVAILABLE")
+          previews=[line for line in completed.stdout.splitlines()
+                    if line.startswith("QQ_BACKFILL_PROOF_FIRST_PREVIEW ")]
+          if len(previews)==1:
+              values={}
+              for name in ("scanned","new_in_memory",
+                           "would_update_cursor_folders","blocked",
+                           "sheet_writes","cursor_writes"):
+                  matched=re.search(r"\b"+name+r"=(\d+)\b",previews[0])
+                  if matched:values[name]=int(matched.group(1))
+              print("QQ_SAFE_PREVIEW_AGGREGATES="+json.dumps(values,sort_keys=True))
           if (completed.returncode!=2 or len(previews)!=1 or
               "sheet_writes=0 cursor_writes=0" not in previews[0] or
               not re.search(r"\bblocked=0\b",previews[0])):
