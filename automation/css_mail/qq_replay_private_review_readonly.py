@@ -174,7 +174,7 @@ def main():
     # Both credentials are opt-in, never assume the private review file is
     # visible to the CSS service account.
     review_id=os.getenv("QQ_REPLAY_REVIEW_SHEET_ID","").strip()
-    source_id=os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY").strip()
+    source_id=(os.getenv("CSS_SHEET_ID") or "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY").strip()
     credential=os.getenv("CKD_DRIVE_SA_JSON","").strip()
     if not review_id or not credential:
         print("QQ_PRIVATE_REVIEW_AUDIT="+json.dumps({
