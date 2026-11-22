@@ -1,6 +1,8 @@
 name: QQ 2026 Replay Writer Boundary Audit (Read Only)
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '45 2 * * *'
   pull_request:
     paths:
       - '.github/workflows/**'
@@ -28,9 +30,33 @@ jobs:
           python-version: '3.11'
       - name: Run offline write-boundary tests
         run: python3 -m unittest automation.css_mail.test_qq_replay_writer_exclusion_audit -v
+      - name: Verify private review schema and zero-authority contract
+        run: python3 -m unittest automation.css_mail.test_qq_replay_private_review_readonly -v
       - name: Exercise local-only transaction and crash reconciliation
         run: |
           python3 -m unittest automation.css_mail.test_qq_replay_transaction_rehearsal -v
           python3 -m automation.css_mail.qq_replay_transaction_rehearsal
       - name: Audit all checked-out GitHub workflow writer routes
         run: python3 -m automation.css_mail.qq_replay_writer_exclusion_audit
+
+  private-review:
+    needs: inspect
+    if: ${{ github.event_name != 'pull_request' && needs.inspect.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    environment: TaehoonServer
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_SHEET_ID: ${{ vars.CSS_SHEET_ID }}
+      QQ_REPLAY_REVIEW_SHEET_ID: ${{ vars.QQ_REPLAY_REVIEW_SHEET_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Google Sheets dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Compare private review preferences to live invoice evidence (no writes)
+        run: python3 -m automation.css_mail.qq_replay_private_review_readonly
