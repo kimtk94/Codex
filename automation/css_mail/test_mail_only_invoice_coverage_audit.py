@@ -347,6 +347,38 @@ class MailOnlyTests(unittest.TestCase):
             self.assertIsNone(write_private_safe_report({"status":"HOLD"}))
 
 
+    def test_fragmented_qq_mime_uses_original_readonly_metadata(self):
+        class FakeIMAP:
+            def __init__(self,*args,**kwargs):pass
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def login(self,*args):pass
+            def select(self,folder,readonly=False):
+                assert folder=="INBOX" and readonly
+                return "OK",[]
+            def uid(self,command,uid,query):
+                assert command=="FETCH" and uid=="41234"
+                if "HEADER.FIELDS" in query:
+                    return "OK",[(b"header",(b"From: CSS <css@novogene-amea.com>\\r\\n"
+                                           b"Subject: Notice: Invoice Issued & Statement Confirmed\\r\\n\\r\\n"))]
+                if query=="(BODYSTRUCTURE)":
+                    return "OK",[
+                        (b"",b'("TAX INVOICE-209126000887-H209SC26065705-PO9-'),
+                        (b"",b'AMEA2026030802-KRW12012000.00.pdf")')]
+                raise AssertionError("unexpected IMAP operation")
+            def logout(self):pass
+        expected={"209126000887":(
+            "2026-11",12012000,"AMEA2026030802","FILENAME_PARSED",
+            "41234","H209SC26065705","PO9")}
+        with mock.patch.dict("os.environ",{
+            "CSS_QQ_MAIL_ADDRESS":"test@example.com",
+            "CSS_QQ_MAIL_AUTH_CODE":"test-only"}):
+            verified,blocked,excluded=audit_with_original_imap(
+                expected,imap_factory=FakeIMAP)
+        self.assertEqual((len(verified),len(blocked),len(excluded)),(1,0,0))
+        self.assertEqual(verified["209126000887"]["amount"],12012000)
+
+
 
 if __name__=="__main__":
     unittest.main()
