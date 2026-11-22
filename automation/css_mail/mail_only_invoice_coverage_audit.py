@@ -298,9 +298,14 @@ def audit_with_original_imap(missing,imap_factory=imaplib.IMAP4_SSL):
                 assert_official_notice(msg)
                 status,parts=im.uid("FETCH",uid,"(BODYSTRUCTURE)")
                 if status!="OK":raise ValueError("BODYSTRUCTURE_FETCH_FAILED")
-                names=[]
-                for x in imap_bodystructure_chunks(parts):
+                chunks=imap_bodystructure_chunks(parts)
+                # QQ EXMAIL may split one MIME filename across FETCH tuples.
+                # Check joined and individual metadata chunks, never download PDF.
+                names=bodystructure_filenames(b"".join(chunks))
+                names.extend(bodystructure_filenames(b" ".join(chunks)))
+                for x in chunks:
                     names.extend(bodystructure_filenames(x))
+                names=list(dict.fromkeys(names))
                 if not names:raise ValueError("NO_TAX_INVOICE_ATTACHMENT_FILENAME")
                 verified[inv]=original_proof(msg,names,inv,expected)
             except (ValueError,TypeError) as exc:
