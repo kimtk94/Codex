@@ -5,7 +5,7 @@ from unittest import mock
 from email.parser import Parser
 from mail_only_invoice_coverage_audit import (
     identify_missing,original_proof,net,numeric,
-    audit_with_original_imap,
+    audit_with_original_imap,select_extracted_original_candidates,
 )
 
 
@@ -195,6 +195,83 @@ class MailOnlyTests(unittest.TestCase):
         self.assertNotIn('gross_krw="+str',source)
         self.assertNotIn('net_krw="+str',source)
         self.assertIn("MAIL_ONLY_PRIVATE_EVIDENCE_REDACTED",source)
+
+
+    @staticmethod
+    def derived_pair(invoice="209126000887",amount=12012000,uid="41234"):
+        qq=backfill(invoice,amount,month="2026-11")
+        qq.update({"h_project_id":"H209SC26065705","po_reference":"PO9",
+                   "imap_uid":uid})
+        ext=extracted(invoice,amount)
+        ext.update({"project_id":"AMEA2026030802",
+                    "h_project_number":"H209SC26065705",
+                    "po_reference":"PO9","imap_uid":uid,
+                    "validation_status":"FILENAME_PARSED"})
+        return qq,ext
+
+    def test_derived_original_candidates_require_four_key_lineage(self):
+        q,e=self.derived_pair()
+        candidates,held,reasons,overlap=select_extracted_original_candidates(
+            [q],[e],[extracted("209126000001",900)])
+        self.assertEqual((len(candidates),held,overlap),(1,0,1))
+        self.assertEqual(reasons,{})
+        self.assertEqual(candidates[q["invoice_number"]][5:],
+                         ("H209SC26065705","PO9"))
+
+    def test_derived_uid_conflict_and_missing_po_remain_metadata_hold(self):
+        q,e=self.derived_pair()
+        e["imap_uid"]="41235"
+        e["po_reference"]=""
+        candidates,held,reasons,overlap=select_extracted_original_candidates(
+            [q],[e],[extracted("209126000001",900)])
+        self.assertEqual(candidates,{})
+        self.assertEqual((held,overlap),(1,1))
+        self.assertEqual(reasons,{"PO_MISSING":1,"UID_MISMATCH":1})
+
+    def test_derived_amount_match_cannot_override_wrong_project(self):
+        q,e=self.derived_pair()
+        e["project_id"]="AMEA2026030803"
+        candidates,held,reasons,_=select_extracted_original_candidates(
+            [q],[e],[extracted("209126000001",900)])
+        self.assertEqual((candidates,held),({},1))
+        self.assertEqual(reasons,{"AMEA_MISMATCH":1})
+
+    def test_derived_canonical_invoice_is_not_an_unrecorded_gap(self):
+        q,e=self.derived_pair()
+        candidates,held,reasons,overlap=select_extracted_original_candidates(
+            [q],[e],[extracted(q["invoice_number"],12012000)])
+        self.assertEqual((candidates,held,reasons,overlap),({},0,{},0))
+
+    def test_original_proof_for_derived_requires_h_and_po(self):
+        q,e=self.derived_pair()
+        filename=("TAX INVOICE-209126000887-H209SC26065705-PO9-"
+                  "AMEA2026030802-KRW12012000.00.pdf")
+        expected=("2026-11",12012000,"AMEA2026030802",
+                  "FILENAME_PARSED","41234","H209SC26065705","PO9")
+        self.assertTrue(original_proof(header(),[filename],
+                                      q["invoice_number"],expected)["sender_verified"])
+        with self.assertRaisesRegex(ValueError,"ORIGINAL_PO_MISMATCH"):
+            original_proof(header(),[filename],q["invoice_number"],
+                           expected[:-1]+("PO10",))
+        with self.assertRaisesRegex(ValueError,"ORIGINAL_CONTRACT_MISMATCH"):
+            original_proof(header(),[filename],q["invoice_number"],
+                           expected[:5]+("H209SC26000000","PO9"))
+
+    def test_several_invoices_on_same_uid_are_not_deduplicated(self):
+        q1,e1=self.derived_pair("209126000887",12012000)
+        q2,e2=self.derived_pair("209126000888",1000000)
+        candidates,held,_,overlap=select_extracted_original_candidates(
+            [q1,q2],[e1,e2],[extracted("209126000001",900)])
+        self.assertEqual((len(candidates),held,overlap),(2,0,2))
+        self.assertEqual({x[4] for x in candidates.values()},{"41234"})
+
+    def test_bad_derived_filename_status_is_held(self):
+        q,e=self.derived_pair()
+        e["validation_status"]="EXISTS_IN_LEGACY"
+        candidates,held,reasons,_=select_extracted_original_candidates(
+            [q],[e],[extracted("209126000001",900)])
+        self.assertEqual((candidates,held),({},1))
+        self.assertEqual(reasons,{"EXTRACT_PROVENANCE_UNVERIFIED":1})
 
 
 if __name__=="__main__":
