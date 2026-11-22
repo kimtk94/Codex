@@ -1,4 +1,5 @@
 """Isolated negative and positive safety-contract tests (never calls Ollama/GitHub)."""
+import io
 import json
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from automation.goal_loop.controller import (
     load_goal, parse_porcelain_paths, run, run_cmd, test_goal, pr_checks,
     unsafe_ci_gate_failed, verification_source_context,
     literal_contract_examples, retry_temperature, pr_head_relation,
+    select_local_model, require_local_model,
 )
 
 
@@ -434,6 +436,42 @@ class ControllerSafetyTests(unittest.TestCase):
         self.assertFalse(unsafe_ci_gate_failed(goal, [item("unrelated")]))
         self.assertFalse(unsafe_ci_gate_failed(goal, [item("main-write-guard", "external-app")]))
 
+    def test_override_model_remains_explicitly_allowlisted(self):
+        goal = self.load()
+        self.assertEqual(select_local_model(goal, {}), goal.get("model", "qwen25coder3b-16k"))
+        self.assertEqual(select_local_model(goal, {"GOAL_LOOP_MODEL": "qwen2.5-coder:7b"}),
+                         "qwen2.5-coder:7b")
+        with self.assertRaisesRegex(Hold, "MODEL_OVERRIDE_NOT_ALLOWED"):
+            select_local_model(goal, {"GOAL_LOOP_MODEL": "arbitrary/unsafe:latest"})
+        self.assertEqual(goal["goal_id"], BASE["goal_id"])
+
+    def test_local_model_presence_in_ollama_is_checked_read_only(self):
+        models = {"models": [{"name": "qwen25coder3b-16k:latest"},
+                              {"name": "qwen2.5-coder:7b"}]}
+        with patch("automation.goal_loop.controller.urllib.request.urlopen",
+                   return_value=io.BytesIO(json.dumps(models).encode())) as call:
+            self.assertEqual(require_local_model("qwen2.5-coder:7b"),
+                             "qwen2.5-coder:7b")
+        self.assertIn("127.0.0.1:11434", call.call_args.args[0])
+        with patch("automation.goal_loop.controller.urllib.request.urlopen",
+                   return_value=io.BytesIO(b'{"models":[]}')):
+            with self.assertRaisesRegex(Hold, "SELECTED_LOCAL_MODEL_NOT_INSTALLED"):
+                require_local_model("qwen2.5-coder:7b")
+        with patch("automation.goal_loop.controller.urllib.request.urlopen",
+                   side_effect=ConnectionError("offline")):
+            with self.assertRaisesRegex(Hold, "LOCAL_OLLAMA_MODEL_CHECK_FAILED"):
+                require_local_model("qwen2.5-coder:7b")
+
+    def test_no_ollama_model_does_not_consume_iteration_budget(self):
+        with patch("pathlib.Path.home", return_value=self.root), \
+             patch("automation.goal_loop.controller.require_local_model",
+                   side_effect=Hold("SELECTED_LOCAL_MODEL_NOT_INSTALLED:qwen2.5-coder:7b")), \
+             patch("automation.goal_loop.controller.run_cmd") as command:
+            with self.assertRaisesRegex(Hold, "SELECTED_LOCAL_MODEL_NOT_INSTALLED"):
+                run(self.root, self.load())
+        command.assert_not_called()
+        self.assertFalse((self.root / ".goal-loop").exists())
+
     def test_repeated_identical_model_output_uses_attempt_budget_not_exception(self):
         def safe_fake_command(args, *unused, **kwargs):
             if args[:4] == ["git", "remote", "get-url", "origin"]:
@@ -441,6 +479,7 @@ class ControllerSafetyTests(unittest.TestCase):
             return {"ok": True, "code": 0, "output": ""}
         with patch("pathlib.Path.home", return_value=self.root), \
              patch("automation.goal_loop.controller.shutil.which", return_value="fake-binary"), \
+             patch("automation.goal_loop.controller.require_local_model", return_value="qwen25coder3b-16k"), \
              patch("automation.goal_loop.controller.run_cmd", side_effect=safe_fake_command), \
              patch("automation.goal_loop.controller.ollama_proposal",
                    return_value={"path": BASE["allowed_files"][0], "content": "x = 1\n"}) as model, \
