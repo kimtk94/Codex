@@ -4,7 +4,7 @@
 
 ## Architecture
 
-The local **Qwen2.5 Coder 3B / 16K** instance edits an exact allowlisted source file in a **new Git worktree**, using a Markdown goal document and a versioned JSON contract. It then runs an independent acceptance test, pushes only the agent feature branch, opens a **draft pull request**, and checks required GitHub CI jobs. No direct main writes, no PR merge, no mail/CRM/trade/deploy effects.
+The local **Qwen2.5 Coder 3B / 16K** instance edits an exact allowlisted source file in a **new Git worktree**, using a Markdown goal document and a versioned JSON contract. It syntax-compiles edited Python locally **without executing it**, pushes only the agent feature branch, opens a **draft pull request**, and executes independent acceptance tests only on unprivileged GitHub Actions runners. All accepted check runs must match the exact pushed commit SHA and GitHub Actions app. No direct main writes, no PR merge, no mail/CRM/trade/deploy effects.
 
 The controller runs at most 3 edits / 45 minutes per invocation and keeps a local checkpoint at `~/.goal-loop/<goal_id>/latest.json`. It can resume the same agent branch from that checkpoint after interruption, with a **12-attempt total ceiling**. State `CI_PASS_REVIEW_REQUIRED` means CI passed on the draft PR; it does not mean that the PR is merged.
 
@@ -31,7 +31,7 @@ The controller runs at most 3 edits / 45 minutes per invocation and keeps a loca
 
 - `docs/...md`: precise objective, input evidence, functional acceptance criteria, hold conditions
 - `automation/goal_loop/goals/...json`: matching document path, **existing exact allowlisted files**, independent `python -m unittest` commands, required CI checks, iteration/time budgets
-- Actual test modules remain **outside the editable file allowlist**.
+- Actual test modules remain **outside the editable file allowlist**. A test command listed in goal JSON is declarative only; the local controller never executes it. The CI workflow must contain the authoritative test command.
 
 The pilot uses `docs/automation/goal-loop-pilot.md` and `automation/goal_loop/goals/pilot-status.json`. The local code agent is intentionally restricted to `pilot_target.py`. The independent `pilot_acceptance.py` is expected to fail against the baseline and must pass **after** the local agent edits it; only `agent/pilot-status-*` PRs activate this acceptance job.
 
@@ -39,6 +39,6 @@ The pilot uses `docs/automation/goal-loop-pilot.md` and `automation/goal_loop/go
 
 - Goal documents, model responses, and prior checkpoints are **not trusted completion evidence**. Completion requires the current PR's required GitHub check results.
 - GitHub-hosted runners cannot reach a private laptop Ollama instance. On laptop shutdown, AI code editing pauses; GitHub CI may still run independently.
-- A code model may return invalid JSON, poor code, or no change. The worker then reports HOLD and never invents success.
-- The GitHub main protection ruleset remains a separate administrator action. The `main-write-guard` check alone does **not** enforce branch protection.
+- A code model may return invalid JSON, poor code, or no change. The worker then reports HOLD and never invents success. AI-authored code **must not be run locally** under the user's Windows account; passing acceptance tests is permitted only in restricted PR CI. CI failures trigger a bounded next proposal; no production changes are allowed.
+- Neither the local runner nor its Windows user account is a security sandbox. Agent output is only syntax-compiled locally; all Python execution is delegated to restricted CI. The GitHub main protection ruleset remains a separate administrator action. The `main-write-guard` check alone does **not** enforce branch protection.
 - Additional projects should be onboarded individually after testing, with reviewed file allowlists, independent acceptance tests, bounded retries, and per-project security policies.
