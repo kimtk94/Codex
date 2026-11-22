@@ -219,7 +219,7 @@ class ControllerSafetyTests(unittest.TestCase):
         root = self.root
         for args in (
             ["git", "init", "-q"],
-            ["git", "add", "--", BASE["allowed_files"][0]],
+            ["git", "add", "-A"],
             ["git", "-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
              "commit", "-q", "-m", "baseline"],
         ):
