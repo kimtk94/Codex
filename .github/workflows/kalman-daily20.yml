@@ -464,7 +464,9 @@ jobs:
           assert r["independent_close_certified"] is False
           assert r["historical_nonpayment_proven"] is False
           assert r["queried_ex_date"] == "2023-09-20"
-          assert r["version"] == "daily20-qld2023-issuer-distribution-api-v2"
+          assert r["version"] == "daily20-qld2023-issuer-distribution-api-v3"
+          assert r["historical_api_completeness_certified"] is False
+          assert r["published_dividend_share_unit_basis"] == "UNDETERMINED_POSSIBLY_SPLIT_ADJUSTED"
           if r["source_sha256"]:
               assert r["source_archive"] and r["source_bytes"] > 0
               assert r["source_response_kind"] in (
