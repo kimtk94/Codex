@@ -14,7 +14,7 @@ from urllib.parse import unquote
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
 sys.path.insert(0,str(HERE.parent.parent))
-from automation.css_mail import qq_historical_invoice_backfill as writer
+from automation.css_mail import qq_historical_invoice_backfill_2026_safe as writer
 
 ISSUER="css@novogene-amea.com"
 SUBJECT="Notice: Invoice Issued & Statement Confirmed"
