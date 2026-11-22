@@ -16,11 +16,11 @@ SAFE_WRITER = "automation/css_mail/qq_historical_invoice_backfill_2026_safe.py"
 LEGACY_INVOCATION = re.compile(
     r"\bpython(?:3)?\s+" + re.escape(LEGACY_WRITER) + r"\b")
 APPLY_MODE = re.compile(
-    r"(?m)^\s*BACKFILL_WRITE_MODE:\s*['\\"]?APPLY(?:['\\"]|\s|$)")
+    r"(?m)^\s*BACKFILL_WRITE_MODE:\s*['\x22]?APPLY(?:['\x22]|\s|$)")
 PREVIEW_MODE = re.compile(
-    r"(?m)^\s*BACKFILL_WRITE_MODE:\s*['\\"]?PREVIEW(?:['\\"]|\s|$)")
+    r"(?m)^\s*BACKFILL_WRITE_MODE:\s*['\x22]?PREVIEW(?:['\x22]|\s|$)")
 YEAR_2025 = re.compile(
-    r"(?m)^\s*BACKFILL_YEAR:\s*['\\"]?2025(?:['\\"]|\s|$)")
+    r"(?m)^\s*BACKFILL_YEAR:\s*['\x22]?2025(?:['\x22]|\s|$)")
 BACKFILL_JOB = re.compile(r"(?m)^  backfill:\s*$")
 
 
@@ -66,7 +66,7 @@ def assess(workflows, scripts):
         if APPLY_MODE.search(content) and SAFE_WRITER in content:
             unsafe += 1
             reasons.add("SECONDARY_APPLY_ROUTE")
-    if not re.search(r"mode\s*==\s*['\\"]APPLY['\\"]",
+    if not re.search(r"mode\s*==\s*['\x22]APPLY['\x22]",
                      scripts[SAFE_WRITER]):
         # Cannot assume writer behavior is unchanged; this audit is for the
         # known 2026-safe writer, and unknown branches require review.
