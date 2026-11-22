@@ -94,5 +94,32 @@ class SafePreviewDiagnosticTests(unittest.TestCase):
             self.assertNotIn("customer@example.com", payload)
 
 
+    def test_search_failure_is_reported_without_raw_identifiers(self):
+        payload = {"folder_role":"OTHER", "folder_ordinal":3,
+                   "criterion":"TAX", "status_class":"BAD",
+                   "row_class":"EMPTY_SEQUENCE",
+                   "folder":"SECRET_PERSONAL_FOLDER", "uid":9981,
+                   "invoice":"SECRET_INVOICE"}
+        text = "QQ_SAFE_STAGE=IMAP_MAILBOXES_LISTED\nQQ_SAFE_SEARCH_FAILURE " + json.dumps(payload)
+        report = classify_preview(1, text, "RuntimeError: QQ_BACKFILL_SEARCH_UNAVAILABLE")
+        self.assertEqual(report["search_failure"], {
+            "folder_role":"OTHER", "folder_ordinal":3,
+            "criterion":"TAX", "status_class":"BAD",
+            "row_class":"EMPTY_SEQUENCE"})
+        self.assertEqual(report["status"], "HOLD")
+        self.assertNotIn("SECRET", json.dumps(report))
+        self.assertNotIn("9981", json.dumps(report))
+
+    def test_malformed_search_failure_is_not_echoed(self):
+        for payload in (
+            {"folder_role":"client@example.com", "folder_ordinal":2,
+             "criterion":"ISSUED", "status_class":"NO", "row_class":"BYTES"},
+            {"folder_role":"INBOX", "folder_ordinal":"PRIVATE_UID",
+             "criterion":"ISSUED", "status_class":"NO", "row_class":"BYTES"},
+        ):
+            result=classify_preview(1,"QQ_SAFE_SEARCH_FAILURE "+json.dumps(payload),"")
+            self.assertNotIn("search_failure", result)
+            self.assertEqual(result["status"],"HOLD")
+
 if __name__=="__main__":
     unittest.main()
