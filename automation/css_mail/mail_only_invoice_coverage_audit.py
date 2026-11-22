@@ -21,7 +21,7 @@ from collections import Counter
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 
-from qq_invoice_parity_audit import load_rows
+from qq_invoice_parity_audit import load_rows,money
 from tax_invoice_extract import (extract,bodystructure_filenames,
                                  imap_bodystructure_chunks,ISSUED,
                                  REPLY_PREFIX,CSS_SENDER)
@@ -68,7 +68,9 @@ def identify_missing(backfill,extracted,canonical=None,start_month=START):
         for row in canonical:
             inv=str(row.get("invoice_number") or "").strip()
             if not inv:continue
-            amount=numeric(row.get("amount_krw"))
+            # CSS canonical uses formatted KRW strings; QQ evidence remains strict integer.
+            amount=money(row.get("amount_krw"))
+            if amount<=0:raise ValueError("INVALID_CANONICAL_INVOICE_AMOUNT")
             if inv in known and known[inv]!=amount:
                 raise ValueError("CANONICAL_EXTRACT_INVOICE_AMOUNT_CONFLICT")
             known[inv]=amount
