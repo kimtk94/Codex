@@ -105,7 +105,10 @@ class ControllerSafetyTests(unittest.TestCase):
         self.file.unlink()
         external = self.root / "external.py"
         external.write_text("x = 1\n")
-        self.file.symlink_to(external)
+        try:
+            self.file.symlink_to(external)
+        except OSError:
+            self.skipTest("Windows symlink creation may require administrator privileges")
         with self.assertRaisesRegex(Hold, "MISSING_OR_LINKED_EDIT_TARGET"):
             self.load()
 
@@ -113,7 +116,8 @@ class ControllerSafetyTests(unittest.TestCase):
         sha = "a" * 40
         checks = [{
             "name": name, "status": "completed", "conclusion": "success",
-            "head_sha": sha, "id": index, "html_url": "https://github.com/kimtk94/Codex/actions",
+            "head_sha": sha, "id": index, "app": {"slug": "github-actions"},
+            "html_url": "https://github.com/kimtk94/Codex/actions",
         } for index, name in enumerate(BASE["required_checks"])]
         def fake_cmd(args, *unused, **kwargs):
             if args[1:3] == ["pr", "view"]:
@@ -126,6 +130,22 @@ class ControllerSafetyTests(unittest.TestCase):
         self.assertEqual(state, "PASS")
         self.assertEqual(len(observed), 3)
 
+    def test_remote_ci_non_github_app_cannot_attest(self):
+        sha = "a" * 40
+        checks = [{
+            "name": name, "status": "completed", "conclusion": "success",
+            "head_sha": sha, "id": index, "app": {"slug": "untrusted-app"},
+            "html_url": "https://github.com/kimtk94/Codex/actions",
+        } for index, name in enumerate(BASE["required_checks"])]
+        def fake_cmd(args, *unused, **kwargs):
+            if args[1:3] == ["pr", "view"]:
+                return {"ok": True, "output": sha}
+            return {"ok": True, "output": json.dumps({"check_runs": checks})}
+        with patch("automation.goal_loop.controller.run_cmd", side_effect=fake_cmd), \
+             patch("automation.goal_loop.controller.time.sleep"):
+            state, _ = pr_checks(self.root, self.load(), "https://github.com/kimtk94/Codex/pull/123", time.monotonic() + 0.01, sha)
+        self.assertEqual(state, "TIMEOUT")
+
     def test_remote_ci_wrong_head_fails_closed(self):
         def fake_cmd(args, *unused, **kwargs):
             return {"ok": True, "output": "b" * 40}
@@ -137,7 +157,8 @@ class ControllerSafetyTests(unittest.TestCase):
         head = "a" * 40
         bad = [{
             "name": name, "status": "completed", "conclusion": "success",
-            "head_sha": "b" * 40, "html_url": "https://github.com/kimtk94/Codex/actions",
+            "head_sha": "b" * 40, "app": {"slug": "github-actions"},
+            "html_url": "https://github.com/kimtk94/Codex/actions",
         } for name in BASE["required_checks"]]
         def fake_cmd(args, *unused, **kwargs):
             if args[1:3] == ["pr", "view"]:
