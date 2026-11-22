@@ -577,8 +577,10 @@ jobs:
           assert r["research_only"] and not r["production_writes"]
           assert not r["strategy_promoted"] and not r["live_execution"]
           assert r["nasdaq_current_master_route_count"]==len(rows)
-          if r["session"]=="2026-11-20":
-              assert len(rows)==16
+          if r["session"]=="2026-11-20" and len(rows)!=16:
+              assert r["current_venue_route_coverage_status"]=="CURRENT_MASTER_VENUE_ROUTES_INCOMPLETE_HOLD"
+          elif r["session"]=="2026-11-20":
+              assert r["current_venue_route_coverage_status"]=="BASELINE_16_CURRENT_MASTER_ROUTES_OBSERVED_UNCERTIFIED"
           assert r["official_nocp_numeric_records_admitted"]==0
           assert r["independent_regular_close_certified"]==0
           assert r["factor_certified"]==0
