@@ -29,6 +29,7 @@ def fake_prospective():
             "seq": len(bull_events) + 1, "prev_hash": prior,
             "kind": "SIGNAL", "signal_date": SESSION, "symbol": symbol,
             "research_only": True, "probability": 0.62, "candidate": True,
+            "source_actions_run_id": "fixture-action", "source_sha": "a" * 40,
         }
         b["hash"] = hash_event(b)
         bull_events.append(b)
@@ -41,6 +42,8 @@ def fake_prospective():
                 "research_only": True, "probability":
                     0.24 if family == "BEAR_LOGISTIC" else None,
                 "candidate": False,
+                "baseline_signal_hash": b["hash"],
+                "source_actions_run_id": "fixture-action", "source_sha": "a" * 40,
             }
             e["hash"] = hash_event(e)
             bear_events.append(e)
@@ -217,6 +220,16 @@ class FirstProspectiveSealTests(unittest.TestCase):
         self.doc["models"]["SPY"]["scored"]["BEAR_LOGISTIC"]["probability"] = None
         self.bear[(SESSION, "SPY", "BEAR_LOGISTIC")]["probability"] = None
         self.check()
+
+    def test_initial_bear_event_must_match_original_bull_anchor(self):
+        self.bear[(SESSION, "SPY", "BEAR_LOGISTIC")]["baseline_signal_hash"] = "b" * 64
+        with self.assertRaisesRegex(RuntimeError, "BEAR_EVENT_BULL_BASELINE_LINK_MISMATCH"):
+            self.check()
+
+    def test_event_capture_run_must_match_first_frozen_model_run(self):
+        self.bear[(SESSION, "SPY", "BEAR_RULE")]["source_actions_run_id"] = "wrong-run"
+        with self.assertRaisesRegex(RuntimeError, "ORIGINAL_EVENT_CAPTURE_RUN_MISMATCH"):
+            self.check()
 
     def test_wrong_feature_column_order_rejected(self):
         self.doc["models"]["SPY"]["feature_columns"].reverse()
