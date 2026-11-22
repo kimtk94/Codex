@@ -47,7 +47,7 @@ def net(v):
         Decimal("1"),rounding=ROUND_HALF_UP))
 
 
-def identify_missing(backfill,extracted):
+def identify_missing(backfill,extracted,canonical=None,start_month=START):
     if not backfill or "invoice_number" not in backfill[0]:
         raise ValueError("QQ_BACKFILL_SCHEMA_MISSING")
     if not extracted or "invoice_number" not in extracted[0]:
@@ -60,10 +60,22 @@ def identify_missing(backfill,extracted):
         if inv in known and known[inv]!=amount:
             raise ValueError("EXTRACT_INVOICE_CONFLICT")
         known[inv]=amount
+    # Legacy CSS and the derived Extract are different projections.
+    # Both must be checked before declaring an invoice unmatched.
+    if canonical is not None:
+        if not canonical or "invoice_number" not in canonical[0]:
+            raise ValueError("CANONICAL_INVOICE_SCHEMA_MISSING")
+        for row in canonical:
+            inv=str(row.get("invoice_number") or "").strip()
+            if not inv:continue
+            amount=numeric(row.get("amount_krw"))
+            if inv in known and known[inv]!=amount:
+                raise ValueError("CANONICAL_EXTRACT_INVOICE_AMOUNT_CONFLICT")
+            known[inv]=amount
     new={}
     for row in backfill:
         month=str(row.get("issued_month") or "").strip()
-        if month<START:continue
+        if not month.startswith('2026-') or month<start_month:continue
         inv=str(row.get("invoice_number") or "").strip()
         if not re.fullmatch(r"209126\d{6}",inv):continue
         state=str(row.get("evidence") or "").strip()
@@ -191,32 +203,22 @@ def main():
     session=AuthorizedSession(creds)
     qq=load_rows(session,"QQ 2026 Invoice Backfill",4000)
     extracted=load_rows(session,"CSS Tax Invoice Extract",1000)
-    missing=identify_missing(qq,extracted)
+    canonical=load_rows(session,"CSS Tax Invoice List",2000)
+    missing=identify_missing(qq,extracted,canonical=canonical,start_month="2026-01")
     print("MAIL_ONLY_MISSING_START source=QQ_2026_BACKFILL"+
-          " absent_from=CSS_TAX_INVOICE_EXTRACT"+
+          " absent_from=CSS_TAX_INVOICE_EXTRACT_AND_LIST"+
           " count="+str(len(missing))+
           " excluded=MANUAL_ERP_ETAX_FORECAST_PENDING",flush=True)
     verified,blocked,excluded=audit_with_original_imap(missing)
-    for inv,detail in sorted(verified.items()):
-        print("MAIL_ONLY_ORIGINAL_PROOF invoice="+inv+
-              " month="+detail["month"]+
-              " gross_krw="+str(detail["amount"])+
-              " net_krw="+str(detail["net"])+
-              " filename_evidence="+detail["kind"]+
-              " css_sender_and_original_notice=PASS",flush=True)
-    for inv,reason in sorted(blocked.items()):
-        print("MAIL_ONLY_ORIGINAL_HOLD invoice="+inv+" reason="+reason,flush=True)
-    for inv,reason in sorted(excluded.items()):
-        print("MAIL_ONLY_NONOFFICIAL_EXCLUDED invoice="+inv+
-              " reason="+reason,flush=True)
-    by={}
-    for inv,detail in verified.items():
-        rec=by.setdefault(detail["month"],[0,0,0])
-        rec[0]+=1;rec[1]+=detail["amount"];rec[2]+=detail["net"]
-    for month,info in sorted(by.items()):
+    # GitHub CI is not a customer data destination: no invoice numbers,
+    # monetary values, customer identifiers or raw mailbox headers in logs.
+    by=Counter(detail["month"] for detail in verified.values())
+    for month,count in sorted(by.items()):
         print("MAIL_ONLY_VERIFIED_MISSING_MONTH month="+month+
-              " count="+str(info[0])+" gross_krw="+str(info[1])+
-              " net_krw="+str(info[2]),flush=True)
+              " count="+str(count),flush=True)
+    print("MAIL_ONLY_PRIVATE_EVIDENCE_REDACTED"+
+          " excluded_not_official="+str(len(excluded))+
+          " hold_needs_review="+str(len(blocked)),flush=True)
     print("MAIL_ONLY_AUDIT_RESULT candidates="+str(len(missing))+
           " original_verified_missing="+str(len(verified))+
           " nonofficial_excluded="+str(len(excluded))+
