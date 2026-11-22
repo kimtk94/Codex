@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "goal_id": "pilot-status-normalizer",
+  "document": "docs/automation/goal-loop-pilot.md",
+  "repo": "kimtk94/Codex",
+  "base_branch": "main",
+  "allowed_files": [
+    "automation/goal_loop/pilot_target.py"
+  ],
+  "verify": [
+    ["python", "-m", "unittest", "automation.goal_loop.pilot_acceptance", "-v"]
+  ],
+  "required_checks": [
+    "goal-loop-controller-tests",
+    "pilot-acceptance",
+    "main-write-guard"
+  ],
+  "max_iterations": 3,
+  "max_minutes": 45,
+  "model": "qwen25coder3b-16k"
+}

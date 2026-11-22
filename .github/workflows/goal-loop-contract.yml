@@ -1,0 +1,62 @@
+name: Goal Loop Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'automation/goal_loop/**'
+      - 'docs/automation/goal-loop-pilot.md'
+      - '.github/workflows/goal-loop-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/goal_loop/**'
+      - 'docs/automation/goal-loop-pilot.md'
+      - '.github/workflows/goal-loop-contract.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '40 2 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  controller:
+    name: goal-loop-controller-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile controller and pilot
+        run: python -m compileall -q automation/goal_loop
+      - name: Verify controller safety contract
+        run: python -m unittest discover -s automation/goal_loop -p 'test_*.py' -v
+      - name: Verify goal JSON and document contract
+        run: python -m automation.goal_loop.controller --dry-run
+      - name: Upload deterministic contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goal-loop-contract-${{ github.run_id }}
+          path: automation/goal_loop/goals/pilot-status.json
+          retention-days: 14
+
+  pilot:
+    name: pilot-acceptance
+    if: startsWith(github.head_ref, 'agent/pilot-status-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Enforce independent goal acceptance
+        run: python -m unittest automation.goal_loop.pilot_acceptance -v
