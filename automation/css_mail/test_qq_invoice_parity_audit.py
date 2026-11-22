@@ -90,5 +90,36 @@ class InvoiceGapTriageTests(unittest.TestCase):
             audit.summarize([self.qq("SENSITIVE1234", "2026-11")], [], [])
 
 
+    def test_all_four_lineage_keys_crosschecked_before_promotion(self):
+        source=self.qq("1111111111", "2026-11")
+        source.update({"amea_project_id":"AMEA-TEST", "h_project_id":"H-TEST",
+                       "po_reference":"PO-TEST", "imap_uid":"100"})
+        extracted=self.extracted("1111111111")
+        extracted.update({"project_id":"AMEA-TEST","h_project_number":"H-TEST",
+                          "po_reference":"PO-TEST", "imap_uid":"100"})
+        result, failed=audit.summarize([source],
+                                       [self.css("2222222222", "2026-11")],
+                                       [extracted])
+        self.assertTrue(failed)
+        self.assertEqual(result["extract_crosscheck"]["all_four_lineage_fields_matching"],1)
+        self.assertEqual(result["extract_crosscheck"]["identity_fields_conflicting"],{})
+        self.assertFalse(result["extract_crosscheck"]["original_mail_verified"])
+
+    def test_matching_amount_but_conflicting_uid_stays_hold(self):
+        source=self.qq("1111111111", "2026-11")
+        source.update({"amea_project_id":"AMEA-TEST", "h_project_id":"H-TEST",
+                       "po_reference":"PO-TEST", "imap_uid":"100"})
+        extracted=self.extracted("1111111111")
+        extracted.update({"project_id":"AMEA-TEST","h_project_number":"H-TEST",
+                          "po_reference":"PO-TEST", "imap_uid":"200"})
+        result, failed=audit.summarize([source],
+                                       [self.css("2222222222", "2026-11")],
+                                       [extracted])
+        self.assertTrue(failed)
+        self.assertEqual(result["extract_crosscheck"]["amount_matches"],1)
+        self.assertEqual(result["extract_crosscheck"]["identity_fields_conflicting"],{"imap_uid":1})
+        self.assertEqual(result["extract_crosscheck"]["all_four_lineage_fields_matching"],0)
+
+
 if __name__ == "__main__":
     unittest.main()
