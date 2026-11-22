@@ -176,7 +176,18 @@ def classify_internaldate_response(status, parts):
         r'INTERNALDATE\s+"(\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{4})"',
         payload, re.I)
     if not match:
-        return "DATE_FORMAT_NOT_STANDARD"
+        # Classify only structure, never print or persist private IMAP values.
+        if re.search(r'INTERNALDATE\\s+NIL\\b', payload, re.I):
+            return "DATE_NIL"
+        if re.search(r'INTERNALDATE\\s+\\d{1,2}-[A-Za-z]{3}-\\d{4}', payload, re.I):
+            return "DATE_UNQUOTED"
+        if re.search(r'INTERNALDATE\\s+"\\d-[A-Za-z]{3}-\\d{4}', payload, re.I):
+            return "DATE_SINGLE_DIGIT_DAY"
+        if re.search(r'INTERNALDATE\\s+"\\d{2}-[A-Za-z]{3}-\\d{4} \\d{2}:\\d{2}:\\d{2} [+-]\\d{2}:\\d{2}', payload, re.I):
+            return "DATE_COLON_TIMEZONE"
+        if re.search(r'INTERNALDATE\\s+\\{\\d+\\}', payload, re.I):
+            return "DATE_IMAP_LITERAL"
+        return "DATE_FORMAT_OTHER"
     try:
         dt.datetime.strptime(match.group(1), "%d-%b-%Y %H:%M:%S %z")
         return "VALID_ARRIVAL_DATE"
