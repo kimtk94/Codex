@@ -149,11 +149,18 @@ def build(spec, access, *, probes, probe_attempted, file_hashes,
         name for name in names
         if by_symbol[name]["current_listed_venue"] == "NASDAQ"
     ]
-    # The 2026-11-20 frozen baseline is known: 16 Nasdaq-listed route hints.
-    # Future sessions may have listing transfers; never force future mapping.
-    if session == "2026-11-20":
-        require(len(nasdaq_symbols) == 16,
-                "NOCP_FROZEN_BASELINE_ROUTE_COUNT_CHANGED")
+    # The original protected 2026-11-20 master gave 16 Nasdaq routes.
+    # An unprivileged PR cannot fetch that master: retain an explicit HOLD,
+    # not a fictional listing assignment or failed research pipeline.
+    # Future sessions may legitimately change venue composition.
+    expected_baseline = 16 if session == "2026-11-20" else None
+    route_coverage_status = (
+        "BASELINE_16_CURRENT_MASTER_ROUTES_OBSERVED_UNCERTIFIED"
+        if expected_baseline is not None and len(nasdaq_symbols) == expected_baseline
+        else "CURRENT_MASTER_VENUE_ROUTES_INCOMPLETE_HOLD"
+        if expected_baseline is not None
+        else "CURRENT_MASTER_ROUTING_AS_OF_FETCH_ONLY_HOLD"
+    )
     for sym in nasdaq_symbols:
         r = by_symbol[sym]
         require(r.get("publisher") == "Nasdaq"
@@ -207,6 +214,8 @@ def build(spec, access, *, probes, probe_attempted, file_hashes,
         "strategy_promoted": False, "live_execution": False,
         "status": "NASDAQ_PUBLIC_NOCP_ACCESS_NOT_PRICE_CERTIFICATION_HOLD",
         "nasdaq_current_master_route_count": len(nasdaq_symbols),
+        "known_20261120_baseline_nasdaq_routes": expected_baseline,
+        "current_venue_route_coverage_status": route_coverage_status,
         "public_pages_attempted": len(probes),
         "public_html_200_count": sum(x["http_status"] == 200 for x in rows),
         "public_unavailable_placeholders": sum(
