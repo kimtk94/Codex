@@ -7,11 +7,15 @@ on:
     paths:
       - 'automation/css_mail/qq_invoice_parity_audit.py'
       - 'automation/css_mail/test_qq_invoice_parity_audit.py'
+      - 'automation/css_mail/invoice_source_freshness_monitor.py'
+      - 'automation/css_mail/test_invoice_source_freshness_monitor.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
   push:
     branches: [main]
     paths:
       - 'automation/css_mail/qq_invoice_parity_audit.py'
+      - 'automation/css_mail/invoice_source_freshness_monitor.py'
+      - 'automation/css_mail/test_invoice_source_freshness_monitor.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
 permissions:
   contents: read
@@ -28,7 +32,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Run synthetic invoice gap regression tests
-        run: python3 -m unittest automation.css_mail.test_qq_invoice_parity_audit -v
+        run: |
+          python3 -m unittest automation.css_mail.test_qq_invoice_parity_audit -v
+          python3 -m unittest automation.css_mail.test_invoice_source_freshness_monitor -v
   audit:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -48,3 +54,54 @@ jobs:
         run: python3 -m py_compile automation/css_mail/qq_invoice_parity_audit.py
       - name: Compare historical QQ invoice keys and CSS canonical invoice keys
         run: python3 automation/css_mail/qq_invoice_parity_audit.py
+
+  source-freshness-monitor:
+    # No secrets in PR; this job is independent of the known parity HOLD.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      BACKFILL_YEAR: '2026'
+      INVOICE_FRESHNESS_SUMMARY_PATH: qq-css-source-freshness.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Sheets dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Audit Extract vs QQ Backfill vs CSS ledger timing (read-only)
+        run: python3 automation/css_mail/invoice_source_freshness_monitor.py
+      - name: Summarize aggregate stage counts without exposing invoice identifiers
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ["INVOICE_FRESHNESS_SUMMARY_PATH"])
+          data = json.loads(p.read_text()) if p.exists() else {"status":"SOURCE_UNAVAILABLE"}
+          fields = ("status", "qq_to_css_gap_count", "qq_gap_in_extract_count",
+                    "extract_not_in_any_qq_or_css_count",
+                    "extract_unlinked_before_last_scan",
+                    "extract_unlinked_after_last_scan",
+                    "qq_blank_month_with_extract", "source_event_at",
+                    "collected_at", "backfill_scan_at",
+                    "sink_updated_at", "verified_at", "business_writes")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as out:
+              out.write("### Invoice source-to-sink freshness (read-only)\n")
+              for field in fields:
+                  if field in data:
+                      out.write(f"- {field}: {data[field]}\n")
+          PY
+      - name: Retain aggregate-only freshness evidence (30 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qq-css-source-freshness-aggregate
+          path: qq-css-source-freshness.json
+          if-no-files-found: warn
+          retention-days: 30
