@@ -40,6 +40,7 @@ def ingest(e,uv="1234"):
 
 class FakeIMAP:
     entries = {}
+    search_uids = None
     closed = False
 
     def __init__(self, host, port, timeout):
@@ -59,8 +60,17 @@ class FakeIMAP:
         return "OK",[self.epoch.encode()]
     def status(self,*args):
         return "OK",[b'INBOX (UIDVALIDITY 1234)']
-    def uid(self,action,uid,query):
+    def uid(self,action,uid,query,*rest):
         assert self.selected_readonly
+        if action == "SEARCH":
+            assert uid is None and query == "SINCE"
+            assert rest == ("01-Jan-2026", "BEFORE", "01-Jan-2027",
+                            "SUBJECT", '"Invoice Issued"') or rest == (
+                            "01-Jan-2026", "BEFORE", "01-Jan-2027",
+                            "SUBJECT", '"TAX INVOICE"')
+            selected = (self.search_uids if self.search_uids is not None
+                        else self.entries.keys())
+            return "OK", [" ".join(selected).encode("ascii")]
         assert action == "FETCH"
         assert query in ("(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT IN-REPLY-TO)])",
                          "(BODYSTRUCTURE)","(INTERNALDATE)")
@@ -95,6 +105,7 @@ def parser(name):
 class ProofTests(unittest.TestCase):
     def setUp(self):
         FakeIMAP.entries={}
+        FakeIMAP.search_uids=None
 
     def test_picks_precursor_blank_and_postcursor_exactly(self):
         n0="209126000001";n1="209126000002";n2="209126000003"
@@ -176,6 +187,50 @@ class ProofTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"IMAP_UIDVALIDITY_CHANGED"):
                 proof.check_imap(targets,c,{e["ingest_key"]:ingest(e)},
                                  FakeIMAP,filenames,parser)
+
+    def test_original_search_flags_absent_uid_without_guessing(self):
+        n="209126000001"; e=ext(n,uid="410")
+        targets,c,_=proof.pick_targets([qq("209126000009")],
+                      [css("209126000010")],[e],cursor(),audit())
+        FakeIMAP.entries={"410":{"number":n}}
+        FakeIMAP.search_uids=[]
+        with mock.patch.dict(os.environ,{"CSS_QQ_MAIL_ADDRESS":"test@example.com",
+                                          "CSS_QQ_MAIL_AUTH_CODE":"offline-test"}):
+            result=proof.check_imap(targets,c,{e["ingest_key"]:ingest(e)},
+                                    FakeIMAP,filenames,parser)
+        self.assertEqual(result["search_absent_pre_cursor_missing"],1)
+        self.assertEqual(result["original_mime_verified"],1)
+        self.assertEqual(result["historical_search_verified"],1)
+        self.assertEqual(result["business_writes"],0)
+
+    def test_date_fetch_response_shape_classified_without_date_output(self):
+        self.assertEqual(proof.classify_internaldate_response(
+            "OK", [b'2 (INTERNALDATE "22-Nov-2026 10:00:00 +0900")']),
+            "VALID_ARRIVAL_DATE")
+        self.assertEqual(proof.classify_internaldate_response(
+            "OK", [b'2 (INTERNALDATE NIL)']),"DATE_FORMAT_NOT_STANDARD")
+        self.assertEqual(proof.classify_internaldate_response(
+            "OK", [b'2 (UID 401)']),"DATE_TOKEN_ABSENT")
+        self.assertEqual(proof.classify_internaldate_response(
+            "NO", []),"FETCH_STATUS_ERROR")
+        self.assertEqual(proof.classify_internaldate_response(
+            "OK", []),"EMPTY_RESPONSE")
+        self.assertEqual(proof.classify_internaldate_response(
+            "OK", [(123,)]),"NO_BYTE_PAYLOAD")
+
+    def test_original_search_rejects_failed_search_not_guess(self):
+        class BadSearch(FakeIMAP):
+            def uid(self,action,uid,query,*rest):
+                if action=="SEARCH":return "NO",[]
+                return super().uid(action,uid,query,*rest)
+        n="209126000001"; e=ext(n,uid="410")
+        targets,c,_=proof.pick_targets([qq("209126000009")],
+                      [css("209126000010")],[e],cursor(),audit())
+        with mock.patch.dict(os.environ,{"CSS_QQ_MAIL_ADDRESS":"test@example.com",
+                                          "CSS_QQ_MAIL_AUTH_CODE":"offline-test"}):
+            with self.assertRaisesRegex(ValueError,"BACKFILL_ORIGINAL_SEARCH_UNAVAILABLE"):
+                proof.check_imap(targets,c,{e["ingest_key"]:ingest(e)},
+                                 BadSearch,filenames,parser)
 
     def test_parser_never_accepts_wrong_amount(self):
         e=ext("209126000001")

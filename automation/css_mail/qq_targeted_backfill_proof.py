@@ -131,6 +131,59 @@ def resolve_epoch(im):
     raise ValueError("IMAP_EPOCH_UNAVAILABLE")
 
 
+def historical_backfill_search(im, year="2026", max_hits=120000):
+    """Reproduce both original QQ Backfill subject searches, readonly.
+
+    The candidate UID sets are kept private in process memory. Search results
+    never appear in public artifacts or CI console output.
+    """
+    if year != "2026":
+        raise ValueError("SEARCH_YEAR_NOT_ALLOWED")
+    found = set()
+    for phrase in ("Invoice Issued", "TAX INVOICE"):
+        status, rows = im.uid(
+            "SEARCH", None, "SINCE", "01-Jan-2026", "BEFORE", "01-Jan-2027",
+            "SUBJECT", '"' + phrase + '"')
+        if status != "OK" or not rows or not isinstance(rows[0], bytes):
+            raise ValueError("BACKFILL_ORIGINAL_SEARCH_UNAVAILABLE")
+        for token in rows[0].split():
+            if not token.isdigit():
+                raise ValueError("BACKFILL_ORIGINAL_SEARCH_INVALID_UID")
+            found.add(token.decode("ascii"))
+            if len(found) > max_hits:
+                raise ValueError("BACKFILL_ORIGINAL_SEARCH_TOO_BROAD")
+    return found
+
+
+def classify_internaldate_response(status, parts):
+    """Only classify fetch encoding; never expose or infer an Invoice issue date."""
+    if status != "OK":
+        return "FETCH_STATUS_ERROR"
+    if not parts:
+        return "EMPTY_RESPONSE"
+    chunks = []
+    for item in parts:
+        if isinstance(item, bytes):
+            chunks.append(item)
+        elif isinstance(item, tuple):
+            chunks.extend(v for v in item if isinstance(v, bytes))
+    if not chunks:
+        return "NO_BYTE_PAYLOAD"
+    payload = b" ".join(chunks).decode("ascii", "replace")
+    if "INTERNALDATE" not in payload.upper():
+        return "DATE_TOKEN_ABSENT"
+    match = re.search(
+        r'INTERNALDATE\s+"(\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{4})"',
+        payload, re.I)
+    if not match:
+        return "DATE_FORMAT_NOT_STANDARD"
+    try:
+        dt.datetime.strptime(match.group(1), "%d-%b-%Y %H:%M:%S %z")
+        return "VALID_ARRIVAL_DATE"
+    except ValueError:
+        return "DATE_INVALID"
+
+
 def extract_date_metadata(parts):
     """Mail arrival INTERNALDATE metadata only: NEVER the official issue date."""
     pieces = [v for item in parts or []
@@ -197,9 +250,18 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
             raise ValueError("IMAP_READONLY_SELECT_FAILED")
         if resolve_epoch(im) != str(cursor["uidvalidity"]):
             raise ValueError("IMAP_UIDVALIDITY_CHANGED")
+        # Search uses the *original production criteria*; it is independent
+        # from targeted MIME FETCH. This identifies search-filter vs
+        # parser/cursor problems without advancing any persistent checkpoint.
+        legacy_candidates = historical_backfill_search(im)
+        totals["historical_search_verified"] = 1
         for target in targets:
             category = target["category"]
             totals[category] += 1
+            uid_for_search = str(target["extract"].get("imap_uid", "")).strip()
+            marker = ("search_matched_" if uid_for_search in legacy_candidates
+                      else "search_absent_") + category.lower()
+            totals[marker] += 1
             if category == "INCONSISTENT_CURSOR":
                 totals["cursor_inconsistent"] += 1
                 continue
@@ -265,7 +327,9 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
                 if norm(q.get("imap_uid")) != norm(e.get("imap_uid")):
                     totals["blank_month_qq_extract_uid_conflict"] += 1
                 status, date_data = im.uid("FETCH", uid, "(INTERNALDATE)")
-                if status == "OK" and extract_date_metadata(date_data):
+                date_state = classify_internaldate_response(status, date_data)
+                totals["internaldate_" + date_state.lower()] += 1
+                if date_state == "VALID_ARRIVAL_DATE":
                     totals["imap_arrival_metadata_available"] += 1
                 else:
                     totals["imap_arrival_metadata_unavailable"] += 1
