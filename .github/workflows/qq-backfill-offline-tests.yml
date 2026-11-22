@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
@@ -19,6 +20,7 @@ on:
     branches: [main]
     paths:
       - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
       - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
       - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
@@ -37,7 +39,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile QQ backfill and invoice parser
-        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py automation/css_mail/invoice_fallback.py
+        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/qq_historical_invoice_backfill_2026_safe.py automation/css_mail/tax_invoice_extract.py automation/css_mail/invoice_fallback.py
       - name: Test IMAP UIDVALIDITY fallback
         run: |
           python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
@@ -50,7 +52,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           from automation.css_mail.qq_cursor_checkpoint_policy import assess_writer_cursor_order
-          writer=Path("automation/css_mail/qq_historical_invoice_backfill.py").read_text()
+          writer=Path("automation/css_mail/qq_historical_invoice_backfill_2026_safe.py").read_text()
           original=Path("automation/css_mail/qq_safe_backfill_ingest.py").read_text()
           for marker in ("UIDVALIDITY", "PARTIAL_SCAN", "SCAN_COMPLETE",
                          "QQ Backfill Cursor", "QQ Backfill Audit",
