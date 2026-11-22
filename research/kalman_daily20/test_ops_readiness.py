@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request
-from ops_readiness import (SafeGitHubLogRedirect, make_scorecard, parse_diagnostics, safe_job_log)
+from ops_readiness import (SafeGitHubLogRedirect, make_scorecard, parse_diagnostics,
+                           parse_first_seal_check, safe_job_log)
 
 NOW = datetime(2026, 11, 22, 10, tzinfo=timezone.utc)
 RUN = {
@@ -22,9 +23,121 @@ LOG = "\n".join([
     '2026-11-22T08:31:49Z {"DAILY20_STABILITY": {"status": "REPLAY_DRIFT_RESEARCH_HOLD", "hold": true, "incidents": 4}}',
 ])
 PUBLISH = '2026-11-22T08:32:21Z ***"DAILY20_DRIVE_READBACK": ***"status": "READBACK_VERIFIED", "session": "2026-11-20"***'
+PUBLISH += ("\n2026Z DAILY20_FIRST_SEAL_CHECK_V1 "
+            "session=2026-11-20 status=AWAITING_GENUINE_NEW_SESSION "
+            "deep=0 current=NO original_run=NONE snapshot_sha=NONE")
+FUTURE_NOW = datetime(2026, 11, 24, 4, tzinfo=timezone.utc)
+FUTURE_RUN = dict(RUN, id=45030000010, created_at="2026-11-24T03:10:00Z")
+FUTURE_LOG = (LOG.replace("2026-11-20", "2026-11-23")
+              .replace('"frozen_replay_drift": 20, "settled": 0',
+                       '"frozen_replay_drift": 0, "new_signals": 20, "settled": 0'))
+FUTURE_PUBLISH = (PUBLISH.splitlines()[0].replace("2026-11-20", "2026-11-23")
+    + "\n2026Z DAILY20_FIRST_SEAL_CHECK_V1 session=2026-11-23 "
+      "status=NEW_SESSION_ORIGINAL_INPUTS_AND_EVENTS_ATTESTED_RESEARCH_HOLD "
+      "deep=1 current=YES original_run=45030000010 snapshot_sha=" + "a" * 64)
+
 
 
 class ReadinessTest(unittest.TestCase):
+    def test_legacy_actual_readback_awating_future_is_not_false_failure(self):
+        r = make_scorecard(RUN, JOBS, LOG, PUBLISH, now=NOW)
+        self.assertEqual(r["operational_status"], "PASS")
+        self.assertEqual(r["first_seal_deep_verified"], 0)
+        self.assertEqual(r["independent_same_session_replay_status"],
+                         "LEGACY_AWAITING_GENUINE_NEW_SESSION")
+
+    def test_new_original_26_420_40_60_seal_attested_but_replay_pending(self):
+        r = make_scorecard(FUTURE_RUN, JOBS, FUTURE_LOG, FUTURE_PUBLISH,
+                           now=FUTURE_NOW)
+        self.assertEqual(r["operational_status"], "PASS")
+        self.assertEqual(r["research_status"], "HOLD")
+        self.assertEqual(r["first_seal_original_run_id"], FUTURE_RUN["id"])
+        self.assertEqual(r["first_seal_original_snapshot_sha256"], "a" * 64)
+        self.assertEqual(r["independent_same_session_replay_status"],
+                         "FIRST_SEAL_REMOTE_READBACK_VERIFIED")
+        self.assertIn("WAITING_INDEPENDENT_SAME_SESSION_REPLAY",
+                      r["research_hold_reasons"])
+
+    def test_automatic_two_hours_later_replay_uses_earlier_orig_event_run(self):
+        replay_run = dict(FUTURE_RUN, id=45030000100,
+                          created_at="2026-11-24T05:15:00Z")
+        replay_log = FUTURE_LOG.replace('"new_signals": 20',
+                                        '"new_signals": 0')
+        r = make_scorecard(replay_run, JOBS, replay_log, FUTURE_PUBLISH,
+                           now=datetime(2026, 11, 24, 6, tzinfo=timezone.utc))
+        self.assertEqual(r["operational_status"], "PASS")
+        self.assertEqual(r["independent_same_session_replay_status"],
+                         "SAME_SESSION_ORIGINAL_INPUT_REPLAY_VERIFIED")
+        self.assertNotIn("WAITING_INDEPENDENT_SAME_SESSION_REPLAY",
+                         r["research_hold_reasons"])
+        self.assertEqual(r["research_status"], "HOLD")  # Independent close 0/26.
+
+    def test_new_closed_day_missing_first_seal_fails_ops(self):
+        broken = FUTURE_PUBLISH.replace(
+            "NEW_SESSION_ORIGINAL_INPUTS_AND_EVENTS_ATTESTED_RESEARCH_HOLD",
+            "AWAITING_GENUINE_NEW_SESSION"
+        ).replace("deep=1 current=YES original_run=45030000010 snapshot_sha=" + "a" * 64,
+                  "deep=0 current=NO original_run=NONE snapshot_sha=NONE")
+        r = make_scorecard(FUTURE_RUN, JOBS, FUTURE_LOG, broken, now=FUTURE_NOW)
+        self.assertIn("NEW_SESSION_FIRST_SEAL_UNVERIFIED", r["operational_failures"])
+        self.assertEqual(r["research_status"], "HOLD")
+
+    def test_new_closed_day_missing_proof_line_fails_ops(self):
+        r = make_scorecard(FUTURE_RUN, JOBS, FUTURE_LOG,
+                           FUTURE_PUBLISH.splitlines()[0], now=FUTURE_NOW)
+        self.assertIn("FIRST_SEAL_READBACK_ATTESTATION_MISSING",
+                      r["operational_failures"])
+
+    def test_new_day_seal_source_run_cannot_be_later_than_current(self):
+        broken = FUTURE_PUBLISH.replace("original_run=45030000010",
+                                        "original_run=45030000555")
+        r = make_scorecard(FUTURE_RUN, JOBS, FUTURE_LOG, broken, now=FUTURE_NOW)
+        self.assertIn("FIRST_SEAL_ORIGINAL_RUN_ID_MISMATCH",
+                      r["operational_failures"])
+
+    def test_replay_cannot_claim_its_own_id_as_original(self):
+        replay_run = dict(FUTURE_RUN, id=45030000100)
+        replay_log = FUTURE_LOG.replace('"new_signals": 20',
+                                        '"new_signals": 0')
+        broken = FUTURE_PUBLISH.replace("original_run=45030000010",
+                                        "original_run=45030000100")
+        r = make_scorecard(replay_run, JOBS, replay_log, broken, now=FUTURE_NOW)
+        self.assertIn("SAME_SESSION_REPLAY_ORIGINAL_RUN_NOT_EARLIER",
+                      r["operational_failures"])
+
+    def test_new_day_different_remote_session_fails(self):
+        broken = FUTURE_PUBLISH.replace(
+            "DAILY20_FIRST_SEAL_CHECK_V1 session=2026-11-23",
+            "DAILY20_FIRST_SEAL_CHECK_V1 session=2026-11-20")
+        r = make_scorecard(FUTURE_RUN, JOBS, FUTURE_LOG, broken, now=FUTURE_NOW)
+        self.assertIn("NEW_SESSION_FIRST_SEAL_UNVERIFIED", r["operational_failures"])
+
+    def test_invalid_sha_and_duplicated_proof_are_rejected(self):
+        broken = FUTURE_PUBLISH.replace("snapshot_sha=" + "a" * 64,
+                                        "snapshot_sha=" + "wrong")
+        r = make_scorecard(FUTURE_RUN, JOBS, FUTURE_LOG, broken, now=FUTURE_NOW)
+        self.assertIn("FIRST_SEAL_READBACK_ATTESTATION_MISSING",
+                      r["operational_failures"])
+        r2 = make_scorecard(FUTURE_RUN, JOBS, FUTURE_LOG,
+                            FUTURE_PUBLISH + "\n" + FUTURE_PUBLISH.splitlines()[-1],
+                            now=FUTURE_NOW)
+        self.assertIn("FIRST_SEAL_READBACK_ATTESTATION_MISSING",
+                      r2["operational_failures"])
+
+    def test_legacy_fake_future_seal_rejected(self):
+        broken = (PUBLISH.splitlines()[0] + "\n" +
+                  FUTURE_PUBLISH.splitlines()[1])
+        r = make_scorecard(RUN, JOBS, LOG, broken, now=NOW)
+        self.assertIn("LEGACY_FAKE_PROSPECTIVE_EVIDENCE", r["operational_failures"])
+
+    def test_unknown_partial_admission_does_not_count_as_first_seal(self):
+        changed = FUTURE_LOG.replace('"new_signals": 20',
+                                     '"new_signals": 5')
+        r = make_scorecard(FUTURE_RUN, JOBS, changed, FUTURE_PUBLISH,
+                           now=FUTURE_NOW)
+        self.assertIn("NEW_SESSION_PARTIAL_OR_UNKNOWN_ADMISSION",
+                      r["operational_failures"])
+
     def test_healthy_ops_not_research_ready(self):
         c = make_scorecard(RUN, JOBS, LOG, PUBLISH, now=NOW)
         self.assertEqual(c["operational_status"], "PASS")
