@@ -21,7 +21,7 @@ def call(session,method,path,**kw):
     resp=session.request(method,url,timeout=65,**kw)
     if not resp.ok:raise RuntimeError("SHEETS_"+str(resp.status_code)+" "+resp.text[:220])
     return resp.json() if resp.content else {}
-def resolve_uidvalidity(im, folder):
+def resolve_uidvalidity(im, folder, diagnostic=None):
     """Prefer the selected mailbox response, then request STATUS explicitly.
 
     Exmail may omit an unsolicited UIDVALIDITY response on EXAMINE.
@@ -29,6 +29,8 @@ def resolve_uidvalidity(im, folder):
     """
     status, values = im.response("UIDVALIDITY")
     values = values or []
+    if diagnostic is not None:
+        diagnostic["selected_response"] = "NONEMPTY" if any(values) else "EMPTY"
     for value in values:
         if value:
             raw = value.decode("ascii", "replace") if isinstance(value,bytes) else str(value)
@@ -37,6 +39,11 @@ def resolve_uidvalidity(im, folder):
                 return match.group(1)
     quoted = '"' + folder.replace('"', '') + '"'
     status, values = im.status(quoted, "(UIDVALIDITY)")
+    if diagnostic is not None:
+        diagnostic["status_class"] = (
+            status if isinstance(status,str) and status in ("OK","NO","BAD")
+            else "OTHER")
+        diagnostic["status_response"] = "NONEMPTY" if any(values or []) else "EMPTY"
     if status == "OK":
         for value in values or []:
             raw = value.decode("ascii","replace") if isinstance(value,bytes) else str(value)
@@ -155,8 +162,9 @@ def main():
                 preview_block_reasons["FOLDER_SELECT_SKIPPED"]+=1
                 continue
             folders+=1
+            uidvalidity_probe={}
             try:
-                uidvalidity=resolve_uidvalidity(im, folder)
+                uidvalidity=resolve_uidvalidity(im, folder, uidvalidity_probe)
             except RuntimeError as exc:
                 if str(exc)!="UIDVALIDITY_UNAVAILABLE_AFTER_STATUS":raise
                 uidvalidity=""
@@ -187,6 +195,18 @@ def main():
             if not uidvalidity and eligible:
                 unfinished=True
                 preview_block_reasons["UIDVALIDITY_MISSING_WITH_CANDIDATES"]+=1
+                preview_block_reasons[
+                    "UIDVALIDITY_ROLE_INBOX" if folder.upper()=="INBOX"
+                    else "UIDVALIDITY_ROLE_OTHER"
+                ]+=1
+                for label, probe_key, allowed in (
+                    ("STATUS", "status_class", ("OK","NO","BAD","OTHER")),
+                    ("SELECTED_RESPONSE", "selected_response", ("EMPTY","NONEMPTY")),
+                    ("STATUS_RESPONSE", "status_response", ("EMPTY","NONEMPTY")),
+                ):
+                    value=uidvalidity_probe.get(probe_key)
+                    if value not in allowed: value=allowed[-1]
+                    preview_block_reasons["UIDVALIDITY_"+label+"_"+value]+=1
             prior_skipped+=len(found)-len(eligible)
             if scanned>=limit and eligible:
                 unfinished=True
