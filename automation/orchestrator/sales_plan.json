@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "profile": "sales",
+  "description": "Bounded, synthetic/offline validation of sales automation. NOT an SFDC write or source freshness proof.",
+  "tasks": [
+    {
+      "id": "policy-guard",
+      "title": "Protected operation and approval policy regression",
+      "suite": "policy",
+      "depends_on": []
+    },
+    {
+      "id": "sfdc-oppo-quote",
+      "title": "Common Oppo/Quote pattern extraction (synthetic)",
+      "suite": "sfdc_patterns",
+      "depends_on": [
+        "policy-guard"
+      ]
+    },
+    {
+      "id": "sfdc-krw-price",
+      "title": "2026 KRW-only price reuse rules (synthetic)",
+      "suite": "sfdc_krw",
+      "depends_on": [
+        "sfdc-oppo-quote"
+      ]
+    },
+    {
+      "id": "feishu-offline",
+      "title": "Feishu connector offline regressions",
+      "suite": "feishu_offline",
+      "depends_on": [
+        "sfdc-krw-price"
+      ]
+    },
+    {
+      "id": "freshness-contract",
+      "title": "Nine-domain source/sink freshness classification (offline contract)",
+      "suite": "freshness_policy",
+      "depends_on": [
+        "feishu-offline"
+      ]
+    },
+    {
+      "id": "evidence-integrity",
+      "title": "Evidence acceptance gate regression",
+      "suite": "progress_evidence",
+      "depends_on": [
+        "freshness-contract"
+      ]
+    }
+  ]
+}
