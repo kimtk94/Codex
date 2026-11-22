@@ -73,7 +73,8 @@ def run_cmd(args, cwd, timeout=120, *, checked=False):
     p = subprocess.run(args, cwd=cwd, text=True, capture_output=True, timeout=timeout, shell=False)
     if checked and p.returncode != 0:
         raise Hold("COMMAND_FAILED:" + args[0] + ":" + (p.stderr or p.stdout)[-500:])
-    return {"ok": p.returncode == 0, "code": p.returncode, "output": (p.stdout + "\n" + p.stderr)[-6000:]}
+    return {"ok": p.returncode == 0, "code": p.returncode,
+            "output": p.stdout[-500000:], "stderr": p.stderr[-1000:]}
 
 
 def test_goal(root, goal):
