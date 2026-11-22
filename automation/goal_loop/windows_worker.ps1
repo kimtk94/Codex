@@ -32,7 +32,7 @@ try {
         if (Test-Path $checkpoint) {
             try {
                 $state = Get-Content -Raw $checkpoint | ConvertFrom-Json
-                if ($state.state -in @("CI_PASS_REVIEW_REQUIRED", "HOLD_SECURITY_GATE", "TOTAL_ITERATION_BUDGET_EXHAUSTED", "NO_PROGRESS_HOLD")) {
+                if ($state.state -in @("CI_PASS_REVIEW_REQUIRED", "HOLD_SECURITY_GATE", "TOTAL_ITERATION_BUDGET_EXHAUSTED", "NO_PROGRESS_HOLD", "CI_HEAD_ADVANCED_HOLD")) {
                     Write-Host "Worker stopped at: $($state.state)"
                     break
                 }

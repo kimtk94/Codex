@@ -12,7 +12,7 @@ from automation.goal_loop.controller import (
     Hold, apply_proposal, check_worktree_scope, failed_required_checks,
     load_goal, parse_porcelain_paths, run, run_cmd, test_goal, pr_checks,
     unsafe_ci_gate_failed, verification_source_context,
-    literal_contract_examples, retry_temperature,
+    literal_contract_examples, retry_temperature, pr_head_relation,
 )
 
 
@@ -155,10 +155,99 @@ class ControllerSafetyTests(unittest.TestCase):
 
     def test_remote_ci_wrong_head_fails_closed(self):
         def fake_cmd(args, *unused, **kwargs):
-            return {"ok": True, "output": "b" * 40}
+            if args[:2] == ["git", "merge-base"]:
+                return {"ok": False, "code": 1, "output": ""}
+            return {"ok": True, "code": 0, "output": "b" * 40}
         with patch("automation.goal_loop.controller.run_cmd", side_effect=fake_cmd):
-            with self.assertRaisesRegex(Hold, "PR_HEAD_SHA_MISMATCH"):
+            with self.assertRaisesRegex(Hold, "PR_HEAD_SHA_DIVERGED"):
                 pr_checks(self.root, self.load(), "https://github.com/kimtk94/Codex/pull/123", time.monotonic() + 5, "a" * 40)
+
+    def test_unverifiable_pr_head_fails_closed(self):
+        with patch("automation.goal_loop.controller.run_cmd",
+                   return_value={"ok": False, "code": 128, "output": ""}):
+            with self.assertRaisesRegex(Hold, "PR_HEAD_ANCESTRY_UNVERIFIED"):
+                pr_head_relation(self.root, "b" * 40, "a" * 40)
+
+    def test_stale_pr_head_is_retried_until_expected_head_is_visible(self):
+        old_sha = "a" * 40
+        expected = "b" * 40
+        calls = {"pr": 0, "api": 0}
+        checks = [{
+            "name": name, "head_sha": expected, "status": "completed",
+            "conclusion": "success", "app": {"slug": "github-actions"},
+        } for name in BASE["required_checks"]]
+
+        def fake_cmd(args, *unused, **kwargs):
+            if args[:3] == ["gh", "pr", "view"]:
+                calls["pr"] += 1
+                return {"ok": True, "code": 0,
+                        "output": old_sha if calls["pr"] == 1 else expected}
+            if args[:2] == ["git", "merge-base"]:
+                self.assertEqual(args[-2:], [old_sha, expected])
+                return {"ok": True, "code": 0, "output": ""}
+            if args[:2] == ["gh", "api"]:
+                calls["api"] += 1
+                return {"ok": True, "code": 0,
+                        "output": json.dumps({"check_runs": checks})}
+            raise AssertionError(args)
+
+        with patch("automation.goal_loop.controller.run_cmd", side_effect=fake_cmd), \
+             patch("automation.goal_loop.controller.time.sleep"):
+            state, _ = pr_checks(
+                self.root, self.load(),
+                "https://github.com/kimtk94/Codex/pull/123",
+                time.monotonic() + 5, expected,
+            )
+        self.assertEqual(state, "PASS")
+        self.assertEqual(calls["pr"], 3)
+        self.assertEqual(calls["api"], 1)
+
+    def test_real_git_head_ancestry_classification(self):
+        # Verify local Git's actual exit semantics, not only mocked commands.
+        root = self.root
+        for cmd in (
+            ["git", "init", "-q"],
+            ["git", "add", "-A"],
+            ["git", "-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
+             "commit", "-q", "-m", "baseline"],
+        ):
+            self.assertTrue(run_cmd(cmd, root)["ok"], cmd)
+        original = run_cmd(["git", "rev-parse", "HEAD"], root)["output"].strip()
+        self.file.write_text("x = 2\n", encoding="utf-8")
+        for cmd in (
+            ["git", "add", "-A"],
+            ["git", "-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
+             "commit", "-q", "-m", "agent improvement"],
+        ):
+            self.assertTrue(run_cmd(cmd, root)["ok"], cmd)
+        improved = run_cmd(["git", "rev-parse", "HEAD"], root)["output"].strip()
+        self.assertEqual(pr_head_relation(root, original, improved), "STALE_PR_API")
+        self.assertEqual(pr_head_relation(root, improved, original), "REMOTE_ADVANCED")
+        self.assertEqual(pr_head_relation(root, improved, improved), "MATCH")
+
+    def test_remote_advanced_does_not_attest_stale_commit(self):
+        expected = "a" * 40
+        advanced = "b" * 40
+        calls = {"merge": 0}
+        def fake_cmd(args, *unused, **kwargs):
+            if args[:3] == ["gh", "pr", "view"]:
+                return {"ok": True, "code": 0, "output": advanced}
+            if args[:2] == ["git", "merge-base"]:
+                calls["merge"] += 1
+                return {"ok": calls["merge"] == 2,
+                        "code": 1 if calls["merge"] == 1 else 0,
+                        "output": ""}
+            raise AssertionError("Must not query stale CI: " + repr(args))
+
+        with patch("automation.goal_loop.controller.run_cmd", side_effect=fake_cmd):
+            state, checks = pr_checks(
+                self.root, self.load(),
+                "https://github.com/kimtk94/Codex/pull/123",
+                time.monotonic() + 5, expected,
+            )
+        self.assertEqual(state, "HEAD_ADVANCED")
+        self.assertEqual(checks, [])
+
 
     def test_remote_ci_wrong_check_sha_is_not_pass(self):
         head = "a" * 40
