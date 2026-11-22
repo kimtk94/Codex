@@ -33,10 +33,16 @@ def validate_plan(plan, review, extracts, stage, canonical):
             raise ValueError("PLAN_SOURCE_DUPLICATE")
         if key:
             src[key]=r
-    stage_ids=[txt(r.get("invoice_number")) for r in stage+canonical]
-    if len([x for x in stage_ids if x])!=len(set(x for x in stage_ids if x)):
-        raise ValueError("PLAN_SINK_DUPLICATE")
-    current=set(stage_ids)
+    # The same invoice often appears once in QQ Stage AND once in the
+    # canonical list (expected cross-ledger overlap). Duplicates *within*
+    # either single ledger must remain a hard failure.
+    current=set()
+    for sink_rows in (stage,canonical):
+        numbers=[txt(r.get("invoice_number")) for r in sink_rows]
+        numbers=[n for n in numbers if n]
+        if len(numbers)!=len(set(numbers)):
+            raise ValueError("PLAN_SINK_DUPLICATE")
+        current.update(numbers)
     reasons=Counter()
     for row in plan:
         key=txt(row["invoice_number"])

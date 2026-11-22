@@ -51,6 +51,22 @@ class PlanTests(unittest.TestCase):
         for sink_index in (3,4):
             d=sample();d[sink_index].append({"invoice_number":d[0][0]["invoice_number"]})
             self.assertEqual(validate_plan(*d)["plan_existing_sink_count"],1)
+    def test_overlap_across_canonical_and_stage_is_normal(self):
+        d=sample()
+        other="209126777777"
+        d[3].append({"invoice_number":other})
+        d[4].append({"invoice_number":other})
+        result=validate_plan(*d)
+        self.assertEqual(result["plan_source_match_count"],7)
+
+    def test_duplicate_within_one_sink_stays_blocked(self):
+        for sink_idx in (3,4):
+            d=sample()
+            other="209126777777"
+            d[sink_idx].extend([{"invoice_number":other},{"invoice_number":other}])
+            with self.assertRaisesRegex(ValueError,"PLAN_SINK_DUPLICATE"):
+                validate_plan(*d)
+
     def test_duplicate_or_missing_row_fails(self):
         d=sample();d[0][0]["invoice_number"]=d[0][1]["invoice_number"]
         with self.assertRaisesRegex(ValueError,"PLAN_DUPLICATE_OR_INVALID_INVOICE"):
