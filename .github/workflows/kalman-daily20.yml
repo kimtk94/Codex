@@ -552,6 +552,47 @@ jobs:
                 "CBOE_SECOND_CAPTURE",report["cboe_publisher_recheck"]["recheck_status"],
                 "SOURCE_FINALITY_CERTIFIED",report["official_close_certified"],"/26")
           PY
+      - name: Probe Nasdaq 16 historical NOCP public pages (access-only; never a price)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] || \
+             [ "${{ github.event.schedule }}" = "40 4 * * 2-6" ]; then
+            python research/kalman_daily20/nasdaq_nocp_access_audit.py \
+              --access output/daily20/research/official_close_access/report.json \
+              --out-dir output/daily20/research/nasdaq_nocp_access
+          else
+            python research/kalman_daily20/nasdaq_nocp_access_audit.py \
+              --access output/daily20/research/official_close_access/report.json \
+              --out-dir output/daily20/research/nasdaq_nocp_access --probe-public
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          import csv,hashlib,json
+          root=Path("output/daily20/research/nasdaq_nocp_access")
+          r=json.loads((root/"report.json").read_text())
+          payload=(root/"public_portal_probe.csv").read_bytes()
+          with (root/"public_portal_probe.csv").open(newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert r["version"]=="daily20-nasdaq-nocp-public-access-v1"
+          assert r["status"]=="NASDAQ_PUBLIC_NOCP_ACCESS_NOT_PRICE_CERTIFICATION_HOLD"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["live_execution"]
+          assert r["nasdaq_current_master_route_count"]==len(rows)
+          if r["session"]=="2026-11-20" and len(rows)!=16:
+              assert r["current_venue_route_coverage_status"]=="CURRENT_MASTER_VENUE_ROUTES_INCOMPLETE_HOLD"
+          elif r["session"]=="2026-11-20":
+              assert r["current_venue_route_coverage_status"]=="BASELINE_16_CURRENT_MASTER_ROUTES_OBSERVED_UNCERTIFIED"
+          assert r["official_nocp_numeric_records_admitted"]==0
+          assert r["independent_regular_close_certified"]==0
+          assert r["factor_certified"]==0
+          assert all(x["nocp_price"]=="" and
+                     x["official_certified"]=="False" for x in rows)
+          assert r["csv_sha256"]==hashlib.sha256(payload).hexdigest()
+          print("DAILY20_NASDAQ_OFFICIAL_CLOSE_HOLD",r["session"],
+                "routes",len(rows),"probes",r["public_pages_attempted"],
+                "web_200",r["public_html_200_count"],
+                "authenticated_NOCP",r["official_nocp_numeric_records_admitted"],
+                "certified",r["independent_regular_close_certified"])
+          PY
       - name: Record original QQQ 2018 trust amendment (date rule only; no paid cash)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
