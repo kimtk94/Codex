@@ -1,0 +1,28 @@
+name: SFDC Lead Convert Account Contact dry-run contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/sfdc_desktop/lead_convert_account_contact_contract.py'
+      - 'automation/sfdc_desktop/test_lead_convert_account_contact_contract.py'
+      - 'automation/sfdc_desktop/test_lead_convert_extended_cases.py'
+      - 'automation/sfdc_desktop/test_lead_convert_yonsei_account_routing.py'
+      - '.github/workflows/sfdc-lead-convert-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-lead-convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dry-run Lead Convert rule tests
+        run: python -m unittest discover -s automation/sfdc_desktop -p "test_lead_convert_*.py" -v
+      - name: Compile conversion preview contract
+        run: python -m py_compile automation/sfdc_desktop/lead_convert_account_contact_contract.py
