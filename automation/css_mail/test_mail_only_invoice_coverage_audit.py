@@ -5,7 +5,9 @@ from unittest import mock
 from email.parser import Parser
 from mail_only_invoice_coverage_audit import (
     identify_missing,original_proof,net,numeric,
-    audit_with_original_imap,
+    audit_with_original_imap,select_extracted_original_candidates,
+    verify_backfill_freshness,write_private_safe_report,
+    classify_audit_failure,
 )
 
 
@@ -138,6 +140,259 @@ class MailOnlyTests(unittest.TestCase):
             identify_missing([
                 backfill("209126000887",12012000,folder="Sent Messages")],
                 [extracted("209126000001",1)])
+
+
+    def test_full_2026_both_projection_sources_preserve_older_unmatched(self):
+        # Full-year proof must not mislabel already-recorded legacy rows as gaps.
+        history=[
+            backfill("209126000111",1200,month="2026-08"),
+            backfill("209126000222",1300,month="2026-09"),
+            backfill("209126000333",1400,month="2026-10"),
+            backfill("209126000444",1500,month="2026-11"),
+            backfill("209126000555",1600,month="2026-11"),
+        ]
+        ext=[extracted("209126000333",1400)]
+        legacy=[extracted("209126000555",1600)]
+        missing=identify_missing(history,ext,canonical=legacy,start_month="2026-01")
+        self.assertEqual(set(missing),{
+            "209126000111","209126000222","209126000444"
+        })
+
+
+    def test_formatted_canonical_krw_is_parsed_without_weakening_qq_amount(self):
+        history=[
+            backfill("209126000555",1600,month="2026-11"),
+            backfill("209126000666",1700,month="2026-11"),
+        ]
+        canonical=[extracted("209126000555","1,600 KRW")]
+        missing=identify_missing(history,[extracted("209126000999",1000)],
+                                 canonical=canonical,start_month="2026-01")
+        self.assertEqual(set(missing),{"209126000666"})
+        with self.assertRaisesRegex(ValueError,"BAD_ORIGINAL_INVOICE_AMOUNT"):
+            identify_missing([backfill("209126000666","1,700")],
+                             [extracted("209126000999",1000)],
+                             canonical=canonical,start_month="2026-01")
+
+    def test_legacy_extract_price_conflict_is_blocked(self):
+        with self.assertRaisesRegex(ValueError,"CANONICAL_EXTRACT_INVOICE_AMOUNT_CONFLICT"):
+            identify_missing([backfill("209126000888",1500)],
+                             [extracted("209126000999",1000)],
+                             canonical=[extracted("209126000999",2000)],
+                             start_month="2026-01")
+
+    def test_one_mail_uid_may_have_multiple_distinct_invoices(self):
+        missing=identify_missing([
+            backfill("209126000111",1200,month="2026-08"),
+            backfill("209126000222",1300,month="2026-09")
+        ], [extracted("209126000999",900)],
+           canonical=[extracted("209126000888",800)],start_month="2026-01")
+        self.assertEqual(len(missing),2)
+        self.assertEqual({v[-1] for v in missing.values()},{"41234"})
+
+    def test_public_main_does_not_print_invoice_ids_or_amounts(self):
+        import inspect
+        from mail_only_invoice_coverage_audit import main
+        source=inspect.getsource(main)
+        self.assertNotIn('invoice="+inv',source)
+        self.assertNotIn('gross_krw="+str',source)
+        self.assertNotIn('net_krw="+str',source)
+        self.assertIn("MAIL_ONLY_PRIVATE_EVIDENCE_REDACTED",source)
+
+
+    @staticmethod
+    def derived_pair(invoice="209126000887",amount=12012000,uid="41234"):
+        qq=backfill(invoice,amount,month="2026-11")
+        qq.update({"h_project_id":"H209SC26065705","po_reference":"PO9",
+                   "imap_uid":uid})
+        ext=extracted(invoice,amount)
+        ext.update({"project_id":"AMEA2026030802",
+                    "h_project_number":"H209SC26065705",
+                    "po_reference":"PO9","imap_uid":uid,
+                    "validation_status":"FILENAME_PARSED"})
+        return qq,ext
+
+    def test_derived_original_candidates_require_four_key_lineage(self):
+        q,e=self.derived_pair()
+        candidates,held,reasons,overlap=select_extracted_original_candidates(
+            [q],[e],[extracted("209126000001",900)])
+        self.assertEqual((len(candidates),held,overlap),(1,0,1))
+        self.assertEqual(reasons,{})
+        self.assertEqual(candidates[q["invoice_number"]][5:],
+                         ("H209SC26065705","PO9"))
+
+    def test_derived_uid_conflict_and_missing_po_remain_metadata_hold(self):
+        q,e=self.derived_pair()
+        e["imap_uid"]="41235"
+        e["po_reference"]=""
+        candidates,held,reasons,overlap=select_extracted_original_candidates(
+            [q],[e],[extracted("209126000001",900)])
+        self.assertEqual(candidates,{})
+        self.assertEqual((held,overlap),(1,1))
+        self.assertEqual(reasons,{"PO_MISSING":1,"UID_MISMATCH":1})
+
+    def test_derived_amount_match_cannot_override_wrong_project(self):
+        q,e=self.derived_pair()
+        e["project_id"]="AMEA2026030803"
+        candidates,held,reasons,_=select_extracted_original_candidates(
+            [q],[e],[extracted("209126000001",900)])
+        self.assertEqual((candidates,held),({},1))
+        self.assertEqual(reasons,{"AMEA_MISMATCH":1})
+
+    def test_derived_canonical_invoice_is_not_an_unrecorded_gap(self):
+        q,e=self.derived_pair()
+        candidates,held,reasons,overlap=select_extracted_original_candidates(
+            [q],[e],[extracted(q["invoice_number"],12012000)])
+        self.assertEqual((candidates,held,reasons,overlap),({},0,{},0))
+
+    def test_original_proof_for_derived_requires_h_and_po(self):
+        q,e=self.derived_pair()
+        filename=("TAX INVOICE-209126000887-H209SC26065705-PO9-"
+                  "AMEA2026030802-KRW12012000.00.pdf")
+        expected=("2026-11",12012000,"AMEA2026030802",
+                  "FILENAME_PARSED","41234","H209SC26065705","PO9")
+        self.assertTrue(original_proof(header(),[filename],
+                                      q["invoice_number"],expected)["sender_verified"])
+        with self.assertRaisesRegex(ValueError,"ORIGINAL_PO_MISMATCH"):
+            original_proof(header(),[filename],q["invoice_number"],
+                           expected[:-1]+("PO10",))
+        with self.assertRaisesRegex(ValueError,"ORIGINAL_CONTRACT_MISMATCH"):
+            original_proof(header(),[filename],q["invoice_number"],
+                           expected[:5]+("H209SC26000000","PO9"))
+
+    def test_several_invoices_on_same_uid_are_not_deduplicated(self):
+        q1,e1=self.derived_pair("209126000887",12012000)
+        q2,e2=self.derived_pair("209126000888",1000000)
+        candidates,held,_,overlap=select_extracted_original_candidates(
+            [q1,q2],[e1,e2],[extracted("209126000001",900)])
+        self.assertEqual((len(candidates),held,overlap),(2,0,2))
+        self.assertEqual({x[4] for x in candidates.values()},{"41234"})
+
+    def test_bad_derived_filename_status_is_held(self):
+        q,e=self.derived_pair()
+        e["validation_status"]="EXISTS_IN_LEGACY"
+        candidates,held,reasons,_=select_extracted_original_candidates(
+            [q],[e],[extracted("209126000001",900)])
+        self.assertEqual((candidates,held),({},1))
+        self.assertEqual(reasons,{"EXTRACT_PROVENANCE_UNVERIFIED":1})
+
+    def test_backfill_scan_is_fresh_and_explicit(self):
+        import datetime as dt
+        now=dt.datetime(2026,11,22,12,0,tzinfo=dt.timezone.utc)
+        rows=[{"year":"2026","status":"SCAN_COMPLETE",
+               "last_run_utc":"2026-11-22T08:35:12+00:00"}]
+        check=verify_backfill_freshness(rows,now=now)
+        self.assertEqual(check["status"],"SOURCE_FRESH")
+        self.assertLess(check["age_hours"],4)
+
+    def test_stale_or_failed_backfill_cannot_pass(self):
+        import datetime as dt
+        now=dt.datetime(2026,11,22,12,0,tzinfo=dt.timezone.utc)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_STALE"):
+            verify_backfill_freshness([
+                {"year":"2026","status":"SCAN_COMPLETE",
+                 "last_run_utc":"2026-11-19T00:00:00+00:00"}
+            ],now=now)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_NOT_COMPLETE"):
+            verify_backfill_freshness([
+                {"year":"2026","status":"SCAN_PARTIAL",
+                 "last_run_utc":"2026-11-22T11:00:00+00:00"}
+            ],now=now)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_CLOCK_SKEW"):
+            verify_backfill_freshness([
+                {"year":"2026","status":"SCAN_COMPLETE",
+                 "last_run_utc":"2026-11-23T12:00:00+00:00"}
+            ],now=now)
+
+    def test_invalid_backfill_header_and_naive_timestamp_block(self):
+        import datetime as dt
+        now=dt.datetime(2026,11,22,12,0,tzinfo=dt.timezone.utc)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_SCHEMA_MISSING"):
+            verify_backfill_freshness([],now=now)
+        with self.assertRaisesRegex(ValueError,"BACKFILL_AUDIT_TIMESTAMP_INVALID"):
+            verify_backfill_freshness([
+                {"year":"2026","status":"SCAN_COMPLETE",
+                 "last_run_utc":"2026-11-22T10:00:00"}
+            ],now=now)
+
+    def test_sanitized_artifact_json_is_parseable_and_allowlisted(self):
+        import json,tempfile,os
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/"audit.json"
+            with mock.patch.dict(os.environ,{"INVOICE_AUDIT_SUMMARY_PATH":str(p)}):
+                write_private_safe_report({
+                    "status":"HOLD","qq_only":25,
+                    "extract_eligible":34,"extract_metadata_hold":2,
+                    "source_writes":0,"revenue_writes":0,
+                    "private_invoice":"209126999999",
+                    "private_address":"private@example.com",
+                    "private_amount":123450000,
+                    "backfill":{"status":"SOURCE_FRESH",
+                                "last_scan_utc":"2026-11-22T08:00:00+00:00",
+                                "age_hours":3.0}
+                })
+            data=json.loads(p.read_text(encoding="utf-8"))
+            self.assertEqual(data["status"],"HOLD")
+            self.assertEqual(data["qq_only"],25)
+            self.assertEqual(data["extract_metadata_hold"],2)
+            self.assertEqual(data["source_writes"],0)
+            serialized=p.read_text(encoding="utf-8")
+            self.assertNotIn("209126999999",serialized)
+            self.assertNotIn("private@example.com",serialized)
+            self.assertNotIn("123450000",serialized)
+            self.assertTrue(serialized.endswith("\n"))
+
+    def test_missing_report_path_causes_no_side_effects(self):
+        import os
+        with mock.patch.dict(os.environ,{"INVOICE_AUDIT_SUMMARY_PATH":""}):
+            self.assertIsNone(write_private_safe_report({"status":"HOLD"}))
+
+
+    def test_fragmented_qq_mime_uses_original_readonly_metadata(self):
+        class FakeIMAP:
+            def __init__(self,*args,**kwargs):pass
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def login(self,*args):pass
+            def select(self,folder,readonly=False):
+                assert folder=="INBOX" and readonly
+                return "OK",[]
+            def uid(self,command,uid,query):
+                assert command=="FETCH" and uid=="41234"
+                if "HEADER.FIELDS" in query:
+                    return "OK",[(b"header",(b"From: CSS <css@novogene-amea.com>\r\n"
+                                           b"Subject: Notice: Invoice Issued & Statement Confirmed\r\n\r\n"))]
+                if query=="(BODYSTRUCTURE)":
+                    return "OK",[
+                        (b"",b'("TAX INVOICE-209126000887-H209SC26065705-PO9-'),
+                        (b"",b'AMEA2026030802-KRW12012000.00.pdf")')]
+                raise AssertionError("unexpected IMAP operation")
+            def logout(self):pass
+        expected={"209126000887":(
+            "2026-11",12012000,"AMEA2026030802","FILENAME_PARSED",
+            "41234","H209SC26065705","PO9")}
+        with mock.patch.dict("os.environ",{
+            "CSS_QQ_MAIL_ADDRESS":"test@example.com",
+            "CSS_QQ_MAIL_AUTH_CODE":"test-only"}):
+            verified,blocked,excluded=audit_with_original_imap(
+                expected,imap_factory=FakeIMAP)
+        self.assertEqual((len(verified),len(blocked),len(excluded)),(1,0,0))
+        self.assertEqual(verified["209126000887"]["amount"],12012000)
+
+
+    def test_operational_failure_states_are_separate(self):
+        import imaplib
+        self.assertEqual(classify_audit_failure(
+            ValueError("BACKFILL_AUDIT_STALE")),"STALE")
+        self.assertEqual(classify_audit_failure(
+            ValueError("BACKFILL_AUDIT_NOT_COMPLETE")),"SOURCE_UNAVAILABLE")
+        self.assertEqual(classify_audit_failure(
+            ConnectionError("synthetic network down")),"SOURCE_UNAVAILABLE")
+        self.assertEqual(classify_audit_failure(
+            imaplib.IMAP4.error("synthetic IMAP auth denied")),"SOURCE_UNAVAILABLE")
+        self.assertEqual(classify_audit_failure(
+            ValueError("CANONICAL_EXTRACT_INVOICE_AMOUNT_CONFLICT")),"BLOCK")
+
 
 
 if __name__=="__main__":

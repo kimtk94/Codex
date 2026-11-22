@@ -3,6 +3,11 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '20 2 * * *'
+  pull_request:
+    paths:
+      - 'automation/css_mail/qq_invoice_parity_audit.py'
+      - 'automation/css_mail/test_qq_invoice_parity_audit.py'
+      - '.github/workflows/qq-css-invoice-parity.yml'
   push:
     branches: [main]
     paths:
@@ -14,7 +19,18 @@ concurrency:
   group: qq-css-invoice-parity
   cancel-in-progress: false
 jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run synthetic invoice gap regression tests
+        run: python3 -m unittest automation.css_mail.test_qq_invoice_parity_audit -v
   audit:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 12
