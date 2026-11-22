@@ -113,6 +113,29 @@ def classify_preview(returncode, stdout, stderr):
         except (ValueError, TypeError):
             pass
         break
+    safe_search_lines = [line for line in out.splitlines()
+                         if line.startswith("QQ_SAFE_SEARCH_FAILURE ")]
+    if len(safe_search_lines) == 1:
+        try:
+            raw = json.loads(safe_search_lines[0].split(" ", 1)[1])
+            valid = (
+                isinstance(raw, dict) and
+                raw.get("folder_role") in ("INBOX", "OTHER") and
+                type(raw.get("folder_ordinal")) is int and
+                1 <= raw["folder_ordinal"] <= 10000 and
+                raw.get("criterion") in ("ISSUED", "TAX") and
+                raw.get("status_class") in ("OK", "NO", "BAD", "OTHER") and
+                raw.get("row_class") in ("BYTES", "NON_SEQUENCE",
+                                        "EMPTY_SEQUENCE", "FIRST_NOT_BYTES")
+            )
+            if valid:
+                report["search_failure"] = {
+                    k: raw[k] for k in (
+                        "folder_role", "folder_ordinal", "criterion",
+                        "status_class", "row_class")
+                }
+        except (ValueError, TypeError, KeyError):
+            pass
     previews = [x for x in out.splitlines()
                 if x.startswith("QQ_BACKFILL_PROOF_FIRST_PREVIEW ")]
     if len(previews) == 1:
