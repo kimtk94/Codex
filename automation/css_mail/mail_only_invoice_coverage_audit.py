@@ -64,11 +64,26 @@ def verify_backfill_freshness(rows, now=None, max_age_hours=36):
             "age_hours":round(max(age,0),2)}
 
 
+def classify_audit_failure(exc):
+    """Stable machine-readable status; never publish remote exception payloads."""
+    error_code=str(exc) if isinstance(exc,ValueError) else ""
+    if error_code=="BACKFILL_AUDIT_STALE":
+        return "STALE"
+    if error_code.startswith("BACKFILL_AUDIT_"):
+        return "SOURCE_UNAVAILABLE"
+    if isinstance(exc,(OSError,KeyError,imaplib.IMAP4.error)):
+        return "SOURCE_UNAVAILABLE"
+    if type(exc).__name__ in {"HTTPError","ConnectionError","Timeout",
+                              "TransportError","RefreshError"}:
+        return "SOURCE_UNAVAILABLE"
+    return "BLOCK"
+
+
 def write_private_safe_report(summary):
     """Allowlisted aggregate-only result for short-lived CI artifact."""
     dest=os.environ.get("INVOICE_AUDIT_SUMMARY_PATH","").strip()
     if not dest:return
-    valid={"PASS","NO_NEW_DATA","HOLD","SOURCE_UNAVAILABLE","BLOCK"}
+    valid={"PASS","NO_NEW_DATA","HOLD","SOURCE_UNAVAILABLE","BLOCK","STALE"}
     if summary.get("status") not in valid:
         raise ValueError("INVALID_INVOICE_AUDIT_STATUS")
     payload={k:v for k,v in summary.items()
@@ -414,8 +429,7 @@ if __name__=="__main__":
         dest=os.environ.get("INVOICE_AUDIT_SUMMARY_PATH","").strip()
         if not dest or not Path(dest).exists():
             write_private_safe_report({
-                "status":"SOURCE_UNAVAILABLE" if isinstance(exc,(OSError,KeyError))
-                else "BLOCK",
+                "status":classify_audit_failure(exc),
                 "audit_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),
                 "error_type":type(exc).__name__,
                 "source_writes":0,"revenue_writes":0
