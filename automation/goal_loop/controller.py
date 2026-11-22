@@ -77,13 +77,8 @@ def run_cmd(args, cwd, timeout=120, *, checked=False):
 
 
 def test_goal(root, goal):
-    results = []
-    for args in goal["verify"]:
-        result = run_cmd(args, root, timeout=180)
-        results.append({"command": args, **result})
-        if not result["ok"]:
-            break
-    return {"passed": len(results) == len(goal["verify"]) and all(r["ok"] for r in results), "results": results}
+    """Compatibility sentinel: never execute AI-authored code with local credentials."""
+    raise Hold("LOCAL_TEST_EXECUTION_FORBIDDEN_USE_REMOTE_CI")
 
 
 def ollama_proposal(root, goal, feedback):
@@ -162,24 +157,74 @@ def apply_proposal(root, goal, proposal):
     return path
 
 
-def pr_checks(root, goal, pr_url, deadline):
-    # A passing command with no checks must never be accepted as completion.
+def pr_checks(root, goal, pr_url, deadline, expected_sha):
+    """Only attest check-runs tied to the exact pushed commit SHA.
+
+    The remote GitHub runner is unprivileged; local user credentials are never
+    exposed to AI-edited code. Missing checks cannot produce success.
+    """
     last = []
     while time.monotonic() < deadline:
-        result = run_cmd(["gh", "pr", "checks", pr_url, "--json", "name,bucket"], root, timeout=40)
+        head = run_cmd(["gh", "pr", "view", pr_url, "--json", "headRefOid",
+                        "--jq", ".headRefOid"], root, timeout=40)
+        if not head["ok"]:
+            time.sleep(10)
+            continue
+        current_head = head["output"].strip().splitlines()[0] if head["output"].strip() else ""
+        if current_head != expected_sha:
+            raise Hold("PR_HEAD_SHA_MISMATCH")
+        remote = run_cmd(["gh", "api",
+                          "repos/" + goal["repo"] + "/commits/" + expected_sha
+                          + "/check-runs?per_page=100"], root, timeout=40)
+        if not remote["ok"]:
+            time.sleep(10)
+            continue
         try:
-            checks = json.loads(result["output"].strip())
-        except (ValueError, TypeError):
-            checks = []
-        if isinstance(checks, list):
-            last = checks
-            index = {c.get("name"): c.get("bucket") for c in checks if isinstance(c, dict)}
-            if all(index.get(n) == "pass" for n in goal["required_checks"]):
-                return "PASS", checks
-            if any(index.get(n) in ("fail", "cancel") for n in goal["required_checks"]):
-                return "FAIL", checks
-        time.sleep(20)
+            response = json.loads(remote["output"])
+            checks = response["check_runs"]
+        except (ValueError, KeyError, TypeError):
+            time.sleep(10)
+            continue
+        if not isinstance(checks, list):
+            raise Hold("INVALID_REMOTE_CHECK_RUNS")
+        last = [
+            {"name": c.get("name"), "status": c.get("status"),
+             "conclusion": c.get("conclusion"), "head_sha": c.get("head_sha"),
+             "id": c.get("id"), "url": c.get("html_url"),
+             "run_id": (c.get("check_suite") or {}).get("id")}
+            for c in checks if isinstance(c, dict)
+        ]
+        verified = {
+            c["name"]: c for c in last
+            if c["head_sha"] == expected_sha and c.get("status") == "completed"
+            and isinstance(c.get("name"), str)
+        }
+        required = goal["required_checks"]
+        if all(verified.get(name, {}).get("conclusion") == "success" for name in required):
+            return "PASS", last
+        if any(verified.get(name, {}).get("conclusion")
+               in ("failure", "cancelled", "timed_out", "action_required")
+               for name in required):
+            return "FAIL", last
+        time.sleep(10)
     return "TIMEOUT", last
+
+
+def ci_failure_feedback(root, checks):
+    """Read failure logs as bounded UNTRUSTED DATA, never evaluate them."""
+    feedback = []
+    for check in checks:
+        if check.get("conclusion") not in ("failure", "timed_out"):
+            continue
+        url = check.get("url")
+        if not isinstance(url, str) or "github.com/kimtk94/Codex/" not in url:
+            continue
+        # Avoid processing uncontrolled URLs. CI check names and job URLs suffice
+        # to indicate a failed gate; detailed logs remain on GitHub for review.
+        feedback.append({"name": str(check.get("name"))[:150],
+                         "conclusion": check.get("conclusion"),
+                         "url": url})
+    return feedback[:10]
 
 
 def report_state(root, goal, state, evidence):
@@ -265,11 +310,12 @@ def run(root, goal, *, dry_run=False):
             evidence["pr_url"] = pr_url
         report_state(root, goal, "RUNNING", evidence)
         if pr_url:
-            verdict, checks = pr_checks(work_dir, goal, pr_url, min(deadline, time.monotonic() + 120))
+            head_sha = run_cmd(["git", "rev-parse", "HEAD"], work_dir, checked=True)["output"].strip()
+            verdict, checks = pr_checks(work_dir, goal, pr_url, min(deadline, time.monotonic() + 120), head_sha)
             evidence["last_ci"] = {"verdict": verdict, "checks": checks}
             if verdict == "PASS":
                 return report_state(root, goal, "CI_PASS_REVIEW_REQUIRED", evidence)
-            if any(c.get("name") == "main-write-guard" and c.get("bucket") in ("fail", "cancel") for c in checks):
+            if any(c.get("name") == "main-write-guard" and c.get("conclusion") not in (None, "success") for c in checks):
                 return report_state(root, goal, "HOLD_SECURITY_GATE", evidence)
         for index in range(1, goal["max_iterations"] + 1):
             if time.monotonic() >= deadline:
@@ -278,17 +324,16 @@ def run(root, goal, *, dry_run=False):
             if len(evidence["iterations"]) >= 12:
                 state = "TOTAL_ITERATION_BUDGET_EXHAUSTED"
                 break
-            local = test_goal(work_dir, goal)
-            iteration = {"number": len(evidence["iterations"]) + 1, "test_before": local}
+            feedback = {"verification": "REMOTE_CI_ONLY",
+                        "previous_checks": evidence.get("last_ci", {}),
+                        "failures": ci_failure_feedback(work_dir,
+                                   evidence.get("last_ci", {}).get("checks", []))}
+            iteration = {"number": len(evidence["iterations"]) + 1,
+                         "local_code_execution": False}
             evidence["iterations"].append(iteration)
-            proposal = ollama_proposal(work_dir, goal, local)
+            proposal = ollama_proposal(work_dir, goal, feedback)
             iteration["edited"] = apply_proposal(work_dir, goal, proposal)
-            after = test_goal(work_dir, goal)
-            iteration["test_after"] = after
             report_state(root, goal, "RUNNING", evidence)
-            if not after["passed"]:
-                state = "RETRY_LOCAL_TEST"
-                continue
             changes = run_cmd(["git", "status", "--porcelain"], work_dir, checked=True)["output"].strip()
             if any(row[3:] not in goal["allowed_files"] for row in changes.splitlines() if row):
                 raise Hold("UNEXPECTED_WORKTREE_CHANGE")
@@ -307,8 +352,12 @@ def run(root, goal, *, dry_run=False):
                 pr_url = p["output"].strip().splitlines()[0]
                 evidence["pr_url"] = pr_url
             report_state(root, goal, "RUNNING", evidence)
-            verdict, checks = pr_checks(work_dir, goal, pr_url, deadline)
-            iteration["remote_ci"] = {"verdict": verdict, "checks": checks}
+            head_sha = run_cmd(["git", "rev-parse", "HEAD"], work_dir, checked=True)["output"].strip()
+            verdict, checks = pr_checks(work_dir, goal, pr_url, deadline, head_sha)
+            iteration["remote_ci"] = {"verdict": verdict, "checks": checks,
+                                       "head_sha": head_sha}
+            evidence["last_ci"] = iteration["remote_ci"]
+            report_state(root, goal, "RUNNING", evidence)
             if verdict == "PASS":
                 state = "CI_PASS_REVIEW_REQUIRED"
                 break
