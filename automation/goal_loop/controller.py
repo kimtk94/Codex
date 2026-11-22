@@ -694,6 +694,7 @@ def run(root, goal, *, dry_run=False):
                 state = "TOTAL_ITERATION_BUDGET_EXHAUSTED"
                 break
             feedback = {"verification": "REMOTE_CI_ONLY",
+                        "last_static_rejection": evidence.get("last_static_rejection"),
                         "no_change_count": sum(
                             bool(item.get("no_change")) for item in evidence["iterations"]
                             if isinstance(item, dict)
@@ -708,6 +709,18 @@ def run(root, goal, *, dry_run=False):
             try:
                 iteration["edited"] = apply_proposal(work_dir, goal, proposal)
             except Hold as exc:
+                if (goal["goal_id"] == "pilot-status-normalizer-v2"
+                        and (str(exc).startswith("MODEL_V2_SOURCE_QUALITY:")
+                             or str(exc) == "MODEL_SYNTAX_ERROR")):
+                    # Reject unsafe/unusable code locally without executing it
+                    # or pushing it. Consume this attempt, send the explicit
+                    # static reason to the next bounded Qwen proposal.
+                    iteration["reason"] = str(exc)
+                    iteration["static_rejected"] = True
+                    evidence["last_static_rejection"] = str(exc)
+                    state = "STATIC_QUALITY_RETRY"
+                    report_state(root, goal, "RUNNING", evidence)
+                    continue
                 if str(exc) != "MODEL_NO_CHANGE":
                     raise
                 # No identical commit; bounded retry with previous CI evidence.
@@ -756,6 +769,8 @@ def run(root, goal, *, dry_run=False):
             run_cmd(["git", "worktree", "remove", "--force", str(work_dir)], root, timeout=60)
     if state == "NO_CHANGE_RETRY":
         state = "NO_PROGRESS_HOLD"
+    if state == "STATIC_QUALITY_RETRY":
+        state = "STATIC_QUALITY_HOLD"
     return report_state(root, goal, state, evidence)
 
 
