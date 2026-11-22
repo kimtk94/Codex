@@ -744,6 +744,40 @@ jobs:
           else:
               print("STABILITY_RESEARCH_ONLY", report["status"])
           PY
+      - name: Reconcile immutable Bull/Bear replay drift with stability incidents (never re-seal)
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/replay_drift_reconciliation.py \
+            --bull output/daily20/research/forward_shadow/report.json \
+            --bear output/daily20/research/bear_forward/report.json \
+            --stability output/daily20/research/stability/report.json \
+            --finality output/daily20/research/source_finality/report.json \
+            --out-dir output/daily20/research/replay_drift_reconciliation
+          python - <<'PY'
+          from pathlib import Path
+          import csv, json
+          root=Path("output/daily20/research/replay_drift_reconciliation")
+          r=json.loads((root/"report.json").read_text())
+          with (root/"replay_differences.csv").open(newline="") as f:
+              records=list(csv.DictReader(f))
+          assert r["version"] == "daily20-replay-reconciliation-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["live_execution"] and not r["strategy_promoted"]
+          assert not r["original_journals_modified"]
+          assert not r["causal_upstream_mechanism_certified"]
+          assert r["independent_source_finality_verified"] == 0
+          assert len(records) == r["bull_drift_count"] + r["bear_drift_count"]
+          assert all(x["cause_certified"] == "False" for x in records)
+          if r["legacy_without_original_21_feature_snapshot"]:
+              assert r["legacy_bull_holds_reconciled"]
+              assert r["original_21_feature_snapshot_available"] is False
+          print("DAILY20_REPLAY_TRIAGE_HOLD",r["session"],
+                "bull",r["bull_drift_count"],
+                "material",r["bull_material_count"],
+                "bear",r["bear_drift_count"],
+                "stability",r["stability_incident_count"],
+                "legacy",r["legacy_without_original_21_feature_snapshot"])
+          PY
       - name: Publish reproducible research evidence
         if: always()
         uses: actions/upload-artifact@v4
