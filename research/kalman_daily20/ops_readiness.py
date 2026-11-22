@@ -28,6 +28,33 @@ DRIVE_READBACK = re.compile(r'"DAILY20_DRIVE_READBACK".*?"status"\s*:\s*"READBAC
 DRIVE_SESSION = re.compile(r'"DAILY20_DRIVE_READBACK".*?"session"\s*:\s*"(\d{4}-\d{2}-\d{2})"')
 
 
+# A fixed, secret-free line emitted after actual Drive media re-download.
+# It is deliberately simpler than the larger JSON, which can be log-masked.
+FIRST_SEAL_CHECK = re.compile(
+    r"DAILY20_FIRST_SEAL_CHECK_V1\s+"
+    r"session=(?P<session>\d{4}-\d{2}-\d{2})\s+"
+    r"status=(?P<status>[A-Z_]+)\s+"
+    r"deep=(?P<deep>\d+)\s+"
+    r"current=(?P<current>YES|NO)\s+"
+    r"original_run=(?P<original_run>\d+|NONE)\s+"
+    r"snapshot_sha=(?P<snapshot_sha>[a-f0-9]{64}|NONE)\b"
+)
+FIRST_NEW_SESSION = "2026-11-23"
+
+
+def parse_first_seal_check(log: str) -> dict | None:
+    matches = FIRST_SEAL_CHECK.findall(log)
+    if len(matches) != 1:
+        return None
+    session, status, deep, current, original, sha = matches[0]
+    return {
+        "session": session, "status": status, "deep": int(deep),
+        "current": current == "YES",
+        "original_run": int(original) if original != "NONE" else None,
+        "snapshot_sha256": sha if sha != "NONE" else None,
+    }
+
+
 def parse_diagnostics(log: str) -> dict:
     """Only parse emitted JSON diagnostic records; never persist raw logs."""
     diagnostics = {}
@@ -102,6 +129,41 @@ def make_scorecard(run: dict, jobs: list[dict], research_log: str,
     if not session or restored_session != session:
         problems.append("DRIVE_SESSION_MISMATCH")
 
+    seal = parse_first_seal_check(publisher_log)
+    replay_status = "LEGACY_AWAITING_GENUINE_NEW_SESSION"
+    if isinstance(session, str) and session >= FIRST_NEW_SESSION:
+        if seal is None:
+            problems.append("FIRST_SEAL_READBACK_ATTESTATION_MISSING")
+            replay_status = "NEW_SESSION_FIRST_SEAL_MISSING"
+        elif (seal["session"] != session or seal["deep"] < 1
+              or seal["current"] is not True
+              or seal["snapshot_sha256"] is None
+              or seal["status"] !=
+                 "NEW_SESSION_ORIGINAL_INPUTS_AND_EVENTS_ATTESTED_RESEARCH_HOLD"):
+            problems.append("NEW_SESSION_FIRST_SEAL_UNVERIFIED")
+            replay_status = "NEW_SESSION_FIRST_SEAL_MISSING"
+        elif forward.get("new_signals") == 20:
+            if seal["original_run"] != run.get("id"):
+                problems.append("FIRST_SEAL_ORIGINAL_RUN_ID_MISMATCH")
+                replay_status = "FIRST_SEAL_ORIGINAL_RUN_ID_MISMATCH"
+            else:
+                replay_status = "FIRST_SEAL_REMOTE_READBACK_VERIFIED"
+        elif forward.get("new_signals") == 0:
+            if (seal["original_run"] is None
+                    or not isinstance(run.get("id"), int)
+                    or seal["original_run"] >= run["id"]):
+                problems.append("SAME_SESSION_REPLAY_ORIGINAL_RUN_NOT_EARLIER")
+                replay_status = "SAME_SESSION_REPLAY_ORIGINAL_RUN_INVALID"
+            else:
+                replay_status = "SAME_SESSION_ORIGINAL_INPUT_REPLAY_VERIFIED"
+        else:
+            problems.append("NEW_SESSION_PARTIAL_OR_UNKNOWN_ADMISSION")
+            replay_status = "NEW_SESSION_PARTIAL_OR_UNKNOWN_ADMISSION"
+    elif seal is not None and (seal["session"] != session or seal["deep"] != 0
+                               or seal["current"] or seal["snapshot_sha256"] is not None
+                               or seal["status"] != "AWAITING_GENUINE_NEW_SESSION"):
+        problems.append("LEGACY_FAKE_PROSPECTIVE_EVIDENCE")
+
     gate_reasons = []
     if source.get("verified") != source.get("required") or source.get("status") != "SOURCE_FINALITY_VERIFIED":
         gate_reasons.append("INDEPENDENT_REGULAR_CLOSE_NOT_CERTIFIED")
@@ -111,6 +173,11 @@ def make_scorecard(run: dict, jobs: list[dict], research_log: str,
         gate_reasons.append("FROZEN_FORWARD_REPLAY_DRIFT")
     if forward.get("settled", 0) == 0:
         gate_reasons.append("NO_SETTLED_FORWARD_VALIDATION")
+    if isinstance(session, str) and session >= FIRST_NEW_SESSION:
+        if replay_status == "FIRST_SEAL_REMOTE_READBACK_VERIFIED":
+            gate_reasons.append("WAITING_INDEPENDENT_SAME_SESSION_REPLAY")
+        elif replay_status != "SAME_SESSION_ORIGINAL_INPUT_REPLAY_VERIFIED":
+            gate_reasons.append("NEW_SESSION_FIRST_SEAL_OR_REPLAY_UNVERIFIED")
 
     return {
         "schema": "kalman-daily20-ops-readiness-v1",
@@ -141,6 +208,11 @@ def make_scorecard(run: dict, jobs: list[dict], research_log: str,
         "stability_incidents": stability.get("incidents"),
         "drive_readback_verified": matched,
         "drive_readback_session": restored_session,
+        "first_seal_status": seal["status"] if seal else None,
+        "first_seal_deep_verified": seal["deep"] if seal else None,
+        "first_seal_original_run_id": seal["original_run"] if seal else None,
+        "first_seal_original_snapshot_sha256": seal["snapshot_sha256"] if seal else None,
+        "independent_same_session_replay_status": replay_status,
     }
 
 
@@ -204,6 +276,9 @@ def render_md(card: dict) -> str:
         f"- Independent regular-close source: {card['source_certified']}/{card['source_required']}",
         f"- Frozen replay drift: {card['forward_replay_drift']}; stability: {card['stability_status']}",
         f"- Drive readback: {card['drive_readback_verified']} ({card['drive_readback_session']})",
+        f"- First-seal deep proof: {card['first_seal_status']} ({card['first_seal_deep_verified']} sessions)",
+        f"- Same-session replay: {card['independent_same_session_replay_status']}",
+        f"- Original first-seal run: {card['first_seal_original_run_id']}; snapshot SHA256: {card['first_seal_original_snapshot_sha256'] or 'not-yet-sealed'}",
         f"- Operational failures: {', '.join(card['operational_failures']) or 'none'}",
         f"- Research HOLD reasons: {', '.join(card['research_hold_reasons']) or 'none'}",
         "- No orders, strategy promotion, Drive writes, or server access.",
