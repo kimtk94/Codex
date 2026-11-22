@@ -52,6 +52,7 @@ def validate_mail_coverage(folders, staged_keys):
     original = set()
     recent_original = set()
     scan_original = set()
+    year_original = set()
     counts = {}
     for label, entry in folders.items():
         folder, validity, uids = entry["folder"], entry["uidvalidity"], entry["uids"]
@@ -62,7 +63,8 @@ def validate_mail_coverage(folders, staged_keys):
         keys = {str(folder) + "|" + str(validity) + "|" + str(uid) for uid in uids}
         if keys & original:
             raise ValueError("ORIGINAL_MAIL_UID_NAMESPACE_CONFLICT")
-        for field, collector in (("recent_uids", recent_original), ("scan_uids", scan_original)):
+        for field, collector in (("recent_uids", recent_original), ("scan_uids", scan_original),
+                                 ("year_uids", year_original)):
             members = entry.get(field)
             if not isinstance(members, list) or len(members) != len(set(members)):
                 raise ValueError("ORIGINAL_MAIL_WINDOW_EVIDENCE_MISSING")
@@ -76,10 +78,15 @@ def validate_mail_coverage(folders, staged_keys):
         counts[label] = len(uids)
     if not original:
         raise ValueError("ORIGINAL_MAILBOX_UNEXPECTED_EMPTY")
+    # Window hierarchy must be consistent. A missing/incomplete source
+    # window must not quietly become zero missing.
+    if not (recent_original <= scan_original <= year_original <= original):
+        raise ValueError("ORIGINAL_MAIL_WINDOW_HIERARCHY_INVALID")
     staged = set(staged_keys)
     missing = len(original - staged)
     recent_missing = len(recent_original - staged)
     scan_missing = len(scan_original - staged)
+    year_missing = len(year_original - staged)
     return {
         "original_mailboxes_queried": 2,
         "imap_uid_count": len(original),
@@ -95,6 +102,12 @@ def validate_mail_coverage(folders, staged_keys):
         "scan_60d_missing_uid_count": scan_missing,
         "scan_60d_state": "PASS_UID_ONLY" if scan_missing == 0 else "SINK_LAG",
         "historical_outside_60d_uid_gap": len((original - scan_original) - staged),
+        "scan_365d_uid_count": len(year_original),
+        "scan_365d_missing_uid_count": year_missing,
+        "scan_365d_state": "PASS_UID_ONLY" if year_missing == 0 else "SINK_LAG",
+        "historical_61_to_365d_uid_gap": len((year_original - scan_original) - staged),
+        "historical_outside_365d_uid_gap": len((original - year_original) - staged),
+        "window_scope": "IMAP_INTERNALDATE_DAY_GRAIN_ROLLING_365D",
         "mime_body_verified": False,
         "mailbox_history_scope": "CURRENT_IMAP_INBOX_AND_SENT_ONLY",
     }
@@ -385,7 +398,7 @@ def live_mail(session):
                 raise RuntimeError("QQ_FULL_UID_SEARCH_FAILED")
             ids = [v.decode("ascii", "strict") for v in result[0].split()]
             since = {}
-            for days, window in ((3, "recent_uids"), (60, "scan_uids")):
+            for days, window in ((3, "recent_uids"), (60, "scan_uids"), (365, "year_uids")):
                 cutoff = (dt.datetime.now(dt.timezone.utc) -
                           dt.timedelta(days=days)).strftime("%d-%b-%Y")
                 code, reply = im.uid("SEARCH", None, "SINCE", cutoff)
