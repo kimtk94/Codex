@@ -71,11 +71,26 @@ def load_goal(root, config):
 
 
 def run_cmd(args, cwd, timeout=120, *, checked=False):
-    p = subprocess.run(args, cwd=cwd, text=True, capture_output=True, timeout=timeout, shell=False)
+    # Windows Python may default to cp949 while gh/git emit UTF-8. The
+    # subprocess reader thread would otherwise raise UnicodeDecodeError,
+    # leave stdout/stderr as None and crash on slicing their output.
+    # Decode explicitly and fail closed on command exit codes instead.
+    p = subprocess.run(
+        args,
+        cwd=cwd,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        timeout=timeout,
+        shell=False,
+    )
+    stdout = p.stdout or ""
+    stderr = p.stderr or ""
     if checked and p.returncode != 0:
-        raise Hold("COMMAND_FAILED:" + args[0] + ":" + (p.stderr or p.stdout)[-500:])
+        raise Hold("COMMAND_FAILED:" + str(args[0]) + ":" + (stderr or stdout)[-500:])
     return {"ok": p.returncode == 0, "code": p.returncode,
-            "output": p.stdout[-500000:], "stderr": p.stderr[-1000:]}
+            "output": stdout[-500000:], "stderr": stderr[-1000:]}
 
 
 def test_goal(root, goal):
