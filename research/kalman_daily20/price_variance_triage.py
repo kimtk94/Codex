@@ -216,7 +216,8 @@ def build(spec, bridge, *, bridge_sha256):
         "strict_interpretation": (
             "Raw venue M and Yahoo split-adjusted Close are different "
             "price conventions. Buckets are *review priorities*, not proved "
-            "provider errors, corporate-action causes, or certification."
+            "provider errors, corporate-action causes, or certification. "
+            "These remain research-only observations."
         ),
         "top_10_abs_bps": [
             {"symbol": r["symbol"], "signed_bps": r["raw_minus_yahoo_split_bps"],
