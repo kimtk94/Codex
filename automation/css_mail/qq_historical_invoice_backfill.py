@@ -45,10 +45,17 @@ def resolve_uidvalidity(im, folder):
     raise RuntimeError("UIDVALIDITY_UNAVAILABLE_AFTER_STATUS")
 
 def main():
+    mode=os.getenv("BACKFILL_WRITE_MODE","PREVIEW").strip().upper()
+    if mode not in ("PREVIEW","APPLY"):
+        raise RuntimeError("BACKFILL_WRITE_MODE_INVALID")
+    if mode=="APPLY" and os.getenv("BACKFILL_STAGE_WRITES_APPROVED","")!="YES":
+        raise RuntimeError("BACKFILL_WRITER_APPROVAL_GATE")
     cred=service_account.Credentials.from_service_account_info(json.loads(os.environ["CKD_DRIVE_SA_JSON"]),scopes=["https://www.googleapis.com/auth/spreadsheets"])
     s=AuthorizedSession(cred)
     meta=call(s,"GET","?fields=sheets.properties.title")
     if TAB not in {x["properties"]["title"] for x in meta["sheets"]}:
+        if mode=="PREVIEW":
+            raise RuntimeError("BACKFILL_PREVIEW_SOURCE_TAB_MISSING")
         call(s,"POST",":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":TAB,"gridProperties":{"rowCount":3000,"columnCount":12,"frozenRowCount":1}}}}]})
     quote=lambda rng:urllib.parse.quote("'"+TAB+"'!"+rng,safe="")
     old=call(s,"GET","/values/"+quote("A1:K10000")).get("values",[])
@@ -59,6 +66,8 @@ def main():
     tabs={x["properties"]["title"] for x in meta["sheets"]}
     for tab in (CURSOR_TAB,AUDIT_TAB):
         if tab not in tabs:
+            if mode=="PREVIEW":
+                raise RuntimeError("BACKFILL_PREVIEW_AUDIT_TAB_MISSING")
             call(s,"POST",":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":tab,"gridProperties":{"rowCount":1000,"columnCount":8,"frozenRowCount":1}}}}]})
     def read_tab(tab,area):
         address=urllib.parse.quote("'"+tab+"'!"+area,safe="")
@@ -219,6 +228,18 @@ def main():
         raise RuntimeError("QQ_BACKFILL_NO_INVOICE_EVIDENCE_CHECK_SUBJECT_SEARCH_OR_BODYSTRUCTURE")
     values=[HEAD]+list(by_invoice.values())
     if len(values)>10000:raise RuntimeError("BACKFILL_ROWS_EXCEED_LIMIT")
+    if mode=="PREVIEW":
+        # The scan used read-only IMAP and Sheets GET only: no JSON payload
+        # contains raw invoices, customers or UID identifiers in CI output.
+        print("QQ_BACKFILL_PROOF_FIRST_PREVIEW year="+str(year)+
+              " scanned="+str(scanned)+
+              " new_in_memory="+str(fetched)+
+              " would_update_cursor_folders="+str(len(last_by_folder))+
+              " blocked="+str(int(unfinished))+
+              " sheet_writes=0 cursor_writes=0",flush=True)
+        if unfinished:
+            sys.exit(2)
+        return
     call(s,"PUT","/values/"+quote("A1")+"?valueInputOption=RAW",json={"values":values})
     # Write invoice evidence first. Only then persist scan cursors and audit.
     now=dt.datetime.now(dt.timezone.utc).isoformat()
