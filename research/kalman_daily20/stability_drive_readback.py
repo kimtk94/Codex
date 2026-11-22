@@ -16,6 +16,7 @@ from zipfile import ZipFile
 
 # Reuse the exact uploader pin. Never maintain a second mutable copy.
 from publish_drive import EXPECTED_TARGETS
+from prospective_seal_attestation import verify_archive_prospective_seals
 
 EXPECTED_DRIVE_RESULTS_ID, EXPECTED_DRIVE_RESULTS_NAME = EXPECTED_TARGETS["results"]
 EXPECTED_STABILITY_VERSION = "daily20-prospective-stability-v1"
@@ -112,6 +113,8 @@ def verify_results_blob(blob, *, require_stability=True):
                     or item.get("production_writes") is not False):
                 raise RuntimeError("READBACK_FROZEN_SNAPSHOT_SCHEMA_INVALID:" + name)
             frozen_hashes[day] = checksum(raw)
+        first_seal_proof = verify_archive_prospective_seals(
+            z, names, list(frozen_hashes))
         current_hash = frozen_hashes.get(asof)
         if report.get("current_session_has_original_snapshot") is True:
             if not current_hash or current_hash != report.get("frozen_snapshot_sha256"):
@@ -128,6 +131,9 @@ def verify_results_blob(blob, *, require_stability=True):
             raise RuntimeError("READBACK_FALSE_LEGACY_FROZEN_HASH")
         return {
             "session": asof, "snapshot_count": len(frozen_names),
+            "prospective_first_seal_status": first_seal_proof["status"],
+            "prospective_seals_deep_verified": first_seal_proof["prospective_seals_attested"],
+            "prospective_first_seal_evidence": first_seal_proof["seals"],
             "current_snapshot_sha256": current_hash,
             "research_hold": report["research_hold"],
             "source_finality_status": report.get("source_finality_status"),
