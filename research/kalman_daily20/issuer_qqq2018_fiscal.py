@@ -48,7 +48,7 @@ def normalized_html(raw):
     if not isinstance(raw, bytes):
         raise ValueError("QQQ_FY_RAW_NOT_BYTES")
     doc = raw.decode("utf-8-sig", errors="replace")
-    doc = re.sub(r"(?is)<(script|style)\\b[^>]*>.*?</\\1>", " ", doc)
+    doc = re.sub(r"(?is)<(script|style)\b[^>]*>.*?</\1>", " ", doc)
     doc = re.sub(r"(?s)<[^>]+>", " ", doc)
     return " ".join(unescape(doc).split())
 
@@ -62,8 +62,8 @@ def verify_document(raw):
     doc = normalized_html(raw)
     trust = bool(re.search(r"Invesco QQQ Trust", doc, re.I))
     patterns = (
-        r"Financial Highlights.{0,2200}?Year Ended September\\s*30,?\\s*2018\\s+2017\\s+2016",
-        r"Distributions to Shareholders from:\\s*Net investment income\\s*\\(?\\s*1\\.31\\b",
+        r"Financial Highlights.{0,2200}?Year Ended September\s*30,?\s*2018\s+2017\s+2016",
+        r"Distributions to Shareholders from:\s*Net investment income\s*\(?\s*1\.31\b",
     )
     header = None
     for match in re.finditer(patterns[0], doc, re.I | re.S):
@@ -144,7 +144,7 @@ def main():
     dest = Path(opts.out_dir)
     dest.mkdir(parents=True, exist_ok=True)
     report = audit(offline=opts.offline, out_dir=dest)
-    (dest / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\\n")
+    (dest / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     print("DAILY20_QQQ2018_FISCAL", report["status"],
           "fy_per_share", report["fy2018_distributions_per_share_usd"],
           "single_event_cash_certified", report["issuer_single_event_amount_certified"],
