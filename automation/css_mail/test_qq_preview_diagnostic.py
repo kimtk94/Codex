@@ -140,10 +140,10 @@ class SafePreviewDiagnosticTests(unittest.TestCase):
             "PRIVATE_UID_171": 999,
             "CONSERVATIVE_CHECKPOINT_BLOCKED": "SECRET_INVOICE",
         }
-        output = ("QQ_SAFE_STAGE=SOURCE_SCAN_FINISHED\\n"
-                  + "QQ_BACKFILL_BLOCK_DIAGNOSTIC " + json.dumps(payload) + "\\n"
+        output = ("QQ_SAFE_STAGE=SOURCE_SCAN_FINISHED\n"
+                  + "QQ_BACKFILL_BLOCK_DIAGNOSTIC " + json.dumps(payload) + "\n"
                   + "QQ_BACKFILL_PROOF_FIRST_PREVIEW year=2026 scanned=4 new_in_memory=1 "
-                  + "would_update_cursor_folders=1 blocked=1 sheet_writes=0 cursor_writes=0\\n"
+                  + "would_update_cursor_folders=1 blocked=1 sheet_writes=0 cursor_writes=0\n"
                   + "QQ_BACKFILL_PREVIEW_ONLY_NOT_COMMITTED")
         result = classify_preview(2, output, "")
         self.assertEqual(result["block_reason_counts"], {
@@ -157,9 +157,9 @@ class SafePreviewDiagnosticTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_UID_171", json.dumps(result))
 
     def test_malformed_block_diagnostic_cannot_claim_pass(self):
-        out = ("QQ_BACKFILL_BLOCK_DIAGNOSTIC not-json\\n"
+        out = ("QQ_BACKFILL_BLOCK_DIAGNOSTIC not-json\n"
                "QQ_BACKFILL_PROOF_FIRST_PREVIEW year=2026 scanned=1 new_in_memory=0 "
-               "would_update_cursor_folders=0 blocked=1 sheet_writes=0 cursor_writes=0\\n"
+               "would_update_cursor_folders=0 blocked=1 sheet_writes=0 cursor_writes=0\n"
                "QQ_BACKFILL_PREVIEW_ONLY_NOT_COMMITTED")
         result = classify_preview(2, out, "RuntimeError: SECRET")
         self.assertNotIn("block_reason_counts", result)
