@@ -156,6 +156,25 @@ class SafePreviewDiagnosticTests(unittest.TestCase):
         self.assertNotIn("SECRET_INVOICE", json.dumps(result))
         self.assertNotIn("PRIVATE_UID_171", json.dumps(result))
 
+    def test_uidvalidity_probe_enumerates_only_safe_categories(self):
+        probe = {
+            "UIDVALIDITY_MISSING_WITH_CANDIDATES": 1,
+            "UIDVALIDITY_ROLE_OTHER": 1,
+            "UIDVALIDITY_STATUS_NO": 1,
+            "UIDVALIDITY_SELECTED_RESPONSE_EMPTY": 1,
+            "UIDVALIDITY_STATUS_RESPONSE_NONEMPTY": 1,
+            "PRIVATE_FOLDER": "client@example.com",
+            "UIDVALIDITY": "SECRET_IMAP_IDENTIFIER"
+        }
+        raw = "QQ_BACKFILL_BLOCK_DIAGNOSTIC " + json.dumps(probe)
+        result = classify_preview(1, raw, "")
+        self.assertEqual(result["block_reason_counts"]["UIDVALIDITY_ROLE_OTHER"],1)
+        self.assertEqual(result["block_reason_counts"]["UIDVALIDITY_STATUS_NO"],1)
+        self.assertEqual(result["block_reason_counts"]["UIDVALIDITY_STATUS_RESPONSE_NONEMPTY"],1)
+        self.assertNotIn("PRIVATE_FOLDER",json.dumps(result))
+        self.assertNotIn("SECRET_IMAP_IDENTIFIER",json.dumps(result))
+        self.assertEqual(result["status"],"HOLD")
+
     def test_malformed_block_diagnostic_cannot_claim_pass(self):
         out = ("QQ_BACKFILL_BLOCK_DIAGNOSTIC not-json\n"
                "QQ_BACKFILL_PROOF_FIRST_PREVIEW year=2026 scanned=1 new_in_memory=0 "
