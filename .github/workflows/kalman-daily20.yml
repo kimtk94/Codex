@@ -319,6 +319,34 @@ jobs:
                 r["same_session_model_vendor_adj_close_mismatches_gt_half_cent"],
                 "CERTIFIED 0/26")
           PY
+      - name: Rank raw M-vs-Yahoo split-adjusted variance by asset (HOLD queue only)
+        run: |
+          python research/kalman_daily20/price_variance_triage.py \
+            --bridge output/daily20/research/price_basis_bridge/report.json \
+            --out-dir output/daily20/research/price_variance_triage
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          p=Path("output/daily20/research/price_variance_triage")
+          r=json.loads((p/"report.json").read_text())
+          with (p/"review_queue.csv").open(newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert r["version"] == "daily20-price-variance-triage-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["live_execution"]
+          assert r["status"] == "RAW_VS_SPLIT_ADJUSTED_DIAGNOSTIC_HOLD"
+          assert r["required"] == 26 and r["equity_etf_cases"] == len(rows) == 25
+          assert r["vix_index_separate"] == 1
+          assert sum(r["bucket_counts"].values()) == 25
+          assert r["independent_final_close_certified"] == 0
+          assert r["independent_factor_certified"] == 0
+          assert all(x["finality_verified"] == "False"
+                     and x["likely_cause_certified"] == "False" for x in rows)
+          print("DAILY20_PRICE_VARIANCE_QUEUE",r["session"],
+                "venue_M",r["primary_M_research_references"],"/25",
+                "vendor",r["yahoo_unrepaired_traces"],"/25",
+                "review_counts",r["bucket_counts"],"CERTIFIED 0/26 HOLD")
+          PY
       - name: Compare ex-dated Yahoo dividends/splits to Alpaca (uncertified and fail-closed)
         run: |
           mkdir -p output/daily20/research/corporate_actions
