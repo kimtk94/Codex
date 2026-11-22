@@ -29,6 +29,9 @@ from prospective_seal_attestation import FIRST_ELIGIBLE, attest_snapshot
 VERSION = "daily20-first-seal-two-pass-contract-v1"
 BEAR_JOURNAL = "research/bear_forward/journal.jsonl"
 SNAP_PREFIX = "research/stability/snapshots/"
+FIRST_SCHEDULE = "40 2 * * 2-6"
+REPLAY_SCHEDULE = "40 4 * * 2-6"
+VALID_SCHEDULE_SLOTS = ("", FIRST_SCHEDULE, REPLAY_SCHEDULE)
 
 
 def require(condition, message):
@@ -80,7 +83,8 @@ def validate_prior(blob, core):
         }
 
 
-def decide(core, prior, session, *, clock):
+def decide(core, prior, session, *, clock, schedule_slot="", current_run_id=None):
+    require(schedule_slot in VALID_SCHEDULE_SLOTS, "UNKNOWN_SCHEDULE_SLOT")
     require(len(core) == 20 and len(set(core)) == 20,
             "UNIVERSE_NOT_20_UNIQUE")
     require(isinstance(session, str) and
@@ -119,13 +123,32 @@ def decide(core, prior, session, *, clock):
     if mode == "FIRST_GENUINE_SEAL_EXPECTED":
         require(session >= FIRST_ELIGIBLE and prior_snapshot is None,
                 "RETROSPECTIVE_FIRST_SEAL_NOT_ALLOWED")
+    # A scheduled replay must NOT become a belated first seal if the earlier
+    # GitHub scheduled job failed or never ran. This preflight executes before
+    # either original forward writer; an abort means no files are published.
+    # On a holiday the 02:40 UTC slot sees an already recorded XNYS session
+    # and is allowed to audit it as a replay without manufacturing a new day.
+    if schedule_slot == REPLAY_SCHEDULE and session >= FIRST_ELIGIBLE:
+        require(mode == "SAME_SESSION_REPLAY_EXPECTED"
+                and prior["prior_manifest_session"] == session,
+                "SCHEDULED_REPLAY_WITHOUT_VERIFIED_FIRST_SEAL")
+        if current_run_id is not None:
+            require(str(prior["prior_actions_run_id"]) != str(current_run_id),
+                    "REPLAY_MUST_USE_DISTINCT_ACTIONS_RUN")
+    if (schedule_slot == FIRST_SCHEDULE and session >= FIRST_ELIGIBLE
+            and prior["prior_manifest_session"] < session):
+        require(mode == "FIRST_GENUINE_SEAL_EXPECTED",
+                "FIRST_SCHEDULE_NEW_SESSION_SEAL_MISSING")
     expected_new_bull = 20 if mode == "FIRST_GENUINE_SEAL_EXPECTED" else 0
     expected_new_bear = 40 if expected_new_bull else 0
     return {
         "version": VERSION, "session": session,
         "prior_session": prior["prior_manifest_session"],
         "prior_actions_run_id": prior["prior_actions_run_id"],
-        "mode": mode, "research_only": True,
+        "mode": mode, "scheduled_slot": schedule_slot,
+        "scheduled_replay_first_seal_verified": (schedule_slot == REPLAY_SCHEDULE
+            and mode == "SAME_SESSION_REPLAY_EXPECTED"),
+        "research_only": True,
         "production_writes": False, "live_execution": False,
         "strategy_promoted": False, "price_certified": False,
         "scheduled_admission_open": accepted,
@@ -144,13 +167,22 @@ def decide(core, prior, session, *, clock):
     }
 
 
-def postflight(plan, prior, core, bull_dir, bear_dir, stability_dir, *, run_id):
+def postflight(plan, prior, core, bull_dir, bear_dir, stability_dir, *, run_id, schedule_slot=None):
     require(plan.get("version") == VERSION and
             plan.get("research_only") is True and
             plan.get("production_writes") is False and
             plan.get("strategy_promoted") is False,
             "INVALID_PREFLIGHT_GOVERNANCE")
     session = plan["session"]
+    if schedule_slot is not None:
+        require(schedule_slot in VALID_SCHEDULE_SLOTS
+                and plan.get("scheduled_slot") == schedule_slot,
+                "PREFLIGHT_POSTFLIGHT_SCHEDULE_ROLE_CHANGED")
+    if plan.get("scheduled_slot") == REPLAY_SCHEDULE:
+        require(plan.get("scheduled_replay_first_seal_verified") is True
+                and plan.get("expected_new_bull") == 0
+                and plan.get("expected_new_bear") == 0,
+                "SCHEDULED_REPLAY_NOT_VERIFIED")
     bull_dir, bear_dir = Path(bull_dir), Path(bear_dir)
     stability_dir = Path(stability_dir)
     report_bull = json.loads((bull_dir / "report.json").read_text())
@@ -268,6 +300,7 @@ def main():
     p.add_argument("--prior-zip", required=True)
     p.add_argument("--config", default="research/kalman_daily20/universe.json")
     p.add_argument("--qc", required=True)
+    p.add_argument("--schedule-slot", default="")
     p.add_argument("--pre", required=True)
     p.add_argument("--bull-dir")
     p.add_argument("--bear-dir")
@@ -284,7 +317,9 @@ def main():
     session = qc.get("expected_session")
     if a.phase == "pre":
         report = decide(spec["core"], prior, session,
-                        clock=datetime.now(timezone.utc))
+                        clock=datetime.now(timezone.utc),
+                        schedule_slot=a.schedule_slot,
+                        current_run_id=os.environ.get("GITHUB_RUN_ID"))
         report["prior_results_zip_sha256"] = digest(prior_blob)
         write_json(a.pre, report)
         print("DAILY20_TWO_PASS_PREFLIGHT", session, report["mode"],
@@ -293,12 +328,15 @@ def main():
         require(all((a.bull_dir, a.bear_dir, a.stability_dir, a.out)),
                 "POSTFLIGHT_MISSING_INPUTS")
         pre = json.loads(Path(a.pre).read_text())
+        require(pre.get("scheduled_slot") == a.schedule_slot,
+                "PREFLIGHT_POSTFLIGHT_SCHEDULE_ROLE_CHANGED")
         require(pre.get("prior_results_zip_sha256") == digest(prior_blob)
                 and pre.get("session") == session,
                 "PREFLIGHT_PRIOR_SOURCE_OR_SESSION_CHANGED")
         report = postflight(pre, prior, spec["core"], a.bull_dir,
                             a.bear_dir, a.stability_dir,
-                            run_id=os.environ.get("GITHUB_RUN_ID", "local"))
+                            run_id=os.environ.get("GITHUB_RUN_ID", "local"),
+                            schedule_slot=a.schedule_slot)
         write_json(a.out, report)
         print("DAILY20_TWO_PASS_POSTFLIGHT", session, report["status"],
               "new", report["bull_new"], report["bear_new"],
