@@ -102,6 +102,7 @@ class ControllerSafetyTests(unittest.TestCase):
              patch("automation.goal_loop.controller.run_cmd") as command:
             result = run(self.root, self.load(), dry_run=True)
         self.assertEqual(result["state"], "READY")
+        self.assertFalse((self.root / ".goal-loop").exists())
         model.assert_not_called()
         command.assert_not_called()
 
