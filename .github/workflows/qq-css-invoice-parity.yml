@@ -18,6 +18,7 @@ on:
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
       - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
       - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
   push:
     branches: [main]
@@ -34,6 +35,7 @@ on:
       - 'automation/css_mail/qq_safe_backfill_ingest.py'
       - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
       - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
 permissions:
   contents: read
