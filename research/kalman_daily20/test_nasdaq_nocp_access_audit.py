@@ -115,6 +115,20 @@ class NasdaqNocpAccessTests(unittest.TestCase):
         self.assertEqual(result["public_html_200_count"], 0)
         self.assertEqual(result["independent_regular_close_certified"], 0)
 
+    def test_unprivileged_pr_no_listing_master_is_visible_hold(self):
+        data = deepcopy(self.access)
+        for row in data["rows"]:
+            if row["current_listed_venue"] == "NASDAQ":
+                row["current_listed_venue"] = None
+                row["publisher"] = None
+                row["access_status"] = "UNKNOWN_CURRENT_PRIMARY_VENUE_HOLD"
+        result = self.evaluate(access=data)
+        self.assertEqual(result["nasdaq_current_master_route_count"], 0)
+        self.assertEqual(result["known_20261120_baseline_nasdaq_routes"], 16)
+        self.assertEqual(result["current_venue_route_coverage_status"],
+                         "CURRENT_MASTER_VENUE_ROUTES_INCOMPLETE_HOLD")
+        self.assertEqual(result["official_nocp_numeric_records_admitted"], 0)
+
     def test_reject_partial_probes(self):
         name = self.access["rows"][0]["symbol"]
         with self.assertRaisesRegex(ValueError, "NOCP_PROBE_ALL_CURRENT_NASDAQ"):
