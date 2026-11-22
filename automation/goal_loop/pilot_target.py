@@ -9,3 +9,10 @@ def normalize_status(value):
     if normalized in ['UNKNOWN', 'ERROR']:
         return 'FAIL'
     return 'HOLD'
+
+# New test cases to pass
+assert normalize_status('unknown') == 'HOLD'
+assert normalize_status('') == 'HOLD'
+assert normalize_status(None) == 'HOLD'
+assert normalize_status({}) == 'HOLD'
+assert normalize_status(42) == 'HOLD'
