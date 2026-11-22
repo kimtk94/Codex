@@ -9,7 +9,7 @@ from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 from tax_invoice_extract import extract,bodystructure_filenames,imap_bodystructure_chunks
 from qq_safe_backfill_ingest import evaluate_candidate,safe_folder_checkpoint
-from qq_preview_diagnostic import summarize_uid_search_reply
+from qq_preview_diagnostic import summarize_uid_search_reply, prioritize_inbox_mailboxes
 
 SHEET=os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 TAB=os.getenv("BACKFILL_TAB","QQ Historical Invoice Backfill")
@@ -144,8 +144,9 @@ def main():
         # On historical backfills, prioritize INBOX over Sent Messages: source
         # invoice notifications arrive inbound; a capped scan must not spend
         # the entire run on outgoing quotations or statements.
-        if year == 2025:
-            names.sort(key=lambda name: (0 if name.upper() == "INBOX" else 1, name.lower()))
+        # Inspect INBOX before other mailboxes for both 2025 and 2026.
+        # Keep scanning ALL other folders; any failed SEARCH stays a HOLD.
+        names=prioritize_inbox_mailboxes(names)
         for folder in names:
             status,_=im.select('"'+folder.replace('"','')+'"',readonly=True)
             if status!="OK":continue

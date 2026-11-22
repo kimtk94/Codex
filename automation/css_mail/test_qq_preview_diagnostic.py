@@ -1,7 +1,7 @@
 """Synthetic-only redaction and readiness tests; never use live credentials."""
 import json
 import unittest
-from automation.css_mail.qq_preview_diagnostic import classify_preview, summarize_uid_search_reply
+from automation.css_mail.qq_preview_diagnostic import classify_preview, summarize_uid_search_reply, prioritize_inbox_mailboxes
 
 
 class SafePreviewDiagnosticTests(unittest.TestCase):
@@ -120,6 +120,17 @@ class SafePreviewDiagnosticTests(unittest.TestCase):
             result=classify_preview(1,"QQ_SAFE_SEARCH_FAILURE "+json.dumps(payload),"")
             self.assertNotIn("search_failure", result)
             self.assertEqual(result["status"],"HOLD")
+    def test_inbox_first_keeps_every_mailbox_and_does_not_mutate(self):
+        original = ["Sent Messages", "Later", "INBOX", "Archive"]
+        expected = ["INBOX", "Archive", "Later", "Sent Messages"]
+        self.assertEqual(prioritize_inbox_mailboxes(original), expected)
+        self.assertEqual(original, ["Sent Messages", "Later", "INBOX", "Archive"])
+
+    def test_inbox_first_handles_empty_and_lowercase(self):
+        self.assertEqual(prioritize_inbox_mailboxes([]), [])
+        self.assertEqual(prioritize_inbox_mailboxes(["Other", "inbox", "Else"]),
+                         ["inbox", "Else", "Other"])
+
 
 if __name__=="__main__":
     unittest.main()

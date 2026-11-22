@@ -168,3 +168,10 @@ def summarize_uid_search_reply(status, rows):
     else:
         row_class = "BYTES"
     return {"status_class": status_class, "row_class": row_class}
+
+
+
+def prioritize_inbox_mailboxes(mailboxes):
+    """Deterministically inspect INBOX first without dropping other folders."""
+    return sorted(mailboxes, key=lambda name: (
+        0 if name.upper() == "INBOX" else 1, name.casefold()))
