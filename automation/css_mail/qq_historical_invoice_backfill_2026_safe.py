@@ -237,9 +237,11 @@ def main():
               " would_update_cursor_folders="+str(len(last_by_folder))+
               " blocked="+str(int(unfinished))+
               " sheet_writes=0 cursor_writes=0",flush=True)
-        if unfinished:
-            sys.exit(2)
-        return
+        # A preview has not updated the QQ Backfill source or audit cursor.
+        # Exit nonzero even on a clean probe so upstream chain consumers do
+        # not misread it as an authoritative successful data collection.
+        print("QQ_BACKFILL_PREVIEW_ONLY_NOT_COMMITTED",flush=True)
+        sys.exit(2)
     call(s,"PUT","/values/"+quote("A1")+"?valueInputOption=RAW",json={"values":values})
     # Write invoice evidence first. Only then persist scan cursors and audit.
     now=dt.datetime.now(dt.timezone.utc).isoformat()
