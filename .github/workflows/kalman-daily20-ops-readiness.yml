@@ -34,6 +34,13 @@ jobs:
           cd research/kalman_daily20
           python -m unittest -v test_ops_readiness.py
           python -m py_compile ops_readiness.py
+      - name: PR integration check of a real main-run GitHub job-log download
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python research/kalman_daily20/ops_readiness.py \
+            --out output/daily20/ops_readiness_pr_smoke.json
       - name: Summarize latest main Daily20 research run (never promote strategy)
         if: github.event_name != 'pull_request'
         env:
