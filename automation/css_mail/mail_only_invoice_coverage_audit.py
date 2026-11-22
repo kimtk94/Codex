@@ -77,7 +77,7 @@ def write_private_safe_report(summary):
                       "extract_metadata_hold","extract_eligible","extract_verified",
                       "extract_excluded","extract_review","metadata_hold_reasons",
                       "source_writes","revenue_writes","error_type"}}
-    Path(dest).write_text(json.dumps(payload,sort_keys=True,ensure_ascii=False)+"\\n",
+    Path(dest).write_text(json.dumps(payload,sort_keys=True,ensure_ascii=False)+"\n",
                           encoding="utf-8")
 
 
