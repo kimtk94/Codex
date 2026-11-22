@@ -444,6 +444,41 @@ jobs:
               assert r["source_archive"] and r["source_sha256"]
           print("DAILY20_QQQ2018_ISSUER_RULE_RESEARCH_HOLD",r["status"])
           PY
+      - name: Archive first-party QQQ FY2018 distribution aggregate (NOT June 18 cash)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qqq2018_fiscal.py \
+              --offline --out-dir output/daily20/research/issuer_qqq2018_fiscal
+          else
+            python research/kalman_daily20/issuer_qqq2018_fiscal.py \
+              --out-dir output/daily20/research/issuer_qqq2018_fiscal
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qqq2018_fiscal/report.json").read_text())
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["report_fiscal_year_end"] == "2018-09-30"
+          assert r["case_ex_date"] == "2018-06-18"
+          assert r["fiscal_total_is_event_payment_amount"] is False
+          assert r["qqq_2018_06_18_specific_cash_usd_certified"] is None
+          assert r["issuer_single_event_amount_certified"] is False
+          assert r["independent_adjustment_factor_certified"] is False
+          assert r["independent_close_certified"] is False
+          assert r["source_finality_verified"] == 0
+          if r["fy2018_financial_highlights_row_verified"]:
+              assert r["status"] == "ISSUER_FY2018_AGGREGATE_VERIFIED_20180618_CASH_HOLD"
+              assert r["fy2018_distributions_per_share_usd"] == "1.31"
+              assert r["source_sha256"] and r["original_html_gzip"]
+          else:
+              assert r["status"] in ("PR_OFFLINE_NO_FIRST_PARTY_REPORT_HOLD",
+                                     "ISSUER_FY2018_ROW_NOT_VERIFIED_HOLD",
+                                     "ISSUER_FY2018_SOURCE_OR_ARCHIVE_ERROR_HOLD")
+          print("DAILY20_QQQ2018_FISCAL_CONTEXT",r["status"],
+                "2018_FY_DISTRIBUTION",r["fy2018_distributions_per_share_usd"],
+                "JUNE18_CASH_HOLD 0/26")
+          PY
       - name: Capture QLD official 2023 distribution API (cash and factor HOLD)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
