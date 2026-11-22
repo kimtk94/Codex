@@ -7,13 +7,13 @@ from automation.css_mail.qq_replay_writer_exclusion_audit import (
 
 
 def baseline():
-    main = ("name: QQ Backfill\\non: workflow_dispatch\\njobs:\\n"
-            "  offline-tests:\\n    runs-on: ubuntu-latest\\n"
-            "  safe-preview:\\n    env:\\n"
-            "      BACKFILL_WRITE_MODE: 'PREVIEW'\\n"
+    main = ("name: QQ Backfill\non: workflow_dispatch\njobs:\n"
+            "  offline-tests:\n    runs-on: ubuntu-latest\n"
+            "  safe-preview:\n    env:\n"
+            "      BACKFILL_WRITE_MODE: 'PREVIEW'\n"
             "    run: python3 -m py_compile " + SAFE_WRITER)
-    year2025 = ("name: QQ 2025\\njobs:\\n  backfill:\\n"
-                "    env:\\n      BACKFILL_YEAR: '2025'\\n"
+    year2025 = ("name: QQ 2025\njobs:\n  backfill:\n"
+                "    env:\n      BACKFILL_YEAR: '2025'\n"
                 "    run: python3 " + LEGACY_WRITER)
     scripts = {SAFE_WRITER: 'if mode == "APPLY": raise RuntimeError("GATE")',
                LEGACY_WRITER:'def main(): pass'}
@@ -33,7 +33,7 @@ class WriterBoundaryTests(unittest.TestCase):
     def test_2026_apply_job_is_detected(self):
         workflows, scripts = baseline()
         workflows[MAIN_WORKFLOW] += (
-            "\\n  backfill:\\n      BACKFILL_WRITE_MODE: 'APPLY'")
+            "\n  backfill:\n      BACKFILL_WRITE_MODE: 'APPLY'")
         r=assess(workflows, scripts)
         self.assertIn("APPLY_WORKFLOW_ENABLED",r["blocking_rule_codes"])
     def test_secondary_stage_reference_blocks(self):
