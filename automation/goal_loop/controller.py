@@ -210,8 +210,10 @@ def run(root, goal, *, dry_run=False):
         raise Hold("INVALID_ITERATION_HISTORY")
     evidence = {"iterations": history, "mode": "dry-run" if dry_run else "worktree-pr-only"}
     if dry_run:
-        evidence["note"] = "No model, git write, or remote action performed."
-        return report_state(root, goal, "READY", evidence)
+        evidence["note"] = "No model, git write, checkpoint write, or remote action performed."
+        payload = {"goal_id": goal["goal_id"], "state": "READY", "evidence": evidence}
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return payload
     if len(history) >= 12:
         raise Hold("TOTAL_ITERATION_BUDGET_EXHAUSTED")
     for app in ("git", "gh"):
