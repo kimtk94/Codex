@@ -1,6 +1,14 @@
 name: QQ Historical Tax Invoice Backfill 2026
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/qq-2026-invoice-backfill.yml'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
+      - 'automation/css_mail/qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/test_qq_writer_integration.py'
   schedule:
     - cron: '31 1 * * *'
   push:
@@ -17,7 +25,26 @@ concurrency:
   group: qq-historical-invoice-backfill-shared-2026
   cancel-in-progress: false
 jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated fake-client test requirements
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Prove safe cursor and no writes in synthetic PREVIEW
+        run: |
+          python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
+          python3 -m unittest automation.css_mail.test_qq_safe_backfill_ingest -v
+          python3 automation/css_mail/test_qq_writer_integration.py
+
   safe-preview:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 35
@@ -60,6 +87,7 @@ jobs:
           PY
 
   backfill:
+    if: github.event_name != 'pull_request'
     needs: safe-preview
     runs-on: ubuntu-latest
     environment: TaehoonServer
