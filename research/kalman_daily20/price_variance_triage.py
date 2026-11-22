@@ -36,7 +36,7 @@ CSV_FIELDS = (
     "yahoo_dividend_adjusted_close_usd", "model_input_close_usd",
     "raw_minus_yahoo_split_usd", "raw_minus_yahoo_split_bps",
     "yahoo_adj_over_split_close", "model_minus_yahoo_adjusted_usd",
-    "venue", "raw_source_sha256", "vendor_trace_sha256",
+    "venue", "listing_master_metadata_sha256", "vendor_trace_sha256",
     "model_parquet_sha256", "likely_cause_certified", "finality_verified",
 )
 
@@ -170,7 +170,7 @@ def build(spec, bridge, *, bridge_sha256):
             "model_minus_yahoo_adjusted_usd": model_diff,
             "venue": (r["raw_reference_provenance"]["exchange_code"]
                       if raw is not None else None),
-            "raw_source_sha256": (r["raw_reference_provenance"]["asset_metadata_sha256"]
+            "listing_master_metadata_sha256": (r["raw_reference_provenance"]["asset_metadata_sha256"]
                                   if raw is not None else None),
             "vendor_trace_sha256": (r.get("vendor_trace_csv_sha256")
                                    if split is not None else None),
