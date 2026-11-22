@@ -13,6 +13,7 @@ from email.utils import parseaddr
 import imaplib
 import json
 import os
+from pathlib import Path
 import re
 import sys
 from decimal import Decimal,ROUND_HALF_UP
@@ -32,6 +33,52 @@ START="2026-10"
 MAX_CANDIDATES=40
 EVIDENCE_STATES={"FILENAME_PARSED","SUBJECT_CORROBORATED_FILENAME"}
 KST=dt.timezone(dt.timedelta(hours=9))
+
+
+
+def verify_backfill_freshness(rows, now=None, max_age_hours=36):
+    """Fail closed on missing or stale QQ scan; a green workflow is not source parity."""
+    if not rows or "year" not in rows[0] or "status" not in rows[0]:
+        raise ValueError("BACKFILL_AUDIT_SCHEMA_MISSING")
+    year_rows=[r for r in rows if str(r.get("year", ""))=="2026"]
+    if not year_rows:
+        raise ValueError("BACKFILL_AUDIT_YEAR_MISSING")
+    row=max(year_rows,key=lambda r:str(r.get("last_run_utc") or ""))
+    if str(row.get("status", ""))!="SCAN_COMPLETE":
+        raise ValueError("BACKFILL_AUDIT_NOT_COMPLETE")
+    try:
+        stamp=dt.datetime.fromisoformat(
+            str(row["last_run_utc"]).replace("Z","+00:00"))
+        if stamp.tzinfo is None:
+            raise ValueError("NAIVE_TIMESTAMP")
+    except (ValueError, KeyError):
+        raise ValueError("BACKFILL_AUDIT_TIMESTAMP_INVALID") from None
+    current=now if now is not None else dt.datetime.now(dt.timezone.utc)
+    age=(current.astimezone(dt.timezone.utc)-
+         stamp.astimezone(dt.timezone.utc)).total_seconds()/3600
+    if age < -5/60:
+        raise ValueError("BACKFILL_AUDIT_CLOCK_SKEW")
+    if age>max_age_hours:
+        raise ValueError("BACKFILL_AUDIT_STALE")
+    return {"status":"SOURCE_FRESH","last_scan_utc":stamp.isoformat(),
+            "age_hours":round(max(age,0),2)}
+
+
+def write_private_safe_report(summary):
+    """Allowlisted aggregate-only result for short-lived CI artifact."""
+    dest=os.environ.get("INVOICE_AUDIT_SUMMARY_PATH","").strip()
+    if not dest:return
+    valid={"PASS","NO_NEW_DATA","HOLD","SOURCE_UNAVAILABLE","BLOCK"}
+    if summary.get("status") not in valid:
+        raise ValueError("INVALID_INVOICE_AUDIT_STATUS")
+    payload={k:v for k,v in summary.items()
+             if k in {"status","audit_at_utc","backfill","qq_only","qq_only_excluded",
+                      "qq_only_verified","qq_only_review","extract_overlap",
+                      "extract_metadata_hold","extract_eligible","extract_verified",
+                      "extract_excluded","extract_review","metadata_hold_reasons",
+                      "source_writes","revenue_writes","error_type"}}
+    Path(dest).write_text(json.dumps(payload,sort_keys=True,ensure_ascii=False)+"\\n",
+                          encoding="utf-8")
 
 
 def numeric(v):
@@ -276,6 +323,7 @@ def main():
         json.loads(os.environ["CKD_DRIVE_SA_JSON"]),
         scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
     session=AuthorizedSession(creds)
+    source_health=verify_backfill_freshness(load_rows(session,"QQ Backfill Audit",100))
     qq=load_rows(session,"QQ 2026 Invoice Backfill",4000)
     extracted=load_rows(session,"CSS Tax Invoice Extract",1000)
     canonical=load_rows(session,"CSS Tax Invoice List",2000)
@@ -315,6 +363,27 @@ def main():
           " source_writes=0 revenue_writes=0",flush=True)
     if len(verified)+len(blocked)+len(excluded)!=len(missing):
         raise ValueError("MAIL_ONLY_MISSING_SOURCE_NOT_FULLY_CLASSIFIED")
+    status=("HOLD" if (meta_held or blocked_derived or excluded_derived
+                       or original_derived or blocked or verified) else
+            "NO_NEW_DATA" if not missing and not extract_overlap else "PASS")
+    write_private_safe_report({
+        "status":status,
+        "audit_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),
+        "backfill":source_health,
+        "qq_only":len(missing),
+        "qq_only_excluded":len(excluded),
+        "qq_only_verified":len(verified),
+        "qq_only_review":len(blocked),
+        "extract_overlap":extract_overlap,
+        "extract_metadata_hold":meta_held,
+        "extract_eligible":len(eligible),
+        "extract_verified":len(original_derived),
+        "extract_excluded":len(excluded_derived),
+        "extract_review":len(blocked_derived),
+        "metadata_hold_reasons":meta_reasons,
+        "source_writes":0,"revenue_writes":0
+    })
+    print("MAIL_ONLY_AGGREGATE_STATUS="+status+" SOURCE="+source_health["status"],flush=True)
     # Independent original proof is necessary, but still never sufficient for
     # automatic promotion to canonical Invoice/Revenue/Payment.
     if meta_held or blocked_derived or excluded_derived or original_derived:
@@ -335,6 +404,17 @@ def main():
 if __name__=="__main__":
     try:main()
     except Exception as exc:
-        print("MAIL_ONLY_AUDIT_NOT_COMPLETE="+type(exc).__name__+":"+
-              str(exc),file=sys.stderr)
+        # If failure occurred before a complete report, record BLOCK without
+        # publishing exception payloads from remote services or mail headers.
+        dest=os.environ.get("INVOICE_AUDIT_SUMMARY_PATH","").strip()
+        if not dest or not Path(dest).exists():
+            write_private_safe_report({
+                "status":"SOURCE_UNAVAILABLE" if isinstance(exc,(OSError,KeyError))
+                else "BLOCK",
+                "audit_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),
+                "error_type":type(exc).__name__,
+                "source_writes":0,"revenue_writes":0
+            })
+        print("MAIL_ONLY_AUDIT_NOT_COMPLETE="+type(exc).__name__,
+              file=sys.stderr)
         sys.exit(1)
