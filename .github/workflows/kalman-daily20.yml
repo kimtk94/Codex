@@ -843,6 +843,25 @@ jobs:
           python research/kalman_daily20/forward_shadow.py \
             --out output/daily20/research/forward_shadow \
             --pr-contract
+      - name: Audit first prospective NYSE seal readiness against authenticated Drive archive
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/next_session_two_pass_contract.py \
+            --phase pre \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --qc output/daily20/qc.json \
+            --pre output/daily20/research/two_pass/preflight.json
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          r=json.loads(Path("output/daily20/research/two_pass/preflight.json").read_text())
+          assert r["version"]=="daily20-first-seal-two-pass-contract-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["live_execution"] and not r["strategy_promoted"]
+          assert not r["price_certified"] and r["no_historical_reseal"]
+          assert (r["expected_new_bull"],r["expected_new_bear"]) in ((0,0),(20,40))
+          print("DAILY20_TWO_PASS_PHASE_READY",r["session"],r["mode"])
+          PY
       - name: Append future-only signals and delayed 4-NYSE-session outcomes
         if: github.event_name != 'pull_request'
         run: |
@@ -905,6 +924,38 @@ jobs:
               print("SOURCE_OR_REPLAY_RESEARCH_HOLD: provisional source-finality evidence is preserved; attribution and promotion blocked")
           else:
               print("STABILITY_RESEARCH_ONLY", report["status"])
+          PY
+      - name: Attest first-seal 26/420/40/60 or preserve prior replay journal byte prefix
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/next_session_two_pass_contract.py \
+            --phase post \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --qc output/daily20/qc.json \
+            --pre output/daily20/research/two_pass/preflight.json \
+            --bull-dir output/daily20/research/forward_shadow \
+            --bear-dir output/daily20/research/bear_forward \
+            --stability-dir output/daily20/research/stability \
+            --out output/daily20/research/two_pass/report.json
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          r=json.loads(Path("output/daily20/research/two_pass/report.json").read_text())
+          assert r["research_only"] and not r["strategy_promoted"]
+          assert not r["live_execution"] and not r["production_writes"]
+          assert r["journal_prefix_byte_identical"]
+          assert r["all_prior_snapshots_byte_identical"]
+          assert not r["original_signal_events_rewritten"]
+          assert r["research_hold"] and not r["full_raw_market_close_certified"]
+          if r["mode"]=="FIRST_GENUINE_SEAL_EXPECTED":
+              assert (r["bull_new"],r["bear_new"])==(20,40)
+              assert r["full_26_price_420_feature_40_model_60_event_attested"]
+          else:
+              assert (r["bull_new"],r["bear_new"])==(0,0)
+          print("DAILY20_TWO_PASS_INTEGRITY_HOLD",r["session"],
+                "mode",r["mode"],"status",r["status"],
+                "changed",r["replay_inputs_changed"],
+                "new",r["bull_new"]+r["bear_new"])
           PY
       - name: Reconcile immutable Bull/Bear replay drift with stability incidents (never re-seal)
         if: github.event_name != 'pull_request'
