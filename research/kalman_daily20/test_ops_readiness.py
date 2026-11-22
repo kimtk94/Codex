@@ -1,7 +1,10 @@
 """Readiness monitor tests: green pipeline never equals approved trading."""
 import unittest
 from datetime import datetime, timezone
-from ops_readiness import make_scorecard, parse_diagnostics
+from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import Request
+from ops_readiness import (SafeGitHubLogRedirect, make_scorecard, parse_diagnostics, safe_job_log)
 
 NOW = datetime(2026, 11, 22, 10, tzinfo=timezone.utc)
 RUN = {
@@ -52,6 +55,55 @@ class ReadinessTest(unittest.TestCase):
 
     def test_invalid_json_does_not_enter_diagnostics(self):
         self.assertEqual(parse_diagnostics('2026Z {"DAILY20_SOURCE_FINALITY": INVALID}'), {})
+
+
+    def test_github_signed_redirect_does_not_forward_bearer(self):
+        handler = SafeGitHubLogRedirect()
+        req = Request("https://api.github.com/repos/kimtk94/Codex/actions/jobs/123/logs",
+                      headers={"Authorization": "Bearer SECRET"})
+        redirected = handler.redirect_request(
+            req, None, 302, "Found", {},
+            "https://pipelines.actions.githubusercontent.com/redirected/download?sig=hidden")
+        self.assertIsNotNone(redirected)
+        self.assertIsNone(redirected.get_header("Authorization"))
+        self.assertEqual(redirected.host, "pipelines.actions.githubusercontent.com")
+
+    def test_redirect_rejects_external_non_https_or_untrusted_domain(self):
+        handler = SafeGitHubLogRedirect()
+        req = Request("https://api.github.com/repos/kimtk94/Codex/actions/jobs/123/logs",
+                      headers={"Authorization": "Bearer SECRET"})
+        for url in (
+            "http://pipelines.actions.githubusercontent.com/unsafe",
+            "https://attacker.example/redirect",
+            "https://bad-actions.githubusercontent.com.evil.org/download",
+        ):
+            with self.assertRaisesRegex(ValueError, "UNTRUSTED_GITHUB_LOG_REDIRECT"):
+                handler.redirect_request(req, None, 302, "Found", {}, url)
+
+    def test_github_blob_host_allowed_without_auth(self):
+        handler = SafeGitHubLogRedirect()
+        req = Request("https://api.github.com/repos/kimtk94/Codex/actions/jobs/123/logs",
+                      headers={"Authorization": "Bearer SECRET"})
+        redirected = handler.redirect_request(
+            req, None, 302, "Found", {},
+            "https://productionresultssa12.blob.core.windows.net/signed?sig=test")
+        self.assertIsNone(redirected.get_header("Authorization"))
+
+    def test_download_http_401_returns_hard_hold_without_exception_payload(self):
+        url = "https://api.github.com/repos/kimtk94/Codex/actions/jobs/123/logs"
+        failure = HTTPError(url, 401, "Server failed to authenticate", None, None)
+        with patch("ops_readiness.api", side_effect=failure):
+            log, code = safe_job_log("https://api.github.com/repos/kimtk94/Codex",
+                                      123, "SECRET", "daily-research")
+        self.assertEqual(log, "")
+        self.assertEqual(code, "GITHUB_LOG_DOWNLOAD_FAILED:daily-research")
+        self.assertNotIn("SECRET", code)
+
+    def test_missing_job_id_is_explicit_not_silent(self):
+        log, code = safe_job_log("https://api.github.com/repos/kimtk94/Codex",
+                                  None, "SECRET", "persist-google-drive")
+        self.assertEqual(log, "")
+        self.assertEqual(code, "JOB_ID_NOT_FOUND:persist-google-drive")
 
 
 if __name__ == "__main__":
