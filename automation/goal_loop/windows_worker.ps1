@@ -32,11 +32,17 @@ try {
         if (Test-Path $checkpoint) {
             try {
                 $state = Get-Content -Raw $checkpoint | ConvertFrom-Json
+                $attemptCount = @($state.evidence.iterations).Count
+                $latestCI = if ($state.evidence.last_ci) { $state.evidence.last_ci.verdict } else { "none" }
+                Write-Host "Goal summary: state=$($state.state); attempts=$attemptCount/12; CI=$latestCI; PR=$($state.evidence.pr_url)"
+                if ($state.evidence.reason) {
+                    Write-Host "Hold reason: $($state.evidence.reason)"
+                }
                 if ($state.state -in @("CI_PASS_REVIEW_REQUIRED", "HOLD_SECURITY_GATE", "TOTAL_ITERATION_BUDGET_EXHAUSTED", "NO_PROGRESS_HOLD", "CI_HEAD_ADVANCED_HOLD")) {
                     Write-Host "Worker stopped at: $($state.state)"
                     break
                 }
-                if ($state.evidence.reason -match "INVALID_|UNSAFE_|FORBIDDEN_|CHECKPOINT_|OUT_OF_SCOPE|MISSING_CI_GATES") {
+                if ($state.evidence.reason -match "INVALID_|UNSAFE_|FORBIDDEN_|CHECKPOINT_|OUT_OF_SCOPE|MISSING_CI_GATES|MODEL_OVERRIDE_|SELECTED_LOCAL_MODEL_NOT_INSTALLED") {
                     Write-Host "Permanent policy hold; manual review required."
                     break
                 }

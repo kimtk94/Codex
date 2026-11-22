@@ -197,6 +197,44 @@ def unsafe_ci_gate_failed(goal, checks):
     return any(name != "pilot-acceptance" for name in failed_required_checks(goal, checks))
 
 
+def select_local_model(goal, env=None):
+    """Allow a larger locally installed coder without changing the goal digest.
+
+    Only explicitly allowed local Ollama model names can be used; an override
+    cannot change the API endpoint, run commands, loosen CI gates or reset
+    the checkpoint's total iteration budget.
+    """
+    env = os.environ if env is None else env
+    configured = goal.get("model", "qwen25coder3b-16k")
+    if not isinstance(configured, str) or not configured:
+        raise Hold("INVALID_LOCAL_MODEL_NAME")
+    requested = env.get("GOAL_LOOP_MODEL", "").strip()
+    if requested and requested not in (configured, "qwen2.5-coder:7b"):
+        raise Hold("MODEL_OVERRIDE_NOT_ALLOWED")
+    return requested or configured
+
+
+def require_local_model(model):
+    """Fail before an iteration is consumed when the selected model is absent."""
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags",
+                                    timeout=6) as response:
+            payload = json.load(response)
+    except Exception as exc:
+        raise Hold("LOCAL_OLLAMA_MODEL_CHECK_FAILED:" +
+                   type(exc).__name__) from exc
+    entries = payload.get("models", []) if isinstance(payload, dict) else []
+    if not isinstance(entries, list):
+        raise Hold("INVALID_OLLAMA_MODEL_LIST")
+    names = {
+        entry.get("name") for entry in entries if isinstance(entry, dict)
+        and isinstance(entry.get("name"), str)
+    }
+    if model not in names and model + ":latest" not in names:
+        raise Hold("SELECTED_LOCAL_MODEL_NOT_INSTALLED:" + model)
+    return model
+
+
 def ollama_proposal(root, goal, feedback):
     source = {}
     for path in goal["allowed_files"]:
@@ -226,7 +264,7 @@ def ollama_proposal(root, goal, feedback):
         }, ensure_ascii=False)
     )
     payload = {
-        "model": goal.get("model", "qwen25coder3b-16k"),
+        "model": select_local_model(goal),
         "stream": False,
         "format": "json",
         "messages": [
@@ -505,6 +543,9 @@ def run(root, goal, *, dry_run=False):
         return payload
     if len(history) >= 12:
         raise Hold("TOTAL_ITERATION_BUDGET_EXHAUSTED")
+    selected_model = select_local_model(goal)
+    require_local_model(selected_model)
+    evidence["local_model"] = selected_model
     for app in ("git", "gh"):
         if not shutil.which(app):
             raise Hold("MISSING_TOOL:" + app)
