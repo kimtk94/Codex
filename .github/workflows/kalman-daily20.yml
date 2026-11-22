@@ -464,11 +464,27 @@ jobs:
           assert r["independent_close_certified"] is False
           assert r["historical_nonpayment_proven"] is False
           assert r["queried_ex_date"] == "2023-09-20"
+          assert r["version"] == "daily20-qld2023-issuer-distribution-api-v2"
           if r["source_sha256"]:
-              assert r["source_archive"] and r["api_2023_row_count"] is not None
-              assert r["status"] in ("ISSUER_API_2023_TARGET_ROW_PRESENT_CASH_UNCERTIFIED",
-                                      "ISSUER_API_2023_TARGET_ROW_ABSENT_HISTORY_HOLD")
-          print("DAILY20_QLD2023_API_RESEARCH_HOLD",r["status"],"0/26")
+              assert r["source_archive"] and r["source_bytes"] > 0
+              assert r["source_response_kind"] in (
+                  "JSON_ARRAY_CANDIDATE", "JSON_OBJECT_CANDIDATE",
+                  "HTML_OR_XML", "OTHER_TEXT_OR_BINARY")
+              if r["status"] == "ISSUER_API_FETCH_OR_SCHEMA_FAILED_HOLD":
+                  assert r["source_fetched_but_schema_rejected"] is True
+                  assert r["failure_stage"] == "API_SCHEMA_VALIDATE"
+                  assert r["fetch_error_code"]
+                  assert r["api_2023_row_count"] is None
+              else:
+                  assert r["api_2023_row_count"] is not None
+                  assert r["status"] in ("ISSUER_API_2023_TARGET_ROW_PRESENT_CASH_UNCERTIFIED",
+                                          "ISSUER_API_2023_TARGET_ROW_ABSENT_HISTORY_HOLD")
+          else:
+              assert r["source_archive"] is None
+              assert r["status"] in ("PR_OFFLINE_NO_SOURCE_HOLD",
+                                      "ISSUER_API_FETCH_OR_SCHEMA_FAILED_HOLD")
+          print("DAILY20_QLD2023_API_RESEARCH_HOLD",r["status"],
+                "failure_code",r["fetch_error_code"],"stage",r["failure_stage"],"0/26")
           PY
       - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
         run: |
