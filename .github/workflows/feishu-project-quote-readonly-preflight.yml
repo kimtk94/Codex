@@ -1,0 +1,58 @@
+name: Feishu Project Quote View Readonly Preflight
+
+on:
+  pull_request:
+    paths:
+      - automation/feishu/sales_home_links.py
+      - automation/feishu/test_sales_home_links.py
+      - automation/feishu/project_quote_operating_sync.py
+      - .github/workflows/feishu-project-quote-readonly-preflight.yml
+  push:
+    branches:
+      - fix/feishu-quote-project-read-timeout-20261117
+    paths:
+      - automation/feishu/sales_home_links.py
+      - automation/feishu/test_sales_home_links.py
+      - .github/workflows/feishu-project-quote-readonly-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test bounded GET-only retry and Quote-first project field mapping
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_home_links.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_project_quote_operating_sync.py' -v
+
+  source-read-preflight:
+    needs: offline-tests
+    if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && needs.offline-tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_PROJECT_OPS_APPLY: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read project view source and derived table metadata without changes
+        run: |
+          python3 automation/feishu/project_quote_operating_sync.py
+          echo 'Source preview uses GET only. No project, Quote, Payment, SFDC, or Feishu writes.' >> "$GITHUB_STEP_SUMMARY"
