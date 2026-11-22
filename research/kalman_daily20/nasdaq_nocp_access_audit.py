@@ -177,7 +177,9 @@ def build(spec, access, *, probes, probe_attempted, file_hashes,
                 (isinstance(p, dict)
                  and isinstance(p.get("probe_status"), str)
                  and p["probe_status"].endswith("_HOLD")
-                 and p.get("http_status") in (None, 200, 403, 404, 429, 500, 502, 503, 504)
+                 and (p.get("http_status") is None or
+                      (type(p.get("http_status")) is int and
+                       100 <= p["http_status"] <= 599))
                  and (p.get("response_sha256") is None or digest_ok(p["response_sha256"]))),
                 "NOCP_PROBE_RESPONSE_SCHEMA_INVALID")
         rows.append({
