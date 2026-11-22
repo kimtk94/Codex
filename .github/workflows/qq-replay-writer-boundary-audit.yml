@@ -32,6 +32,8 @@ jobs:
         run: python3 -m unittest automation.css_mail.test_qq_replay_writer_exclusion_audit -v
       - name: Verify private review schema and zero-authority contract
         run: python3 -m unittest automation.css_mail.test_qq_replay_private_review_readonly -v
+      - name: Check exact seven-stage-row plan and no unauthorized issuance dates
+        run: python3 -m unittest automation.css_mail.test_qq_replay_plan_readonly -v
       - name: Exercise local-only transaction and crash reconciliation
         run: |
           python3 -m unittest automation.css_mail.test_qq_replay_transaction_rehearsal -v
