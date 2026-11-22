@@ -151,6 +151,8 @@ class V2QualityTests(unittest.TestCase):
              patch("automation.goal_loop.controller.require_local_model"), \
              patch("automation.goal_loop.controller.shutil.which", return_value="git"), \
              patch("automation.goal_loop.controller.run_cmd", side_effect=fake_command), \
+             patch("automation.goal_loop.controller.apply_proposal",
+                   side_effect=Hold("MODEL_V2_SOURCE_QUALITY:V2_FORBIDDEN_MODULE_LEVEL_STATEMENT")), \
              patch("automation.goal_loop.controller.ollama_proposal",
                    return_value={"path": self.goal["allowed_files"][0],
                                  "content": bad}) as model:
