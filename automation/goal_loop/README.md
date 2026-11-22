@@ -1,6 +1,68 @@
 # Local AI Goal Loop — draft PR pilot
 
-**Status:** GitHub-only controller CI available; the Windows laptop/Ollama end-to-end execution is not verified until the connected device is online. This module does not replace the existing automation_policy gates.
+**Status:** V1 local Ollama ran and created draft PR #969, but independent acceptance failed after 12/12 attempts. V2 is being prepared for isolated GitHub CI verification; V2 local-model end-to-end success is not yet verified. Existing automation_policy protections remain separate.
+
+## V2 — independent, review-first pilot (V1 remains exhausted)
+
+**V1 outcome:** 12/12 attempts, AI-written draft PR #969, independent
+`pilot-acceptance` failed. Do not delete
+`~/.goal-loop/pilot-status-normalizer/latest.json`, force-merge #969, or
+silently replenish that budget.
+
+**V2 identity:** `pilot-status-normalizer-v2`, configured by
+`automation/goal_loop/goals/pilot-status-v2.json` and documented in
+`docs/automation/goal-loop-pilot-v2.md`. It has a **separate checkpoint**
+`~/.goal-loop/pilot-status-normalizer-v2/latest.json` and an
+independent `pilot-acceptance-v2` CI check. Its AI can edit only
+`pilot_target_v2.py`; the independent acceptance test and security workflow
+remain out of scope. The AST-only preflight rejects V1's top-level `assert`
+regression **before Git push without importing the model-authored module**.
+Two invalid proposals per invocation result in `STATIC_QUALITY_HOLD`.
+
+GitHub Actions can verify controller safety and hand-authored fixtures, but
+**cannot run your laptop's Ollama**. After this PR has passed CI and merged,
+review and run **one single-shot** from Windows PowerShell:
+
+```powershell
+cd C:\Users\KimTaeHoon\Projects\Codex
+git switch main
+git pull --ff-only origin main
+python -m unittest discover -s automation/goal_loop -p "test_*.py" -v
+python -m automation.goal_loop.controller --goal automation/goal_loop/goals/pilot-status-v2.json --dry-run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\automation\goal_loop\windows_worker.ps1" -Goal "automation/goal_loop/goals/pilot-status-v2.json"
+```
+
+The worker's **default** remains the exhausted V1 goal. Always specify
+`-Goal ...pilot-status-v2.json` for this distinct experiment. Do not pass
+`-Loop` until an exact-head PR achieves
+`CI_PASS_REVIEW_REQUIRED`. No automatic merge or production writes.
+
+### Measured, optional local model comparison
+
+The previous laptop baseline is 16GB RAM, about 21.39 tokens/s for
+Qwen2.5-Coder 3B/16K, and about 6.58 tokens/s for Qwen3 4B/16K on CPU.
+These measurements **do not prove 7B performance**. Before using V2's
+attempt budget, manually compare both *locally installed* models without
+executing model-generated code:
+
+```powershell
+python -m automation.goal_loop.model_probe --model qwen25coder3b-16k
+python -m automation.goal_loop.model_probe --model qwen2.5-coder:7b
+```
+
+Each probe uses only a fixed synthetic prompt over localhost; outputs
+latency, returned token rate (when supplied by Ollama), and a structured
+mapping correctness score **not** the independent V2 code CI pass rate.
+No install, model-derived code execution, token upload, file write or
+checkpoint reset. Select the V2 model for the current terminal only if its
+measured reliability and speed are acceptable:
+
+```powershell
+$env:GOAL_LOOP_MODEL = "qwen2.5-coder:7b"
+```
+
+GitHub Actions remains the sole authority for AI-authored code behavior
+and `pilot-acceptance-v2`.
 
 ## Architecture
 
