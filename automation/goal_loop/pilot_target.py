@@ -6,4 +6,6 @@ def normalize_status(value):
         return normalized
     if normalized in ['OK', 'DONE', 'SUCCESS']:
         return 'PASS'
+    if normalized in ['UNKNOWN', 'ERROR']:
+        return 'FAIL'
     return 'UNKNOWN'
