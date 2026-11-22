@@ -655,6 +655,31 @@ jobs:
       - name: Out-of-sample annual baseline (no broker, no production writes)
         run: |
           python research/kalman_daily20/daily20.py train --config research/kalman_daily20/universe.json --market output/daily20/market --features output/daily20/features --out output/daily20/research
+      - name: PR-only real-input first-seal contract rehearsal (SYNTHETIC events, NEVER uploaded)
+        if: github.event_name == 'pull_request'
+        run: |
+          python research/kalman_daily20/first_seal_real_input_rehearsal.py \
+            --data-root output/daily20 \
+            --scores output/daily20/research/latest_research_scores.csv \
+            --qc output/daily20/qc.json \
+            --out "$RUNNER_TEMP/daily20-first-seal-real-input-rehearsal.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads((Path(os.environ["RUNNER_TEMP"]) / "daily20-first-seal-real-input-rehearsal.json").read_text())
+          assert d["status"] == "REAL_INPUT_SYNTHETIC_EVENT_CONTRACT_PASS"
+          assert d["research_only"] and not d["live_execution"]
+          assert d["synthetic_event_hashes_only"]
+          assert d["synthetic_events_written_to_drive"] is False
+          assert d["prospective_first_seal_claimed"] is False
+          assert d["official_close_certified"] is False
+          assert d["price_assets_verified"] == 26
+          assert d["feature_values_verified"] == 420
+          assert d["real_model_fit_provenance_verified"] == 40
+          assert d["synthetic_event_anchor_count"] == 60
+          assert d["models_and_features_stable_on_two_recomputations"] is True
+          print("DAILY20_REAL_INPUT_REHEARSAL_CI_PASS 26/26 prices 420/420 features 40/40 models 60/60 synthetic-events HOLD")
+          PY
       - name: Aggregate cash-constrained OOS portfolio and Regime diagnostics
         run: |
           python research/kalman_daily20/portfolio.py \
