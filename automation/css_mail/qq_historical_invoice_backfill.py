@@ -8,6 +8,7 @@ from invoice_fallback import corroborated_filename
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 from tax_invoice_extract import extract,bodystructure_filenames,imap_bodystructure_chunks
+from qq_safe_backfill_ingest import evaluate_candidate,safe_folder_checkpoint
 
 SHEET=os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 TAB=os.getenv("BACKFILL_TAB","QQ Historical Invoice Backfill")
@@ -146,7 +147,9 @@ def main():
             found=set()
             for phrase in ('Invoice Issued','TAX INVOICE'):
                 status,found_rows=im.uid("SEARCH",None,"SINCE",start,"BEFORE",end,"SUBJECT",'"'+phrase+'"')
-                if status=="OK":found.update((found_rows[0] or b"").split())
+                if status!="OK" or not found_rows or not isinstance(found_rows[0],bytes):
+                    raise RuntimeError("QQ_BACKFILL_SEARCH_UNAVAILABLE")
+                found.update(found_rows[0].split())
             matches+=len(found)
             print("QQ_BACKFILL_FOLDER folder_count="+str(folders)+" candidates="+str(len(found)),flush=True)
             eligible=[u for u in sorted(found,key=lambda x:int(x)) if int(u)>checkpoint]
@@ -156,58 +159,60 @@ def main():
                 unfinished=True
             prior_skipped+=len(found)-len(eligible)
             if scanned>=limit and eligible:unfinished=True
+            # Process the sorted source UIDs, but preserve a retryable hole
+            # instead of silently advancing the cursor before FETCH/parsing.
+            processed_uids=[]
+            outcomes={}
+            if not uidvalidity and eligible:
+                unfinished=True
+                continue
             for uid in eligible:
                 if scanned>=limit:
                     unfinished=True
                     break
-                if uidvalidity:last_by_folder[folder]=(uidvalidity,int(uid))
-                if (folder,uid.decode()) in known_uids:continue
-                scanned+=1
-                status,parts=im.uid("FETCH",uid,"(BODYSTRUCTURE)")
-                if status!="OK":continue
-                blocks=imap_bodystructure_chunks(parts)
-                for block in blocks:
-                    for filename in bodystructure_filenames(block):
+                uid_int=int(uid)
+                uid_text=uid.decode("ascii")
+                already_evidenced=(folder,uid_text) in known_uids
+                if not already_evidenced:
+                    scanned+=1
+                state, staged, diag=evaluate_candidate(
+                    im,uid_text,folder,already_evidenced,
+                    imap_bodystructure_chunks,bodystructure_filenames,
+                    extract,corroborated_filename,by_invoice)
+                processed_uids.append(uid_int)
+                outcomes[uid_int]=state
+                reject_reasons[state]+=1
+                if "arrival_metadata_state" in diag:
+                    reject_reasons["ARRIVAL_"+diag["arrival_metadata_state"]]+=1
+                if state=="ORIGINAL_ISSUED_PROOF_PERSISTED":
+                    # Per-message staging is atomic in memory: if any
+                    # attachment conflicts, none of its invoice rows are added.
+                    for row in staged:
                         filename_candidates+=1
-                        parsed=extract(filename)
-                        if not parsed:
-                            # An H identifier may be absent from the attachment filename.
-                            # Corroborate invoice/AMEA with the same email subject and
-                            # require an explicit KRW amount in filename; never guess.
-                            status_hdr, hdr = im.uid("FETCH",uid,"(BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
-                            payload = next((v[1] for v in hdr or [] if isinstance(v,tuple) and isinstance(v[1],bytes)),None)
-                            subject = ""
-                            if status_hdr=="OK" and payload:
-                                subject=str(BytesParser(policy=default).parsebytes(payload,headersonly=True).get("Subject",""))
-                            parsed=corroborated_filename(filename,subject)
-                            if parsed:
-                                fallback_matched+=1
-                            else:
-                                reject_reasons["PATTERN_MISMATCH"]+=1
-                                if "AMEA" not in filename.upper():reject_reasons["MISSING_AMEA"]+=1
-                                if "KRW" not in filename.upper():reject_reasons["MISSING_KRW"]+=1
-                                if not re.search(r"H[0-9]{5,}",filename,re.I):reject_reasons["MISSING_H"]+=1
-                                continue
-                        inv,hnum,po,amea,amount,state=parsed
-                        if state not in ("FILENAME_PARSED","SUBJECT_CORROBORATED_FILENAME"):
-                            reject_reasons[state]+=1
-                            continue
                         filename_parsed+=1
-                        issued=filename # attachment lacks issue date; use IMAP INTERNALDATE month below
-                        status,dtparts=im.uid("FETCH",uid,"(INTERNALDATE)")
-                        dates=" ".join(p[0].decode("utf-8","replace") if isinstance(p,tuple) else p.decode("utf-8","replace") for p in dtparts if isinstance(p,(tuple,bytes))) if status=="OK" else ""
-                        found_dt=re.search(r'INTERNALDATE "([0-9]{2}-[A-Za-z]{3}-[0-9]{4})',dates)
-                        month=""
-                        if found_dt:
-                            try:month=dt.datetime.strptime(found_dt.group(1),"%d-%b-%Y").strftime("%Y-%m")
-                            except ValueError:pass
-                        row=[inv,month,str(amount),amea,hnum,po,folder,uid.decode(),filename,state,dt.datetime.now(dt.timezone.utc).isoformat()]
-                        previous=by_invoice.get(inv)
-                        if previous and previous[2]!=str(amount):
-                            print("QQ_BACKFILL_CONFLICT invoice_hash_suffix="+inv[-4:],flush=True)
-                            continue
-                        if not previous:by_invoice[inv]=row;fetched+=1
-                if scanned>=limit:break
+                        if row[9]=="SUBJECT_CORROBORATED_FILENAME":
+                            fallback_matched+=1
+                        if row[0] not in by_invoice:
+                            by_invoice[row[0]]=row
+                            fetched+=1
+                    known_uids.add((folder,uid_text))
+                if state not in (
+                    "KNOWN_UID_WITH_VALID_EVIDENCE",
+                    "ORIGINAL_ISSUED_PROOF_PERSISTED",
+                    "ORIGINAL_NONOFFICIAL_HEADER_VERIFIED"):
+                    unfinished=True
+                    # Stop at the first unresolved UID. Later UID successes
+                    # must not move the durable cursor across this gap.
+                    break
+            if processed_uids:
+                decision=safe_folder_checkpoint(checkpoint,processed_uids,outcomes)
+                if decision["checkpoint_safe"]>checkpoint:
+                    last_by_folder[folder]=(
+                        uidvalidity,decision["checkpoint_safe"])
+                if decision["blocked"]:
+                    unfinished=True
+            if scanned>=limit and len(processed_uids)<len(eligible):
+                unfinished=True
         im.logout()
     print("QQ_BACKFILL_PARSER_DIAGNOSTIC "+json.dumps(dict(sorted(reject_reasons.items())),sort_keys=True)+" fallback_verified="+str(fallback_matched),flush=True)
     print("QQ_BACKFILL_DIAGNOSTIC year="+str(year)+" folders="+str(folders)+" matches="+str(matches)+" scanned="+str(scanned)+" attachment_candidates="+str(filename_candidates)+" parsed_invoices="+str(filename_parsed)+" new="+str(fetched),flush=True)
