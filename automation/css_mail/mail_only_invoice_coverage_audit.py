@@ -100,6 +100,73 @@ def identify_missing(backfill,extracted,canonical=None,start_month=START):
     return new
 
 
+def select_extracted_original_candidates(backfill, extracted, canonical):
+    """Read-only source triage; an Extract row alone never authorizes a financial write."""
+    if not backfill or "invoice_number" not in backfill[0]:
+        raise ValueError("QQ_BACKFILL_SCHEMA_MISSING")
+    if not extracted or "invoice_number" not in extracted[0]:
+        raise ValueError("INVOICE_EXTRACT_SCHEMA_MISSING")
+    if not canonical or "invoice_number" not in canonical[0]:
+        raise ValueError("CANONICAL_INVOICE_SCHEMA_MISSING")
+    canonical_ids={str(x.get("invoice_number") or "").strip()
+                   for x in canonical if x.get("invoice_number")}
+    qq={}
+    for row in backfill:
+        month=str(row.get("issued_month") or "").strip()
+        if not month.startswith("2026-"):continue
+        inv=str(row.get("invoice_number") or "").strip()
+        if not re.fullmatch(r"209126\\d{6}",inv):continue
+        if inv in qq:raise ValueError("QQ_INVOICE_DUPLICATE_REQUIRES_REVIEW")
+        qq[inv]=row
+    extract_map={}
+    for row in extracted:
+        inv=str(row.get("invoice_number") or "").strip()
+        if inv not in qq or inv in canonical_ids:continue
+        if inv in extract_map:raise ValueError("EXTRACT_INVOICE_DUPLICATE_REQUIRES_REVIEW")
+        extract_map[inv]=row
+    accepted={}; holds=Counter(); held_rows=0
+    for inv,derived in extract_map.items():
+        source=qq[inv]
+        reasons=[]
+        if str(derived.get("validation_status") or "") != "FILENAME_PARSED":
+            reasons.append("EXTRACT_PROVENANCE_UNVERIFIED")
+        state=str(source.get("evidence") or "")
+        if state not in EVIDENCE_STATES:reasons.append("QQ_PROVENANCE_UNVERIFIED")
+        folder=str(source.get("imap_folder") or "").upper()
+        if folder!="INBOX":reasons.append("QQ_FOLDER_NOT_INBOX")
+        uid=str(source.get("imap_uid") or "").strip()
+        if not uid.isdigit() or int(uid)<=0:reasons.append("QQ_UID_INVALID")
+        try:
+            amount=numeric(source.get("amount_krw"))
+            derived_amount=numeric(derived.get("amount_krw"))
+            if amount!=derived_amount:reasons.append("EXTRACT_AMOUNT_MISMATCH")
+        except ValueError:
+            amount=None
+            reasons.append("SOURCE_AMOUNT_UNVERIFIED")
+        identity=(
+            ("AMEA",source.get("amea_project_id"),derived.get("project_id")),
+            ("CONTRACT",source.get("h_project_id"),derived.get("h_project_number")),
+            ("PO",source.get("po_reference"),derived.get("po_reference")),
+            ("UID",source.get("imap_uid"),derived.get("imap_uid")),
+        )
+        for label,left,right in identity:
+            left=str(left or "").strip().upper()
+            right=str(right or "").strip().upper()
+            if not left or not right:
+                reasons.append(label+"_MISSING")
+            elif left!=right:
+                reasons.append(label+"_MISMATCH")
+        if reasons:
+            held_rows+=1
+            holds.update(set(reasons))
+            continue
+        accepted[inv]=(str(source["issued_month"]),amount,
+                       str(source["amea_project_id"]).strip().upper(),state,uid,
+                       str(source["h_project_id"]).strip().upper(),
+                       str(source["po_reference"]).strip().upper())
+    return accepted,held_rows,dict(sorted(holds.items())),len(extract_map)
+
+
 def header_payload(parts):
     chunks=[part[1] for part in parts or []
             if isinstance(part,tuple) and isinstance(part[1],bytes)]
@@ -133,7 +200,8 @@ def assert_official_notice(msg):
 
 
 def original_proof(msg,attachment_names,invoice,expected):
-    month,amount,amea,state,uid=expected
+    month,amount,amea,state,uid=expected[:5]
+    required_h,required_po=(expected[5],expected[6]) if len(expected)==7 else (None,None)
     assert_official_notice(msg)
     subject=str(msg.get("Subject") or "").strip()
     matches=[]
@@ -144,16 +212,21 @@ def original_proof(msg,attachment_names,invoice,expected):
         if not x:continue
         parsed_invoice,h,po,project,value,parsed_state=x
         if parsed_invoice==invoice:
-            matches.append((project.upper(),value,parsed_state))
+            matches.append((project.upper(),value,parsed_state,
+                            str(h or '').upper(),str(po or '').upper()))
     if not matches:raise ValueError("MISSING_INVOICE_ORIGINAL_FILENAME_NOT_FOUND")
     if any(project!=amea or value!=amount
-           for project,value,parsed_state in matches):
+           for project,value,parsed_state,_,_ in matches):
         raise ValueError("MISSING_INVOICE_AMOUNTS_OR_AMEA_CONFLICT")
+    if required_h and any(h!=required_h for _,_,_,h,_ in matches):
+        raise ValueError("ORIGINAL_CONTRACT_MISMATCH")
+    if required_po and any(po!=required_po for _,_,_,_,po in matches):
+        raise ValueError("ORIGINAL_PO_MISMATCH")
     if state=="FILENAME_PARSED" and not any(
-            marker=="FILENAME_PARSED" for _,_,marker in matches):
+            marker=="FILENAME_PARSED" for _,_,marker,_,_ in matches):
         raise ValueError("MISSING_INVOICE_STRICT_FILENAME_DOWNGRADED")
     if state=="SUBJECT_CORROBORATED_FILENAME" and not any(
-            marker in EVIDENCE_STATES for _,_,marker in matches):
+            marker in EVIDENCE_STATES for _,_,marker,_,_ in matches):
         raise ValueError("MISSING_INVOICE_FALLBACK_NOT_CORROBORATED")
     return {"month":month,"amount":amount,"net":net(amount),
             "kind":state,"sender_verified":True}
@@ -169,7 +242,7 @@ def audit_with_original_imap(missing,imap_factory=imaplib.IMAP4_SSL):
         status,_=im.select("INBOX",readonly=True)
         if status!="OK":raise ValueError("INBOX_READ_ONLY_UNAVAILABLE")
         for inv,expected in sorted(missing.items()):
-            uid=expected[-1]
+            uid=expected[4]
             try:
                 status,head=im.uid("FETCH",uid,
                                    "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT IN-REPLY-TO)])")
@@ -212,6 +285,20 @@ def main():
           " count="+str(len(missing))+
           " excluded=MANUAL_ERP_ETAX_FORECAST_PENDING",flush=True)
     verified,blocked,excluded=audit_with_original_imap(missing)
+    eligible,meta_held,meta_reasons,extract_overlap=select_extracted_original_candidates(
+        qq,extracted,canonical)
+    if len(eligible)>MAX_CANDIDATES:
+        raise ValueError("DERIVED_PROOF_SCOPE_TOO_LARGE")
+    original_derived,blocked_derived,excluded_derived=audit_with_original_imap(eligible)
+    print("DERIVED_EXTRACT_ORIGINAL_EVIDENCE"+
+          " overlapped="+str(extract_overlap)+
+          " eligible="+str(len(eligible))+
+          " metadata_hold="+str(meta_held)+
+          " original_verified="+str(len(original_derived))+
+          " original_excluded="+str(len(excluded_derived))+
+          " original_review="+str(len(blocked_derived))+
+          " hold_reasons="+json.dumps(meta_reasons,sort_keys=True)+
+          " source_writes=0 revenue_writes=0",flush=True)
     # GitHub CI is not a customer data destination: no invoice numbers,
     # monetary values, customer identifiers or raw mailbox headers in logs.
     by=Counter(detail["month"] for detail in verified.values())
@@ -228,6 +315,10 @@ def main():
           " source_writes=0 revenue_writes=0",flush=True)
     if len(verified)+len(blocked)+len(excluded)!=len(missing):
         raise ValueError("MAIL_ONLY_MISSING_SOURCE_NOT_FULLY_CLASSIFIED")
+    # Independent original proof is necessary, but still never sufficient for
+    # automatic promotion to canonical Invoice/Revenue/Payment.
+    if meta_held or blocked_derived or excluded_derived or original_derived:
+        raise ValueError("DERIVED_EXTRACT_ORIGINAL_REVIEW_REQUIRED")
     if blocked:
         raise ValueError("MAIL_ONLY_ORIGINAL_CONFIRMATION_INCOMPLETE")
     if verified:
