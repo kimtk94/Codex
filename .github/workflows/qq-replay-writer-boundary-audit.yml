@@ -28,5 +28,9 @@ jobs:
           python-version: '3.11'
       - name: Run offline write-boundary tests
         run: python3 -m unittest automation.css_mail.test_qq_replay_writer_exclusion_audit -v
+      - name: Exercise local-only transaction and crash reconciliation
+        run: |
+          python3 -m unittest automation.css_mail.test_qq_replay_transaction_rehearsal -v
+          python3 -m automation.css_mail.qq_replay_transaction_rehearsal
       - name: Audit all checked-out GitHub workflow writer routes
         run: python3 -m automation.css_mail.qq_replay_writer_exclusion_audit
