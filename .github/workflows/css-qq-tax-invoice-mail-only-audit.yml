@@ -67,7 +67,7 @@ jobs:
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       BACKFILL_YEAR: '2026'
-      INVOICE_AUDIT_SUMMARY_PATH: ${{ runner.temp }}/qq-css-invoice-audit-summary.json
+      INVOICE_AUDIT_SUMMARY_PATH: qq-css-invoice-audit-summary.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,6 +102,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qq-css-invoice-aggregate-audit
-          path: ${{ runner.temp }}/qq-css-invoice-audit-summary.json
+          path: qq-css-invoice-audit-summary.json
           if-no-files-found: warn
           retention-days: 7
