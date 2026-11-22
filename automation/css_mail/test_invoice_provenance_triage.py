@@ -116,7 +116,7 @@ class InvoiceProvenanceTests(unittest.TestCase):
         source=qq("209126000001")
         extract=ext("209126000001")
         r=triage.summarize([source],[css("209126000009")],[extract],
-                           cursor(),projects(),[],{},SCAN)
+                           cursor(),projects(),[{"project_id":"NONMATCH","Responsible Sales":""}],{},SCAN)
         self.assertEqual(r["provenance_lineage"]["sales_owner_candidate_present"],0)
         self.assertEqual(r["provenance_lineage"]["owner_approval_verified"],0)
 
