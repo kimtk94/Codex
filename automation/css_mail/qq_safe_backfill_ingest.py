@@ -10,9 +10,10 @@ from email.policy import default
 from email.utils import parseaddr
 import re
 
-from qq_cursor_checkpoint_policy import (
-    conservative_cursor, RESOLVED
-)
+try:
+    from .qq_cursor_checkpoint_policy import conservative_cursor, RESOLVED
+except ImportError:  # direct script entrypoint (GitHub Actions)
+    from qq_cursor_checkpoint_policy import conservative_cursor, RESOLVED
 
 CSS_ISSUER = "css@novogene-amea.com"
 ISSUED_SUBJECT = re.compile(
