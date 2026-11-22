@@ -178,6 +178,14 @@ def attest_snapshot(snapshot, day, bull, bear):
             ensure(event is not None and is_hash(anchors[family]) and
                    event["hash"] == anchors[family],
                    "ORIGINAL_EVENT_HASH_ANCHOR_MISMATCH:" + symbol + ":" + family)
+            ensure(event.get("source_actions_run_id") ==
+                   snapshot["source_actions_run_id"] and
+                   event.get("source_sha") == snapshot["source_sha"],
+                   "ORIGINAL_EVENT_CAPTURE_RUN_MISMATCH:" + symbol + ":" + family)
+            if family != "BULL_LOGISTIC":
+                ensure(event.get("baseline_signal_hash") ==
+                       bull[(day, symbol, "BULL_LOGISTIC")]["hash"],
+                       "BEAR_EVENT_BULL_BASELINE_LINK_MISMATCH:" + symbol)
             score = scored[family]
             ensure(isinstance(score, dict) and
                    type(score.get("candidate")) is bool and
