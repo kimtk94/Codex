@@ -655,6 +655,31 @@ jobs:
       - name: Out-of-sample annual baseline (no broker, no production writes)
         run: |
           python research/kalman_daily20/daily20.py train --config research/kalman_daily20/universe.json --market output/daily20/market --features output/daily20/features --out output/daily20/research
+      - name: PR-only real-input first-seal contract rehearsal (SYNTHETIC events, NEVER uploaded)
+        if: github.event_name == 'pull_request'
+        run: |
+          python research/kalman_daily20/first_seal_real_input_rehearsal.py \
+            --data-root output/daily20 \
+            --scores output/daily20/research/latest_research_scores.csv \
+            --qc output/daily20/qc.json \
+            --out "$RUNNER_TEMP/daily20-first-seal-real-input-rehearsal.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads((Path(os.environ["RUNNER_TEMP"]) / "daily20-first-seal-real-input-rehearsal.json").read_text())
+          assert d["status"] == "REAL_INPUT_SYNTHETIC_EVENT_CONTRACT_PASS"
+          assert d["research_only"] and not d["live_execution"]
+          assert d["synthetic_event_hashes_only"]
+          assert d["synthetic_events_written_to_drive"] is False
+          assert d["prospective_first_seal_claimed"] is False
+          assert d["official_close_certified"] is False
+          assert d["price_assets_verified"] == 26
+          assert d["feature_values_verified"] == 420
+          assert d["real_model_fit_provenance_verified"] == 40
+          assert d["synthetic_event_anchor_count"] == 60
+          assert d["models_and_features_stable_on_two_recomputations"] is True
+          print("DAILY20_REAL_INPUT_REHEARSAL_CI_PASS 26/26 prices 420/420 features 40/40 models 60/60 synthetic-events HOLD")
+          PY
       - name: Aggregate cash-constrained OOS portfolio and Regime diagnostics
         run: |
           python research/kalman_daily20/portfolio.py \
@@ -781,6 +806,40 @@ jobs:
                 "bear",r["bear_drift_count"],
                 "stability",r["stability_incident_count"],
                 "legacy",r["legacy_without_original_21_feature_snapshot"])
+          PY
+      - name: Audit fourth-NYSE-session settlements, price revisions, and frozen signal economics (HOLD)
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/forward_settlement_integrity.py \
+            --market output/daily20/market \
+            --qc output/daily20/qc.json \
+            --bull-journal output/daily20/research/forward_shadow/journal.jsonl \
+            --bear-journal output/daily20/research/bear_forward/journal.jsonl \
+            --bull-report output/daily20/research/forward_shadow/report.json \
+            --bear-report output/daily20/research/bear_forward/report.json \
+            --out output/daily20/research/forward_settlement_integrity
+          python - <<'PY'
+          from pathlib import Path
+          import csv, json
+          root=Path("output/daily20/research/forward_settlement_integrity")
+          r=json.loads((root/"report.json").read_text())
+          with (root/"settlement_queue.csv").open(newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert r["version"]=="daily20-4xnys-settlement-evidence-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["live_execution"] and not r["strategy_promoted"]
+          assert r["source_finality_verified_assets"]==0
+          assert r["official_regular_close_certified"] is False
+          assert r["original_journals_unchanged"]
+          assert r["holding_period_subsequent_xnys_sessions"]==4
+          assert r["signal_count"]==len(rows)==r["bull_signals"]+r["bear_signals"]
+          assert r["pending_unmatured"]+r["settled_events"]==len(rows)
+          assert all(row["state"].startswith(("PENDING_", "SETTLED_")) for row in rows)
+          print("DAILY20_FORWARD_SETTLEMENT_GATE_HOLD", r["session"],
+                "pending",r["pending_unmatured"],
+                "settled",r["settled_events"],
+                "revised",r["settled_vendor_price_revisions"],
+                "first_due",r["first_unsettled_exit_date"])
           PY
       - name: Publish reproducible research evidence
         if: always()
