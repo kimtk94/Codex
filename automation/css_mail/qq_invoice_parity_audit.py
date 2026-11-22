@@ -76,12 +76,44 @@ def summarize(evidence, canonical, extracted):
     extract_amount_match = 0
     extract_amount_conflict = 0
     extract_status_counts = Counter()
+    source_by_invoice = {
+        str(item.get("invoice_number", "")).strip(): item
+        for item in evidence
+        if str(item.get("issued_month", "")).startswith(YEAR + "-")
+    }
+    # Matching an invoice number and gross amount is not enough to post Revenue.
+    # Preserve separate lineage checks for project, contract, PO and mailbox UID.
+    identity_fields = (
+        ("project_id", "amea_project_id", "project_id"),
+        ("h_project_id", "h_project_id", "h_project_number"),
+        ("po_reference", "po_reference", "po_reference"),
+        ("imap_uid", "imap_uid", "imap_uid"),
+    )
+    identity_match = Counter()
+    identity_conflict = Counter()
+    identity_missing = Counter()
+    fully_matching = 0
     for invoice in missing_in_css:
         if invoice not in extracted_index:
             continue
         extract_overlap += 1
         row = extracted_index[invoice]
         extract_status_counts[str(row.get("validation_status", "")) or "UNSPECIFIED"] += 1
+        source_row = source_by_invoice.get(invoice, {})
+        all_fields_match = True
+        for label, q_field, e_field in identity_fields:
+            left = str(source_row.get(q_field, "")).strip().upper()
+            right = str(row.get(e_field, "")).strip().upper()
+            if not left or not right:
+                identity_missing[label] += 1
+                all_fields_match = False
+            elif left != right:
+                identity_conflict[label] += 1
+                all_fields_match = False
+            else:
+                identity_match[label] += 1
+        if all_fields_match:
+            fully_matching += 1
         try:
             amount = money(row.get("amount_krw"))
         except ValueError:
@@ -110,12 +142,17 @@ def summarize(evidence, canonical, extracted):
             "not_found": len(missing_in_css) - extract_overlap,
             "duplicate_numbers": len(duplicate_extract_numbers),
             "validation_statuses": dict(sorted(extract_status_counts.items())),
+            "identity_fields_matching": dict(sorted(identity_match.items())),
+            "identity_fields_conflicting": dict(sorted(identity_conflict.items())),
+            "identity_fields_unavailable": dict(sorted(identity_missing.items())),
+            "all_four_lineage_fields_matching": fully_matching,
+            "original_mail_verified": False,
         },
         "scope_warning": "A QQ-only key is not proof of an unpaid invoice. Verify original notice, UID and downstream ledger lineage before posting revenue.",
     }
     failed = bool(not a or not b or missing_in_css or missing_in_qq or mismatch
                   or a_conflict or b_conflict or extract_amount_conflict
-                  or duplicate_extract_numbers)
+                  or duplicate_extract_numbers or identity_conflict)
     return result, failed
 
 
