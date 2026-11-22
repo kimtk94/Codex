@@ -50,15 +50,19 @@ def main():
         raise RuntimeError("BACKFILL_WRITE_MODE_INVALID")
     if mode=="APPLY" and os.getenv("BACKFILL_STAGE_WRITES_APPROVED","")!="YES":
         raise RuntimeError("BACKFILL_WRITER_APPROVAL_GATE")
+    print("QQ_SAFE_STAGE=START",flush=True)
     cred=service_account.Credentials.from_service_account_info(json.loads(os.environ["CKD_DRIVE_SA_JSON"]),scopes=["https://www.googleapis.com/auth/spreadsheets"])
     s=AuthorizedSession(cred)
+    print("QQ_SAFE_STAGE=SHEETS_AUTH_READY",flush=True)
     meta=call(s,"GET","?fields=sheets.properties.title")
+    print("QQ_SAFE_STAGE=SHEETS_METADATA_LOADED",flush=True)
     if TAB not in {x["properties"]["title"] for x in meta["sheets"]}:
         if mode=="PREVIEW":
             raise RuntimeError("BACKFILL_PREVIEW_SOURCE_TAB_MISSING")
         call(s,"POST",":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":TAB,"gridProperties":{"rowCount":3000,"columnCount":12,"frozenRowCount":1}}}}]})
     quote=lambda rng:urllib.parse.quote("'"+TAB+"'!"+rng,safe="")
     old=call(s,"GET","/values/"+quote("A1:K10000")).get("values",[])
+    print("QQ_SAFE_STAGE=STAGING_SOURCE_LOADED",flush=True)
     if old and old[0]!=HEAD:raise RuntimeError("BACKFILL_HEADER_MISMATCH")
     by_invoice={str(row[0]):row for row in old[1:] if row and row[0]}
     year=int(os.getenv("BACKFILL_YEAR","2025"))
@@ -80,6 +84,7 @@ def main():
     audits=read_tab(AUDIT_TAB,"A1:H1000")
     if audits and audits[0]!=audit_header:raise RuntimeError("AUDIT_SCHEMA_MISMATCH")
     audit_by_year={str(row[0]):row for row in audits[1:] if row and row[0]}
+    print("QQ_SAFE_STAGE=CURSOR_AUDIT_LOADED",flush=True)
 
     # Verified source evidence is available independently of QQ BODYSTRUCTURE:
     # preserve existing invoices, and skip already-reconciled IMAP UIDs.
@@ -116,6 +121,7 @@ def main():
               " known_uids="+str(len(known_uids)),flush=True)
         # Never write seeded evidence before IMAP preflight and source review.
         # Persist the merged in-memory rows once, before the safe cursor.
+    print("QQ_SAFE_STAGE=LEGACY_SEED_RECONCILED",flush=True)
     scanned=0; matches=0; fetched=0; folders=0; filename_candidates=0; filename_parsed=0
     limit=int(os.getenv("BACKFILL_MAX_MATCHES","2500"))
     unfinished=False; prior_skipped=0; last_by_folder={}
@@ -125,8 +131,10 @@ def main():
 
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=60) as im:
         im.login(os.environ["CSS_QQ_MAIL_ADDRESS"],os.environ["CSS_QQ_MAIL_AUTH_CODE"])
+        print("QQ_SAFE_STAGE=IMAP_AUTHENTICATED",flush=True)
         status,listing=im.list()
         if status!="OK":raise RuntimeError("IMAP_LIST_FAILED")
+        print("QQ_SAFE_STAGE=IMAP_MAILBOXES_LISTED",flush=True)
         names=[]
         for item in listing or []:
             line=item.decode("utf-8","replace")
@@ -222,6 +230,7 @@ def main():
             if scanned>=limit and len(processed_uids)<len(eligible):
                 unfinished=True
         im.logout()
+    print("QQ_SAFE_STAGE=SOURCE_SCAN_FINISHED",flush=True)
     print("QQ_BACKFILL_PARSER_DIAGNOSTIC "+json.dumps(dict(sorted(reject_reasons.items())),sort_keys=True)+" fallback_verified="+str(fallback_matched),flush=True)
     print("QQ_BACKFILL_DIAGNOSTIC year="+str(year)+" folders="+str(folders)+" matches="+str(matches)+" scanned="+str(scanned)+" attachment_candidates="+str(filename_candidates)+" parsed_invoices="+str(filename_parsed)+" new="+str(fetched),flush=True)
     if not by_invoice and (matches==0 or (scanned>0 and filename_parsed==0)):
