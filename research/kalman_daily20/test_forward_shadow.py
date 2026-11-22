@@ -190,7 +190,10 @@ class FutureShadowTests(unittest.TestCase):
             self.assertEqual(matured["pending_events"], 20)
             self.assertEqual(matured["newly_settled_events"], 20)
             self.assertEqual(matured["matured_candidate_observations"], 10)
-            observations = pd.read_csv(base / "matured/outcomes.csv")
+            # This tiny fixture is a contract test, not a performance path.
+            # pandas C parser segfaulted twice in protected main runners; use
+            # Python parser so malformed CSV fails as a Python exception.
+            observations = pd.read_csv(base / "matured/outcomes.csv", engine="python")
             self.assertEqual(set(observations["exit_date"]), {"2026-11-27"})
             # EOD downside is only an OHLC-based hazard diagnostic, not an
             # executable stop price or actual fill.
