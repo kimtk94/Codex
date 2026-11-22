@@ -255,6 +255,51 @@ def ci_failure_feedback(root, goal, checks):
     return feedback
 
 
+def parse_porcelain_paths(data):
+    """Parse Git porcelain v1 -z without trimming its status columns.
+
+    A normal modified file begins with a space: " M path". Calling .strip()
+    removes the first column and makes [3:] truncate the real filename.
+    -z also prevents quoting/newline ambiguity. Renames have a second path.
+    """
+    if not isinstance(data, str):
+        raise Hold("INVALID_GIT_STATUS")
+    entries = data.split("\0")
+    if entries[-1] != "":
+        raise Hold("INCOMPLETE_GIT_STATUS")
+    paths = []
+    i = 0
+    while i < len(entries) - 1:
+        entry = entries[i]
+        if len(entry) < 4 or entry[2] != " ":
+            raise Hold("INVALID_GIT_STATUS")
+        status = entry[:2]
+        filename = entry[3:]
+        if not filename or any(x == "\ufffd" for x in filename):
+            raise Hold("INVALID_GIT_STATUS_PATH")
+        paths.append(filename)
+        i += 1
+        if "R" in status or "C" in status:
+            if i >= len(entries) - 1 or not entries[i]:
+                raise Hold("INCOMPLETE_GIT_RENAME_STATUS")
+            paths.append(entries[i])
+            i += 1
+    return paths
+
+
+def check_worktree_scope(root, goal):
+    """Fail closed for any modified, staged, renamed or untracked file."""
+    result = run_cmd(["git", "status", "--porcelain=v1", "-z",
+                      "--untracked-files=all"], root, checked=True)
+    changed = parse_porcelain_paths(result["output"])
+    unexpected = [path for path in changed if path not in goal["allowed_files"]]
+    if unexpected:
+        raise Hold("UNEXPECTED_WORKTREE_CHANGE")
+    if not changed:
+        raise Hold("EMPTY_OR_UNTRACKED_MODEL_CHANGE")
+    return changed
+
+
 def report_state(root, goal, state, evidence):
     folder = Path.home() / ".goal-loop" / goal["goal_id"]
     folder.mkdir(parents=True, exist_ok=True)
@@ -331,13 +376,37 @@ def run(root, goal, *, dry_run=False):
     state = "HOLD"
     try:
         if prior_branch:
-            run_cmd(["git", "fetch", "origin", prior_branch], root, timeout=90, checked=True)
-            exists = run_cmd(["git", "show-ref", "--verify", "refs/heads/" + branch], root)
-            if exists["ok"]:
-                run_cmd(["git", "worktree", "add", str(work_dir), branch], root, timeout=90, checked=True)
+            # A prior attempt may have failed BEFORE its first push. The
+            # checkpoint's branch then exists only locally; do not require
+            # origin/<branch> or abandon the bounded retry state.
+            remote = run_cmd(["git", "ls-remote", "--exit-code", "--heads",
+                              "origin", branch], root, timeout=60)
+            if not remote["ok"] and remote["code"] != 2:
+                raise Hold("BRANCH_REMOTE_LOOKUP_FAILED")
+            remote_exists = remote["ok"]
+            local = run_cmd(["git", "show-ref", "--verify",
+                             "refs/heads/" + branch], root)
+            if remote_exists:
+                # FETCH_HEAD is worktree-local. Use a named remote-tracking
+                # ref that can be resolved from both the main and linked trees.
+                run_cmd(["git", "fetch", "origin",
+                         "refs/heads/" + branch + ":refs/remotes/origin/" + branch],
+                        root, timeout=90, checked=True)
+            if local["ok"]:
+                run_cmd(["git", "worktree", "add", str(work_dir), branch],
+                        root, timeout=90, checked=True)
+            elif remote_exists:
+                run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir),
+                         "refs/remotes/origin/" + branch], root, timeout=90, checked=True)
+            elif pr_url:
+                raise Hold("PR_REMOTE_BRANCH_UNAVAILABLE")
             else:
-                run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir), "origin/" + branch], root, timeout=90, checked=True)
-            run_cmd(["git", "merge", "--ff-only", "origin/" + branch], work_dir, timeout=40, checked=True)
+                run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir),
+                         "origin/" + goal["base_branch"]],
+                        root, timeout=90, checked=True)
+            if remote_exists:
+                run_cmd(["git", "merge", "--ff-only", "refs/remotes/origin/" + branch],
+                        work_dir, timeout=40, checked=True)
         else:
             run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir), "origin/" + goal["base_branch"]], root, timeout=90, checked=True)
         evidence["branch"] = branch
@@ -371,9 +440,7 @@ def run(root, goal, *, dry_run=False):
             proposal = ollama_proposal(work_dir, goal, feedback)
             iteration["edited"] = apply_proposal(work_dir, goal, proposal)
             report_state(root, goal, "RUNNING", evidence)
-            changes = run_cmd(["git", "status", "--porcelain"], work_dir, checked=True)["output"].strip()
-            if any(row[3:] not in goal["allowed_files"] for row in changes.splitlines() if row):
-                raise Hold("UNEXPECTED_WORKTREE_CHANGE")
+            iteration["verified_worktree_paths"] = check_worktree_scope(work_dir, goal)
             run_cmd(["git", "add", "--", *goal["allowed_files"]], work_dir, checked=True)
             staged = run_cmd(["git", "diff", "--cached", "--name-only"], work_dir, checked=True)["output"].splitlines()
             if not staged or any(path not in goal["allowed_files"] for path in staged):

@@ -8,7 +8,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from automation.goal_loop.controller import Hold, apply_proposal, load_goal, run, run_cmd, test_goal, pr_checks
+from automation.goal_loop.controller import (
+    Hold, apply_proposal, check_worktree_scope, load_goal, parse_porcelain_paths,
+    run, run_cmd, test_goal, pr_checks,
+)
 
 
 BASE = {
@@ -170,6 +173,62 @@ class ControllerSafetyTests(unittest.TestCase):
              patch("automation.goal_loop.controller.time.sleep"):
             state, _ = pr_checks(self.root, self.load(), "https://github.com/kimtk94/Codex/pull/123", time.monotonic() + 0.01, head)
         self.assertEqual(state, "TIMEOUT")
+
+    def test_porcelain_preserves_leading_space_in_unstaged_modification(self):
+        status = " M automation/goal_loop/pilot_target.py\0"
+        self.assertEqual(parse_porcelain_paths(status), [BASE["allowed_files"][0]])
+
+    def test_porcelain_preserves_stage_and_untracked_entries(self):
+        self.assertEqual(
+            parse_porcelain_paths(
+                "M  automation/goal_loop/pilot_target.py\0"
+                "?? docs/accidental.md\0"
+            ),
+            [BASE["allowed_files"][0], "docs/accidental.md"],
+        )
+        self.assertEqual(
+            parse_porcelain_paths(
+                "R  automation/goal_loop/pilot_target.py\0"
+                "automation/goal_loop/old_target.py\0"
+            ),
+            [BASE["allowed_files"][0], "automation/goal_loop/old_target.py"],
+        )
+
+    def test_porcelain_rejects_partial_or_malformed_status(self):
+        for status in (
+            " M automation/goal_loop/pilot_target.py",
+            "R  automation/goal_loop/pilot_target.py\0",
+            "invalid\0",
+        ):
+            with self.subTest(status=status), self.assertRaises(Hold):
+                parse_porcelain_paths(status)
+
+    def test_worktree_scope_allows_only_exact_target_and_blocks_untracked(self):
+        name = BASE["allowed_files"][0]
+        with patch("automation.goal_loop.controller.run_cmd",
+                   return_value={"ok": True, "output": " M " + name + "\0"}) as call:
+            self.assertEqual(check_worktree_scope(self.root, self.load()), [name])
+        self.assertIn("-z", call.call_args.args[0])
+        with patch("automation.goal_loop.controller.run_cmd",
+                   return_value={"ok": True, "output": " M " + name + "\0?? .env\0"}):
+            with self.assertRaisesRegex(Hold, "UNEXPECTED_WORKTREE_CHANGE"):
+                check_worktree_scope(self.root, self.load())
+
+    def test_real_git_status_in_temp_worktree_matches_allowlist(self):
+        # Reproduces the exact leading-space porcelain status that caused HOLD.
+        root = self.root
+        for args in (
+            ["git", "init", "-q"],
+            ["git", "add", "-A"],
+            ["git", "-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
+             "commit", "-q", "-m", "baseline"],
+        ):
+            self.assertTrue(run_cmd(args, root)["ok"], args)
+        self.file.write_text("x = 2\n", encoding="utf-8")
+        self.assertEqual(
+            check_worktree_scope(root, self.load()),
+            [BASE["allowed_files"][0]],
+        )
 
     def test_subprocess_replaces_undecodable_bytes_on_windows(self):
         # A real child emits an invalid cp949/UTF-8 byte in both streams.
