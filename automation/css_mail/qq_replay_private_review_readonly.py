@@ -12,6 +12,11 @@ import os
 import re
 import urllib.parse
 
+if __package__:
+    from .qq_replay_plan_readonly import PLAN_HEADER, validate_plan
+else:
+    from qq_replay_plan_readonly import PLAN_HEADER, validate_plan
+
 HEADER = [
     "No.", "Invoice Number", "Amount KRW", "Project ID", "H Project Number",
     "PO Reference", "Original PDF Filename", "IMAP UID", "UIDVALIDITY",
@@ -51,6 +56,8 @@ def _table(rows, table):
             data.append({head:raw[i] if i<len(raw) else "" for i,head in enumerate(header)})
     if table == "review" and header != HEADER:
         raise ValueError("REVIEW_SCHEMA_CHANGED")
+    if table == "plan" and tuple(header) != PLAN_HEADER:
+        raise ValueError("RECOVERY_PLAN_SCHEMA_CHANGED")
     return data
 
 
@@ -222,6 +229,8 @@ def main():
         if not review_id:
             review_id=_discover_review_id(session)
         rev=_dict_rows(_read(session,review_id,"건별 검토","P8"),"review")
+        recovery_plan=_dict_rows(
+            _read(session,review_id,"복구 행 계획 (미실행)","K8"),"plan")
         source_specs=(
             ("extracts","CSS Tax Invoice Extract","L1000"),
             ("stage","QQ 2026 Invoice Backfill","K3000"),
@@ -232,6 +241,9 @@ def main():
         values={name:_dict_rows(_read(session,source_id,tab,end),"source")
                 for name,tab,end in source_specs}
         result=review_audit(rev,**values)
+        result.update(validate_plan(
+            recovery_plan, rev, values["extracts"],
+            values["stage"], values["canonical"]))
     except (ValueError, KeyError, RuntimeError):
         result={"status":"HOLD","reason":"REVIEW_SCHEMA_OR_DATA_INVALID",
                 "authenticated_approvals":0,"stage_writes":0,"cursor_writes":0}
