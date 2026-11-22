@@ -12,6 +12,7 @@ from automation.goal_loop.controller import (
     Hold, apply_proposal, check_worktree_scope, failed_required_checks,
     load_goal, parse_porcelain_paths, run, run_cmd, test_goal, pr_checks,
     unsafe_ci_gate_failed, verification_source_context,
+    literal_contract_examples, retry_temperature,
 )
 
 
@@ -270,6 +271,65 @@ class ControllerSafetyTests(unittest.TestCase):
         self.assertEqual(test_path.read_text(encoding="utf-8"), sources[
             "automation/goal_loop/pilot_acceptance.py"
         ])
+
+    def test_literal_acceptance_aliases_ast_only(self):
+        acceptance = self.root / "automation/goal_loop/pilot_acceptance.py"
+        acceptance.write_text(
+            "import unittest\n"
+            "class Contract(unittest.TestCase):\n"
+            "  def test_pass(self):\n"
+            "    for raw in (' pass ', 'PASSED', 'ok', 'done', 'success'):\n"
+            "      with self.subTest(raw=raw):\n"
+            "        self.assertEqual(normalize_status(raw), 'PASS')\n"
+            "  def test_fail(self):\n"
+            "    for raw in ('failed', 'FAIL', 'error'):\n"
+            "      self.assertEqual(normalize_status(raw), 'FAIL')\n"
+            "  def test_other(self):\n"
+            "    for raw in ('unknown', '', None, {}, 42):\n"
+            "      self.assertEqual(normalize_status(raw), 'HOLD')\n",
+            encoding="utf-8",
+        )
+        examples = literal_contract_examples(self.root, self.load())
+        self.assertEqual(len(examples), 13)
+        self.assertEqual(
+            [(x["input"], x["expected"]) for x in examples[:5]],
+            [(" pass ", "PASS"), ("PASSED", "PASS"), ("ok", "PASS"),
+             ("done", "PASS"), ("success", "PASS")],
+        )
+        self.assertIn({"function": "normalize_status", "input": {}, "expected": "HOLD"}, examples)
+        self.assertIn({"function": "normalize_status", "input": 42, "expected": "HOLD"}, examples)
+
+    def test_literal_examples_never_execute_test_side_effect(self):
+        acceptance = self.root / "automation/goal_loop/pilot_acceptance.py"
+        forbidden = self.root / "MUST_NOT_EXIST.txt"
+        acceptance.write_text(
+            "from pathlib import Path\n"
+            f"Path({str(forbidden)!r}).write_text('danger')\n"
+            "for raw in ('yes',):\n"
+            "    self.assertEqual(normalize_status(raw), 'PASS')\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            literal_contract_examples(self.root, self.load()),
+            [{"function": "normalize_status", "input": "yes", "expected": "PASS"}],
+        )
+        self.assertFalse(forbidden.exists())
+
+    def test_literal_examples_skip_computed_inputs(self):
+        acceptance = self.root / "automation/goal_loop/pilot_acceptance.py"
+        acceptance.write_text(
+            "for raw in load_external_cases():\n"
+            "    self.assertEqual(normalize_status(raw), 'PASS')\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(literal_contract_examples(self.root, self.load()), [])
+
+    def test_adaptive_retry_temperature_is_bounded(self):
+        self.assertEqual(retry_temperature({}), 0.1)
+        self.assertEqual(retry_temperature({"no_change_count": 1}), 0.3)
+        self.assertEqual(retry_temperature({"no_change_count": 2}), 0.5)
+        self.assertEqual(retry_temperature({"no_change_count": 10}), 0.5)
+        self.assertEqual(retry_temperature({"no_change_count": "invalid"}), 0.1)
 
     def test_ci_pilot_failure_is_retryable_but_security_failure_blocks(self):
         goal = self.load()
