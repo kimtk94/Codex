@@ -387,14 +387,17 @@ def run(root, goal, *, dry_run=False):
             local = run_cmd(["git", "show-ref", "--verify",
                              "refs/heads/" + branch], root)
             if remote_exists:
-                run_cmd(["git", "fetch", "origin", branch],
+                # FETCH_HEAD is worktree-local. Use a named remote-tracking
+                # ref that can be resolved from both the main and linked trees.
+                run_cmd(["git", "fetch", "origin",
+                         "refs/heads/" + branch + ":refs/remotes/origin/" + branch],
                         root, timeout=90, checked=True)
             if local["ok"]:
                 run_cmd(["git", "worktree", "add", str(work_dir), branch],
                         root, timeout=90, checked=True)
             elif remote_exists:
                 run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir),
-                         "FETCH_HEAD"], root, timeout=90, checked=True)
+                         "refs/remotes/origin/" + branch], root, timeout=90, checked=True)
             elif pr_url:
                 raise Hold("PR_REMOTE_BRANCH_UNAVAILABLE")
             else:
@@ -402,7 +405,7 @@ def run(root, goal, *, dry_run=False):
                          "origin/" + goal["base_branch"]],
                         root, timeout=90, checked=True)
             if remote_exists:
-                run_cmd(["git", "merge", "--ff-only", "FETCH_HEAD"],
+                run_cmd(["git", "merge", "--ff-only", "refs/remotes/origin/" + branch],
                         work_dir, timeout=40, checked=True)
         else:
             run_cmd(["git", "worktree", "add", "-b", branch, str(work_dir), "origin/" + goal["base_branch"]], root, timeout=90, checked=True)
