@@ -563,6 +563,25 @@ def main():
     output = Path(args.output_root)
     data = build_zip(args.data_root, output / "daily20_data_latest.zip", manifest)
     results = build_zip(args.results_root, output / "daily20_results_latest.zip", manifest)
+    # Deep original-input and immutable-event proof BEFORE either pinned Drive file
+    # is modified. Legacy pre-2026-11-23 records have no original snapshot.
+    from prospective_seal_attestation import verify_archive_prospective_seals
+    with ZipFile(results) as snapshot_archive:
+        members = snapshot_archive.namelist()
+        snapshot_days = [
+            name[len("research/stability/snapshots/"):-5]
+            for name in members
+            if name.startswith("research/stability/snapshots/")
+            and name.endswith(".json")
+        ]
+        first_seal_proof = verify_archive_prospective_seals(
+            snapshot_archive, members, snapshot_days)
+    print(json.dumps({"DAILY20_FIRST_SEAL_PREUPLOAD": {
+        "session": manifest["data_expected_last_closed_xnys"],
+        "status": first_seal_proof["status"],
+        "original_sessions_deep_verified": first_seal_proof["prospective_seals_attested"],
+        "source_finality_certified": False, "research_only": True,
+    }}))
     print(json.dumps({"bundle_status": "VALIDATED",
                       "raw_symbols": manifest["raw_symbols"],
                       "feature_symbols": manifest["feature_symbols"],
