@@ -38,7 +38,7 @@ def load_goal(root, config):
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,48}", ident):
         raise Hold("INVALID_GOAL_ID")
     doc = safe_path(data.get("document"))
-    if not doc.startswith("docs/") or not doc.endswith(".md") or not (root / doc).is_file():
+    if not doc.startswith("docs/") or not doc.endswith(".md") or not (root / doc).is_file() or (root / doc).is_symlink():
         raise Hold("INVALID_GOAL_DOCUMENT")
     allowed = data.get("allowed_files")
     if not isinstance(allowed, list) or not 1 <= len(allowed) <= 8 or len(set(allowed)) != len(allowed):
@@ -49,8 +49,9 @@ def load_goal(root, config):
             raise Hold("FORBIDDEN_EDIT_PATH")
         if any(part in ("test", "tests", "secrets", ".github", "automation_policy") or part.startswith("test_") for part in PurePosixPath(path).parts):
             raise Hold("FORBIDDEN_EDIT_PATH")
-        if not (root / path).is_file():
-            raise Hold("MISSING_EDIT_TARGET")
+        target = root / path
+        if not target.is_file() or target.is_symlink():
+            raise Hold("MISSING_OR_LINKED_EDIT_TARGET")
     commands = data.get("verify")
     if not isinstance(commands, list) or not commands or len(commands) > 6:
         raise Hold("MISSING_VERIFICATION")
@@ -287,6 +288,13 @@ def run(root, goal, *, dry_run=False):
     ):
         raise Hold("INVALID_RESUME_PR")
     run_cmd(["gh", "auth", "status"], root, timeout=20, checked=True)
+    origin = run_cmd(["git", "remote", "get-url", "origin"], root, timeout=20, checked=True)["output"].strip()
+    if origin not in (
+        "https://github.com/kimtk94/Codex", "https://github.com/kimtk94/Codex.git",
+        "git@github.com:kimtk94/Codex", "git@github.com:kimtk94/Codex.git",
+        "ssh://git@github.com/kimtk94/Codex", "ssh://git@github.com/kimtk94/Codex.git",
+    ):
+        raise Hold("GIT_ORIGIN_NOT_ALLOWED")
     run_cmd(["git", "fetch", "origin", goal["base_branch"]], root, timeout=90, checked=True)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
     branch = prior_branch or ("agent/" + goal["goal_id"] + "-" + stamp)
@@ -346,7 +354,7 @@ def run(root, goal, *, dry_run=False):
             run_cmd(["git", "push", "-u", "origin", branch], work_dir, timeout=120, checked=True)
             if pr_url is None:
                 p = run_cmd([
-                    "gh", "pr", "create", "--draft", "--base", "main", "--head", branch,
+                    "gh", "pr", "create", "--repo", goal["repo"], "--draft", "--base", "main", "--head", branch,
                     "--title", "Goal loop pilot: " + goal["goal_id"],
                     "--body", "Bounded Ollama-generated change. Verify independent CI and review before merge. No auto-merge."
                 ], work_dir, timeout=60, checked=True)
