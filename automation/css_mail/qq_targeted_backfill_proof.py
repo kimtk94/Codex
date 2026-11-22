@@ -94,7 +94,7 @@ def pick_targets(qq_rows, css_rows, extract_rows, cursor_rows, audit_rows):
         else:
             continue
         targets.append({"category": category, "number": number,
-                        "extract": evidence, "qq": q})
+                        "extract": evidence, "qq": q, "css": css.get(number)})
     if len(targets) > MAX_TARGETS:
         raise ValueError("TARGET_SCOPE_TOO_LARGE")
     return sorted(targets, key=lambda x: (x["category"], x["number"])), cursor, scanned
@@ -252,6 +252,13 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
         totals[label] = 0
     totals.update({x["category"]: 0 for x in targets})
     totals["targeted"] = len(targets)
+    # Per-source key remains in memory; only counts enter report/artifacts.
+    replay_evidence = {
+        t["number"]: {"search_matched": False, "ingest_present": False,
+                      "ingest_epoch_matched": False, "header_verified": False,
+                      "mime_verified": False}
+        for t in targets if t["category"] == "PRE_CURSOR_MISSING"
+    }
     if not targets:
         raise ValueError("NO_TARGETS_CHECK_SOURCE_FRESHNESS")
     with imap_factory("imap.exmail.qq.com", 993, timeout=60) as im:
@@ -273,6 +280,9 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
             marker = ("search_matched_" if uid_for_search in legacy_candidates
                       else "search_absent_") + category.lower()
             totals[marker] += 1
+            if category == "PRE_CURSOR_MISSING":
+                replay_evidence[target["number"]]["search_matched"] = (
+                    uid_for_search in legacy_candidates)
             if category == "INCONSISTENT_CURSOR":
                 totals["cursor_inconsistent"] += 1
                 continue
@@ -281,12 +291,16 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
             if not origin:
                 totals["ingest_metadata_missing"] += 1
                 continue
+            if category == "PRE_CURSOR_MISSING":
+                replay_evidence[target["number"]]["ingest_present"] = True
             # Reconcile the two separate capture processes before IMAP fetch.
             if (norm(origin.get("folder")) != "INBOX"
                 or str(origin.get("uidvalidity")) != str(cursor["uidvalidity"])
                 or str(origin.get("imap_uid")) != str(e.get("imap_uid"))):
                 totals["ingest_uid_or_epoch_conflict"] += 1
                 continue
+            if category == "PRE_CURSOR_MISSING":
+                replay_evidence[target["number"]]["ingest_epoch_matched"] = True
             uid = str(e.get("imap_uid"))
             if not uid.isdigit() or int(uid) <= 0:
                 totals["invalid_source_uid"] += 1
@@ -297,6 +311,8 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
                 totals["non_official_or_missing_header"] += 1
                 continue
             totals["official_header_verified"] += 1
+            if category == "PRE_CURSOR_MISSING":
+                replay_evidence[target["number"]]["header_verified"] = True
             status, payload = im.uid("FETCH", uid, "(BODYSTRUCTURE)")
             if status != "OK":
                 totals["mime_fetch_unavailable"] += 1
@@ -329,6 +345,8 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
                 totals["mime_filename_or_identity_mismatch"] += 1
                 continue
             totals["original_mime_verified"] += 1
+            if category == "PRE_CURSOR_MISSING":
+                replay_evidence[target["number"]]["mime_verified"] = True
             if matching_old:
                 totals["historical_single_chunk_parser_would_match"] += 1
             elif matching_joined:
@@ -347,6 +365,8 @@ def check_imap(targets, cursor, ingest, imap_factory, filenames, parser):
                 # Mail arrival time is *not* an official invoice issue date.
                 totals["original_invoice_issue_date_proved"] += 0
         im.logout()
+    from automation.css_mail.qq_precursor_replay_readiness import summarize_replay
+    totals.update(summarize_replay(targets, replay_evidence))
     totals["business_writes"] = 0
     totals["qq_cursor_writes"] = 0
     totals["approved_canonical_promotions"] = 0
