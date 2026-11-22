@@ -51,6 +51,24 @@ jobs:
           python research/kalman_daily20/daily20.py universe --config research/kalman_daily20/universe.json --out output/daily20/universe-derived.json
 
 
+      - name: Attest installed contract job model wheels and native parser binaries
+        env:
+          ARROW_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/model_runtime_lineage.py \
+            --phase contracts --out output/daily20/contract_environment/report.json
+      - name: Publish independent contract runtime evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-contract-runtime
+          path: output/daily20/contract_environment/report.json
+          if-no-files-found: error
+          retention-days: 14
+
+
   restore-drive-cache:
     needs: contracts
     if: github.event_name != 'pull_request'
@@ -921,6 +939,52 @@ jobs:
                 "bear",r["bear_drift_count"],
                 "stability",r["stability_incident_count"],
                 "legacy",r["legacy_without_original_21_feature_snapshot"])
+          PY
+      - name: Restore this run's independent contract-job environment report
+        uses: actions/download-artifact@v4
+        with:
+          name: kalman-daily20-contract-runtime
+          path: output/daily20/contract_runtime
+      - name: Record installed model binary hashes and compare run environments (HOLD)
+        env:
+          ARROW_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/model_runtime_lineage.py \
+              --phase research \
+              --qc output/daily20/qc.json \
+              --contracts output/daily20/contract_runtime/report.json \
+              --out output/daily20/research/model_runtime_lineage/report.json
+          else
+            python research/kalman_daily20/model_runtime_lineage.py \
+              --phase research \
+              --qc output/daily20/qc.json \
+              --contracts output/daily20/contract_runtime/report.json \
+              --prior-zip output/daily20/cache/previous-results.zip \
+              --replay output/daily20/research/replay_drift_reconciliation/report.json \
+              --stability output/daily20/research/stability/report.json \
+              --out output/daily20/research/model_runtime_lineage/report.json
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/model_runtime_lineage/report.json").read_text())
+          assert r["version"]=="daily20-model-runtime-lineage-v1"
+          assert r["phase"]=="research" and r["research_only"]
+          assert not r["live_execution"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["frozen_signals_modified"]
+          assert not r["numerical_drift_cause_certified"]
+          assert not r["independent_price_certified"]
+          assert len(r["contracts_comparison"]["compared_required_packages"])==5
+          assert len(r["environment"]["model_source_sha256"])==7
+          print("DAILY20_MODEL_RUNTIME_REPLAY_HOLD",r["session"],
+                "contract_equal",r["contracts_comparison"]["model_environment_identical"],
+                "prior",r["prior_runtime_status"],
+                "bull_material",
+                (r["replay_observations"] or {}).get("bull_material_count"))
           PY
       - name: Audit fourth-NYSE-session settlements, price revisions, and frozen signal economics (HOLD)
         if: github.event_name != 'pull_request'
