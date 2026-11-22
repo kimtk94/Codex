@@ -208,7 +208,7 @@ class ProofTests(unittest.TestCase):
             "OK", [b'2 (INTERNALDATE "22-Nov-2026 10:00:00 +0900")']),
             "VALID_ARRIVAL_DATE")
         self.assertEqual(proof.classify_internaldate_response(
-            "OK", [b'2 (INTERNALDATE NIL)']),"DATE_FORMAT_NOT_STANDARD")
+            "OK", [b'2 (INTERNALDATE NIL)']),"DATE_NIL")
         self.assertEqual(proof.classify_internaldate_response(
             "OK", [b'2 (UID 401)']),"DATE_TOKEN_ABSENT")
         self.assertEqual(proof.classify_internaldate_response(
@@ -217,6 +217,39 @@ class ProofTests(unittest.TestCase):
             "OK", []),"EMPTY_RESPONSE")
         self.assertEqual(proof.classify_internaldate_response(
             "OK", [(123,)]),"NO_BYTE_PAYLOAD")
+
+    def test_private_date_shape_variants_have_distinct_counters(self):
+        cases = [
+            (b'1 (INTERNALDATE NIL)', "DATE_NIL"),
+            (b'1 (INTERNALDATE 22-Nov-2026 10:00:00 +0900)', "DATE_UNQUOTED"),
+            (b'1 (INTERNALDATE "2-Nov-2026 10:00:00 +0900")', "DATE_SINGLE_DIGIT_DAY"),
+            (b'1 (INTERNALDATE "22-Nov-2026 10:00:00 +09:00")', "DATE_COLON_TIMEZONE"),
+            (b'1 (INTERNALDATE {12}', "DATE_IMAP_LITERAL"),
+            (b'1 (INTERNALDATE BADDATE)', "DATE_FORMAT_OTHER"),
+            (b'1 (INTERNALDATE "40-Nov-2026 10:00:00 +0900")', "DATE_INVALID"),
+        ]
+        for payload, expected in cases:
+            with self.subTest(shape=expected):
+                actual = proof.classify_internaldate_response("OK", [payload])
+                self.assertEqual(actual, expected)
+
+    def test_detailed_date_state_is_counter_only(self):
+        n="209126000002"; e=ext(n,uid="420")
+        targets,c,_=proof.pick_targets([qq(n,month="",uid="420")],
+                      [css("209126000010")],[e],cursor(),audit())
+        class NilIMAP(FakeIMAP):
+            def uid(self,action,uid,query,*args):
+                if action=="FETCH" and query=="(INTERNALDATE)":
+                    return "OK",[b'1 (INTERNALDATE NIL)']
+                return super().uid(action,uid,query,*args)
+        FakeIMAP.entries={"420":{"number":n}}
+        with mock.patch.dict(os.environ,{"CSS_QQ_MAIL_ADDRESS":"test@example.com",
+                                          "CSS_QQ_MAIL_AUTH_CODE":"offline-test"}):
+            result=proof.check_imap(targets,c,{e["ingest_key"]:ingest(e)},
+                                    NilIMAP,filenames,parser)
+        self.assertEqual(result["internaldate_date_nil"],1)
+        self.assertEqual(result["original_invoice_issue_date_proved"],0)
+        self.assertEqual(result["business_writes"],0)
 
     def test_original_search_rejects_failed_search_not_guess(self):
         class BadSearch(FakeIMAP):

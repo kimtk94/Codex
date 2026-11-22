@@ -13,6 +13,8 @@ on:
       - 'automation/css_mail/test_invoice_provenance_triage.py'
       - 'automation/css_mail/qq_targeted_backfill_proof.py'
       - 'automation/css_mail/test_qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
   push:
     branches: [main]
@@ -24,6 +26,8 @@ on:
       - 'automation/css_mail/test_invoice_provenance_triage.py'
       - 'automation/css_mail/qq_targeted_backfill_proof.py'
       - 'automation/css_mail/test_qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
 permissions:
   contents: read
@@ -45,6 +49,7 @@ jobs:
           python3 -m unittest automation.css_mail.test_invoice_source_freshness_monitor -v
           python3 -m unittest automation.css_mail.test_invoice_provenance_triage -v
           python3 -m unittest automation.css_mail.test_qq_targeted_backfill_proof -v
+          python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
   audit:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -168,7 +173,15 @@ jobs:
                    "internaldate_no_byte_payload",
                    "internaldate_date_token_absent",
                    "internaldate_date_format_not_standard",
+                   "internaldate_date_nil",
+                   "internaldate_date_unquoted",
+                   "internaldate_date_single_digit_day",
+                   "internaldate_date_colon_timezone",
+                   "internaldate_date_imap_literal",
+                   "internaldate_date_format_other",
                    "internaldate_date_invalid",
+                   "early_cursor_advance_detected",
+                   "cursor_safety_review_required",
                    "blank_month_qq_extract_uid_conflict",
                    "non_official_or_missing_header","mime_filename_or_identity_mismatch",
                    "cursor_inconsistent","business_writes","qq_cursor_writes",

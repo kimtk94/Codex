@@ -176,7 +176,18 @@ def classify_internaldate_response(status, parts):
         r'INTERNALDATE\s+"(\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{4})"',
         payload, re.I)
     if not match:
-        return "DATE_FORMAT_NOT_STANDARD"
+        # Classify only structure, never print or persist private IMAP values.
+        if re.search(r'INTERNALDATE\s+NIL\b', payload, re.I):
+            return "DATE_NIL"
+        if re.search(r'INTERNALDATE\s+\d{1,2}-[A-Za-z]{3}-\d{4}', payload, re.I):
+            return "DATE_UNQUOTED"
+        if re.search(r'INTERNALDATE\s+"\d-[A-Za-z]{3}-\d{4}', payload, re.I):
+            return "DATE_SINGLE_DIGIT_DAY"
+        if re.search(r'INTERNALDATE\s+"\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}', payload, re.I):
+            return "DATE_COLON_TIMEZONE"
+        if re.search(r'INTERNALDATE\s+\{\d+\}', payload, re.I):
+            return "DATE_IMAP_LITERAL"
+        return "DATE_FORMAT_OTHER"
     try:
         dt.datetime.strptime(match.group(1), "%d-%b-%Y %H:%M:%S %z")
         return "VALID_ARRIVAL_DATE"
@@ -366,6 +377,10 @@ def main():
     report = check_imap(
         targets, checkpoint, ingest, imaplib.IMAP4_SSL,
         bodystructure_filenames, extract)
+    from qq_cursor_checkpoint_policy import assess_writer_cursor_order
+    # Static read-only scan. NO Backfill writer import or execution.
+    writer = Path(__file__).with_name("qq_historical_invoice_backfill.py")
+    report.update(assess_writer_cursor_order(writer.read_text(encoding="utf-8")))
     report["status"] = "HOLD"  # read-only evidence cannot authorize payment posting
     report["target_count"] = len(targets)
     report["scan_at"] = scan.isoformat()
