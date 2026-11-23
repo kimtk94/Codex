@@ -43,6 +43,14 @@ class RecurringWatchdogTests(unittest.TestCase):
         self.assertEqual(state["state"],"COOLDOWN_WAIT")
         self.assertFalse(state["eligible"])
 
+    def test_prior_recent_pass_does_not_mask_latest_failure(self):
+        result=inspect([run(4,"completed","failure"),run(5)],NOW,6)
+        self.assertEqual(result["state"],"LATEST_FAILURE_HOLD")
+        self.assertFalse(result["eligible"])
+        result=inspect([run(1,"completed","failure"),run(2)],NOW,6)
+        self.assertEqual(result["state"],"RECENT_FAILURE_HOLD")
+        self.assertFalse(result["eligible"])
+
     def test_running_and_stalled_runs_never_race(self):
         state=inspect([run(1,"in_progress",None),run(10)],NOW,6)
         self.assertEqual(state["state"],"RUNNING")
