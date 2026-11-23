@@ -105,6 +105,27 @@ class SafeIngestTests(unittest.TestCase):
         self.assertEqual(rows[0][2],"1100")
         self.assertEqual(diag["arrival_metadata_state"],"VALID_ARRIVAL_DATE")
 
+    def test_single_digit_and_space_padded_arrival_never_fills_invoice_month(self):
+        for stamp in (b'1 (INTERNALDATE "2-Nov-2026 10:00:00 +0900")',
+                      b'1 (INTERNALDATE " 2-Nov-2026 10:00:00 +0900")',
+                      b'1 (INTERNALDATE "02-Nov-2026 10:00:00 +0900")'):
+            with self.subTest(shape=stamp[:30]):
+                state,rows,diag=candidate(FakeIMAP(internaldate=stamp))
+                self.assertEqual(state,"ORIGINAL_ISSUED_PROOF_PERSISTED")
+                self.assertEqual(diag["arrival_metadata_state"],"VALID_ARRIVAL_DATE")
+                self.assertEqual(rows[0][1],"")
+
+    def test_malformed_or_unquoted_arrival_never_fills_invoice_month(self):
+        for stamp in (b'1 (INTERNALDATE "40-Nov-2026 10:00:00 +0900")',
+                      b'1 (INTERNALDATE "2-Nov-2026 10:00:00 +09:00")',
+                      b'1 (INTERNALDATE 2-Nov-2026 10:00:00 +0900)',
+                      b'1 (INTERNALDATE NIL)'):
+            with self.subTest(shape=stamp[:30]):
+                state,rows,diag=candidate(FakeIMAP(internaldate=stamp))
+                self.assertEqual(state,"ORIGINAL_ISSUED_PROOF_PERSISTED")
+                self.assertNotEqual(diag["arrival_metadata_state"],"VALID_ARRIVAL_DATE")
+                self.assertEqual(rows[0][1],"")
+
     def test_official_sender_but_reply_is_not_issued(self):
         im=FakeIMAP(reply=True)
         state,rows,_=candidate(im)
