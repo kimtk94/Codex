@@ -7,6 +7,12 @@ on:
     - cron: '25 6 * * 2-6'
     - cron: '25 7 * * 2-6'
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_daily20/scheduled_slot_watchdog.py'
+      - 'research/kalman_daily20/test_scheduled_slot_watchdog.py'
+      - '.github/workflows/kalman-daily20-slot-watchdog.yml'
   pull_request:
     paths:
       - 'research/kalman_daily20/scheduled_slot_watchdog.py'
@@ -39,8 +45,8 @@ jobs:
           cd research/kalman_daily20
           python -m unittest -v test_scheduled_slot_watchdog.py
           python -m py_compile scheduled_slot_watchdog.py
-      - name: PR smoke of exact GitHub schedule-filter API (read-only; not prospective proof)
-        if: github.event_name == 'pull_request'
+      - name: Change-review smoke of GitHub schedule-filter API (read-only; not a seal)
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -58,17 +64,17 @@ jobs:
           assert isinstance(data, dict) and isinstance(data.get("workflow_runs"), list)
           print("DAILY20_SCHEDULE_FILTER_API_ROUTE_PASS",
                 "entries", len(data["workflow_runs"]),
-                "PR_SMOKE_NOT_PROSPECTIVE_EVIDENCE")
+                "CODE_REVIEW_SMOKE_NOT_PROSPECTIVE_EVIDENCE")
           PY
       - name: Audit today's two ORIGINAL GitHub scheduled runs and remote evidence
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python research/kalman_daily20/scheduled_slot_watchdog.py \
             --out output/daily20/scheduled_slot_watchdog/report.json
       - name: Preserve failure OR success evidence without modifying Drive
-        if: always() && github.event_name != 'pull_request'
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@v4
         with:
           name: kalman-daily20-two-slot-heartbeat
