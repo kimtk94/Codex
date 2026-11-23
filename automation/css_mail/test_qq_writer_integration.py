@@ -270,6 +270,19 @@ class WriterIntegrationTests(unittest.TestCase):
         legacy_writer.guard_legacy_2026_target(
             2025,"QQ Historical Invoice Backfill")
 
+    def test_preview_oauth_uses_readonly_scope(self):
+        readonly=writer.google_sheet_scopes("PREVIEW")
+        self.assertEqual(readonly,[
+            "https://www.googleapis.com/auth/spreadsheets.readonly"])
+        self.assertNotIn("https://www.googleapis.com/auth/spreadsheets",readonly)
+
+    def test_historical_apply_scope_is_separate_from_2026_hard_hold(self):
+        self.assertEqual(writer.google_sheet_scopes("APPLY"),[
+            "https://www.googleapis.com/auth/spreadsheets"])
+        with self.assertRaisesRegex(
+            RuntimeError,"QQ_2026_APPLY_HARD_HOLD_WRITER_EXCLUSION_UNVERIFIED"):
+            writer.guard_2026_stage_apply("APPLY",2026,"QQ 2026 Invoice Backfill")
+
     def test_2025_legacy_route_and_2026_preview_remain_eligible(self):
         for mode,year,tab in (
             ("PREVIEW",2026,"QQ 2026 Invoice Backfill"),
