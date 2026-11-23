@@ -61,7 +61,14 @@ def fixtures():
     new_days = pd.bdate_range("2026-10-01", "2026-11-20")
     m = {}
     for key in OLD_KEYS:
-        m[f"market/raw/yfinance/{key}.parquet"] = parquet(bars(old_days, key))
+        # The actual wide-market ZIP already includes Saturday Oct 31
+        # BTC / USDKRW stamped observations despite its XNYS as-of Oct 30.
+        per_asset_days = old_days
+        if key in ("yf_btc", "yf_usdkrw"):
+            per_asset_days = old_days.append(
+                pd.DatetimeIndex(["2026-10-31"]))
+        m[f"market/raw/yfinance/{key}.parquet"] = parquet(
+            bars(per_asset_days, key))
     for key in OLD_KEYS:
         m[f"features/talib/{key.removeprefix('yf_')}.parquet"] = b"SYNTHETIC_DERIVED_FEATURE_NOT_REAL"
     m["fred/fred_status.json"] = json.dumps({
@@ -137,6 +144,8 @@ class ArchiveBackfillProposalTests(unittest.TestCase):
             r["expected_tail_rows"] for r in plan["market_queue"]
             if r["indicator"] not in PAIRED_SHARED))
         self.assertEqual(plan["same_vendor_candidate_tail_rows"], 9 * 15)
+        self.assertEqual(plan["candidate_missing_expected_tail_rows"], 155)
+        self.assertEqual(plan["market_expected_tail_rows_total"], 290)
         self.assertEqual(plan["market_assets_with_any_reusable_candidate"], 9)
         self.assertFalse(plan["automatically_merged"])
         self.assertFalse(plan["original_drive_zip_overwritten"])
@@ -147,7 +156,8 @@ class ArchiveBackfillProposalTests(unittest.TestCase):
         btc = next(r for r in plan["market_queue"] if r["indicator"] == "yf_btc")
         self.assertEqual(btc["reuse_status"], "NOT_AVAILABLE_IN_DAILY20")
         self.assertEqual(btc["frequency"], "calendar")
-        self.assertEqual(btc["expected_tail_rows"], 21)
+        self.assertEqual(btc["expected_tail_rows"], 20)
+        self.assertEqual(btc["source_last"], "2026-10-31")
         self.assertEqual(btc["candidate_tail_rows"], 0)
 
     def test_both_revised_latest_fred_and_features_research_hold(self):
