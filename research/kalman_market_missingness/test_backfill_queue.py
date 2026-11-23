@@ -12,6 +12,8 @@ import unittest
 
 import pandas as pd
 
+from fetch_private_zip import APPROVED_READONLY_ARCHIVES
+
 from backfill_queue import (
     EXPECTED_FRED, PAIRED_SHARED, VERSION, validated_archives,
     shared_candidate, make_plan,
@@ -164,6 +166,14 @@ class ArchiveBackfillProposalTests(unittest.TestCase):
                              source_day="2026-10-30", target_day="2026-11-20")
         self.assertFalse(r["adjustment_flag_matches"])
         self.assertEqual(r["reuse_status"], "PRICE_ADJUSTMENT_BASIS_MISMATCH_HOLD")
+
+    def test_fetcher_can_only_read_two_approved_archives(self):
+        self.assertEqual(set(APPROVED_READONLY_ARCHIVES), {
+            "1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd",
+            "1nWbyCiRSscJSqgZYvYhJ9DKHRlBwlKgE",
+        })
+        self.assertTrue(all(name.endswith(".zip")
+                            for name, _ in APPROVED_READONLY_ARCHIVES.values()))
 
     def test_same_provider_price_revision_kept_as_evidence_not_overwritten(self):
         old = bars(pd.bdate_range("2026-10-01", "2026-10-30"), "yf_qqq")
