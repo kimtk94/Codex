@@ -123,6 +123,54 @@ plus `prompt_eval_count` / `eval_count` when Ollama returns those fields.
 Only a subsequent exact-commit `pilot-acceptance-v2` PASS proves that
 model-generated code has met the independent contract.
 
+## V3 — synthetic KRW quotation aggregation pilot (no production access)
+
+**V2 proof**: local Qwen code generated exact-head
+[draft PR #1007](https://github.com/kimtk94/Codex/pull/1007) and
+`pilot-acceptance-v2` / `goal-loop-controller-tests` /
+`main-write-guard` all passed at attempt **3/12**. PR #1007 remains
+draft, unmerged, and its checkpoint is preserved. This demonstrates one
+successful small coding task, not broad agent reliability.
+
+V3 tests a *larger, business-shaped but wholly synthetic* Python task:
+group quotation rows by product line, deduplicate quote IDs, reject
+malformed counts/prices and sum VAT-exclusive KRW with exact integers.
+No real SFDC, Feishu, mail, customer data, credentials, databases or
+production writes are involved.
+
+V3 new goal: `pilot-quote-summary-v3`
+(`automation/goal_loop/goals/pilot-quote-v3.json`). Only
+`automation/goal_loop/pilot_quote_summary_v3.py` is AI-editable.
+An AST-only preflight runs locally WITHOUT importing model-authored Python;
+the full independent behavior tests run in GitHub Actions on the exact PR
+SHA. A V3 controller PR with its acceptance job skipped is NOT proof of
+model task completion.
+
+There is a separate cumulative 12-attempt budget and checkpoint for V3:
+`~/.goal-loop/pilot-quote-summary-v3/latest.json`.
+No V1 or V2 checkpoint is modified or reset. GitHub uses three exact
+required checks: `goal-loop-controller-tests`,
+`pilot-acceptance-v3`, `main-write-guard`. AI-generated PRs always
+remain draft and require human review.
+
+**After infrastructure CI validation and merge**, initiate exactly one
+manual V3 invocation from the notebook:
+
+```powershell
+cd C:\Users\KimTaeHoon\Projects\Codex
+git switch main
+git pull --ff-only origin main
+python -m automation.goal_loop.controller --goal automation/goal_loop/goals/pilot-quote-v3.json --dry-run
+Remove-Item Env:GOAL_LOOP_MODEL -ErrorAction SilentlyContinue
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\automation\goal_loop\windows_worker.ps1" -Goal "automation/goal_loop/goals/pilot-quote-v3.json"
+```
+
+The model remains Qwen2.5-Coder 3B/16K on the previously measured 16GB
+laptop, now with V3-only compact prompt, `num_ctx=4096` and capped
+`num_predict=1024`; no model download, automatic service, or
+background worker is started. Do not use `-Loop` until explicit
+human approval and independently passing V3 CI.
+
 ## Architecture
 
 The local **Qwen2.5 Coder 3B / 16K** instance edits an exact allowlisted source file in a **new Git worktree**, using a Markdown goal document and a versioned JSON contract. It syntax-compiles edited Python locally **without executing it**, pushes only the agent feature branch, opens a **draft pull request**, and executes independent acceptance tests only on unprivileged GitHub Actions runners. All accepted check runs must match the exact pushed commit SHA and GitHub Actions app. No direct main writes, no PR merge, no mail/CRM/trade/deploy effects.
