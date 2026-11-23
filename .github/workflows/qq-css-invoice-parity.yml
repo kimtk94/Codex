@@ -258,11 +258,11 @@ jobs:
                        "imap_arrival_metadata_available"),
                       ("Official issued-date evidence verified",
                        "original_invoice_issue_date_proved"))
-              output.write("\\n**Next operator actions (counts, not additive):**\\n")
+              output.write("\n**Next operator actions (counts, not additive):**\\n")
               for label,field in review:
                   value=summary[field] if field in summary else "UNVERIFIED"
-                  output.write(f"- {label}: {value}\\n")
-              output.write("\\n**No canonical Invoice or cursor writes permitted by this audit.**\\n")
+                  output.write(f"- {label}: {value}\n")
+              output.write("\n**No canonical Invoice or cursor writes permitted by this audit.**\\n")
               for field in allowed:
                   if field in summary:output.write(f"- {field}: {summary[field]}\n")
           PY
