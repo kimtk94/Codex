@@ -5,7 +5,8 @@ import sys
 import unittest
 
 sys.path.insert(0,str(pathlib.Path(__file__).parent))
-from publish_central_workflow_health import evaluate_runs,make_rows,bi_job_result,WORKFLOWS,UTC
+from publish_central_workflow_health import (evaluate_runs, make_rows, bi_job_result,
+                                             feishu_writer_job_result, WORKFLOWS, UTC)
 
 NOW=dt.datetime(2026,10,30,0,0,tzinfo=UTC)
 
@@ -66,10 +67,52 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(len(refs),len(set(refs)))
         self.assertTrue(expected.issubset(set(refs)))
         rows=make_rows(lambda filename:[run(id=98765)],NOW)
-        self.assertEqual(len(rows),19)
+        self.assertEqual(len(rows),23)
+        for label in ("Feishu Unified Writer","Feishu Recovery Watchdog",
+                      "CSS Original/Mirror Audit","QQ 2026 Historical Backfill"):
+            self.assertIn(label, [r[0] for r in rows[1:]])
         self.assertTrue(all(row[2]=="PASS_EXECUTION_ONLY" for row in rows[1:]))
         policy=next(row for row in rows if row[0]=="CSS Release Policy")
         self.assertIn("not certified",policy[8].lower())
+
+    def test_active_feishu_writer_ci_only_green_is_not_materialized(self):
+        jobs=[{"name":"tests","status":"completed","conclusion":"success"}]+[
+            {"name":name,"status":"completed","conclusion":"skipped"}
+            for name in ("ingest","payment","lifecycle","monthly")]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        feishu=next(r for r in rows if r[0]=="Feishu Unified Writer")
+        self.assertEqual(feishu[2],"NO_APPLY")
+        self.assertIn("CI_ONLY_NO_APPLY",feishu[8])
+
+    def test_active_feishu_writer_proved_jobs_are_execution_not_bank_payment(self):
+        jobs=[{"name":name,"status":"completed","conclusion":"success"}
+              for name in ("tests","ingest","payment","lifecycle","monthly")]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        feishu=next(r for r in rows if r[0]=="Feishu Unified Writer")
+        self.assertEqual(feishu[2],"PASS_EXECUTION_ONLY")
+        self.assertIn("ALL_FOUR_WRITER_JOBS_SUCCESS",feishu[8])
+        self.assertIn("no bank proof",feishu[8].lower())
+
+    def test_active_feishu_writer_partial_and_missing_job_api_are_not_pass(self):
+        jobs=[{"name":name,"status":"completed","conclusion":"success"}
+              for name in ("tests","ingest","payment","lifecycle")]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        feishu=next(r for r in rows if r[0]=="Feishu Unified Writer")
+        self.assertEqual(feishu[2],"UNVERIFIED_WRITER_SCOPE")
+        self.assertIn("INCOMPLETE_WRITER_JOB_EVIDENCE",feishu[8])
+        def unavailable(rid):raise RuntimeError("API_UNAVAILABLE")
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=unavailable)
+        feishu=next(r for r in rows if r[0]=="Feishu Unified Writer")
+        self.assertEqual(feishu[2],"UNVERIFIED_WRITER_SCOPE")
+        self.assertIn("JOB_DETAILS_UNAVAILABLE",feishu[8])
+
+    def test_active_feishu_writer_duplicate_jobs_cannot_certify_success(self):
+        jobs=[{"name":name,"status":"completed","conclusion":"success"}
+              for name in ("ingest","payment","lifecycle","monthly")]
+        self.assertEqual(feishu_writer_job_result(jobs),"ALL_FOUR_WRITER_JOBS_SUCCESS")
+        self.assertEqual(feishu_writer_job_result(jobs+[jobs[0]]),
+                         "AMBIGUOUS_JOB_DETAILS_REVIEW")
+        self.assertEqual(feishu_writer_job_result(None),"JOB_DETAILS_UNAVAILABLE")
 
     def test_bi_workflow_failure_is_not_mislabeled_as_sync_failure(self):
         jobs=[{"name":"sync","status":"completed","conclusion":"success"},
