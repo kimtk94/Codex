@@ -136,7 +136,10 @@ class HistoricalCAAlignmentTests(unittest.TestCase):
 
     def test_out_of_order_rows_fail(self):
         lines = generated().splitlines(keepends=True)
-        lines[2], lines[3] = lines[3], lines[2]
+        # Mutate the date label only; chronology must fail before return math.
+        parts = lines[3].split(b",")
+        parts[0] = lines[2].split(b",", 1)[0]
+        lines[3] = b",".join(parts)
         with self.assertRaisesRegex(ValueError, "CSV_UNSORTED_OR_DUPLICATE_DATE"):
             evaluate(b"".join(lines), pinned=False)
 
