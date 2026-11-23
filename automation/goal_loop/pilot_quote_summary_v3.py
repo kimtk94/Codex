@@ -34,4 +34,4 @@ def summarize_quotes(rows):
 
         totals_krw[product_line] += sample_count * unit_price_krw
 
-    return {'totals_krw': totals_krw, 'accepted': accepted, 'rejected': rejected}
+    return {'totals_krw': {k: v for k, v in sorted(totals_krw.items())}, 'accepted': accepted, 'rejected': rejected}
