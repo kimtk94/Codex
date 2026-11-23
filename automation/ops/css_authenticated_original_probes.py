@@ -598,13 +598,13 @@ def main():
             out.write("QQ historical UID gap (61-365d / older than 365d): " +
                       str(safe_counts["qq_missing_61_to_365d"]) + " / " +
                       str(safe_counts["qq_missing_older_than_365d"]) + ". " +
-                      "None means not verified, not zero.\\n\\n")
+                      "None means not verified, not zero.\n\n")
             out.write("Feishu original-to-mirror changed cells (fixed source labels only): " +
                       ", ".join(name + "=" + str(value)
                           for name, value in
                           safe_counts["feishu_changed_cells_by_format"].items()) +
-                      ". None means unavailable.\\n\\n")
-            out.write("Source access failures never count as NO_NEW_DATA. See sanitized artifact.\\n")
+                      ". None means unavailable.\n\n")
+            out.write("Source access failures never count as NO_NEW_DATA. See sanitized artifact.\n")
     # Reporting must succeed even if the source is unavailable; each source has
     # explicit SOURCE_UNAVAILABLE evidence and can never be promoted to PASS.
     return 0
