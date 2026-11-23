@@ -826,6 +826,47 @@ jobs:
                 r["source_acquisition"],"source_bytes",r["source_bytes"],
                 "failure",r["source_failure_code"])
           PY
+      - name: Capture Invesco QQQ 2018 issuer API distribution (no auto-certification)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qqq2018_invesco_api.py \
+              --offline --out-dir output/daily20/research/issuer_qqq2018_invesco
+          else
+            python research/kalman_daily20/issuer_qqq2018_invesco_api.py \
+              --out-dir output/daily20/research/issuer_qqq2018_invesco
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qqq2018_invesco/report.json").read_text())
+          assert r["version"] == "daily20-qqq2018-invesco-api-v1"
+          assert r["research_only"] and not r["production_writes"] and not r["strategy_promoted"]
+          assert r["cusip"] == "46090E103" and r["event_ex_date"] == "2018-06-18"
+          assert r["issuer_2018_payment_settlement_certified"] is False
+          assert r["issuer_2018_cash_finality_certified"] is False
+          assert r["independent_factor_certified"] is False
+          assert r["historical_nonpayment_proven"] is False
+          assert r["source_history_completeness_certified"] is False
+          assert r["source_share_unit_basis_certified"] is False
+          assert r["source_finality_verified_assets"] == 0
+          assert r["status"] in (
+              "OFFLINE_ISSUER_JSON_UNFETCHED_HOLD",
+              "ISSUER_JSON_PENDING_HOLD",
+              "ISSUER_JSON_TRANSPORT_FAILED_HOLD",
+              "ISSUER_JSON_SOURCE_SIZE_INVALID_HOLD",
+              "ISSUER_JSON_SCHEMA_REJECTED_RAW_ARCHIVED_HOLD",
+              "ISSUER_API_2018_EVENT_OBSERVED_CASH_FINALITY_HOLD",
+              "ISSUER_API_2018_EVENT_NOT_IN_CURRENT_HISTORY_HOLD")
+          if r["source_sha256"]:
+              assert r["source_archive"] == "qqq_2018_invesco_original_distribution_response.json.gz"
+              assert 0 < r["source_bytes"] <= 2000000
+          if r["issuer_api_target_row"]:
+              assert r["issuer_api_target_row"]["ex_date"] == "2018-06-18"
+              assert r["issuer_api_target_row"]["historical_payment_settlement_certified"] is False
+          print("DAILY20_QQQ2018_ISSUER_JSON_HOLD", r["status"],
+                "cash candidate",r.get("issuer_api_target_row"),
+                "error",r["fetch_or_schema_failure_code"],"0/26")
+          PY
       - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
         run: |
           python research/kalman_daily20/listing_asof.py \
