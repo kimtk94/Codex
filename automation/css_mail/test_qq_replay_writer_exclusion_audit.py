@@ -21,7 +21,11 @@ def baseline():
                    '        raise RuntimeError("QQ_2026_APPLY_HARD_HOLD_WRITER_EXCLUSION_UNVERIFIED")\n'
                    'guard_2026_stage_apply(mode,requested_year,TAB)\n'
                    'if mode == "APPLY": raise RuntimeError("GATE")'),
-               LEGACY_WRITER:'def main(): pass'}
+               LEGACY_WRITER:(
+                    'def guard_legacy_2026_target(year,tab):\n'
+                    '    raise RuntimeError("QQ_LEGACY_2026_APPLY_HARD_HOLD_UNVERIFIED_WRITER")\n'
+                    'guard_legacy_2026_target(requested_year,TAB)\n'
+                    'def main(): pass')}
     return {MAIN_WORKFLOW: main, "qq-2025-invoice-backfill.yml": year2025}, scripts
 
 
@@ -43,6 +47,14 @@ class WriterBoundaryTests(unittest.TestCase):
         result=assess(workflows,scripts)
         self.assertIn("2026_SOURCE_HARD_HOLD_MISSING",result["blocking_rule_codes"])
         self.assertEqual(result["writer_exclusion_verified"],0)
+
+    def test_legacy_hard_hold_removed_is_detected(self):
+        workflows,scripts=baseline()
+        scripts[LEGACY_WRITER]=scripts[LEGACY_WRITER].replace(
+            "guard_legacy_2026_target(requested_year,TAB)","pass")
+        result=assess(workflows,scripts)
+        self.assertIn("LEGACY_2026_SOURCE_HARD_HOLD_MISSING",
+                      result["blocking_rule_codes"])
 
     def test_2026_apply_job_is_detected(self):
         workflows, scripts = baseline()
