@@ -20,6 +20,9 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    # Repository secrets are scoped to this existing protected GitHub
+    # environment. This label DOES NOT start or use an external server.
+    environment: TaehoonServer
     timeout-minutes: 9
     steps:
       - uses: actions/checkout@v4
