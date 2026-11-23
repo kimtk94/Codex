@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 sys.path.insert(0,str(pathlib.Path(__file__).parent))
 from publish_central_workflow_health import (evaluate_runs, make_rows, bi_job_result,
-                                             feishu_writer_job_result, github_fetch,
-                                             WORKFLOWS, UTC)
+                                             feishu_writer_job_result, watchdog_monitor_job_result,
+                                             github_fetch, WORKFLOWS, UTC)
 
 NOW=dt.datetime(2026,10,30,0,0,tzinfo=UTC)
 
@@ -127,6 +127,33 @@ class PublisherTests(unittest.TestCase):
         self.assertTrue(all(row[2]=="PASS_EXECUTION_ONLY" for row in rows[1:]))
         policy=next(row for row in rows if row[0]=="CSS Release Policy")
         self.assertIn("not certified",policy[8].lower())
+
+    def test_watchdog_tests_only_green_is_not_monitoring(self):
+        jobs=[{"name":"tests","status":"completed","conclusion":"success"},
+              {"name":"monitor","status":"completed","conclusion":"skipped"}]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        watchdog=next(r for r in rows if r[0]=="Feishu Recovery Watchdog")
+        self.assertEqual(watchdog[2],"NO_MONITOR")
+        self.assertIn("MONITOR_SKIPPED",watchdog[8])
+
+    def test_watchdog_actual_monitor_job_success_only_certifies_execution(self):
+        jobs=[{"name":"tests","status":"completed","conclusion":"success"},
+              {"name":"monitor","status":"completed","conclusion":"success"}]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        watchdog=next(r for r in rows if r[0]=="Feishu Recovery Watchdog")
+        self.assertEqual(watchdog[2],"PASS_EXECUTION_ONLY")
+        self.assertIn("MONITOR_EXECUTED",watchdog[8])
+        self.assertIn("do not prove",watchdog[8].lower())
+
+    def test_watchdog_job_missing_or_api_unavailable_fails_closed(self):
+        self.assertEqual(watchdog_monitor_job_result([]),
+                         "MONITOR_JOB_AMBIGUOUS_OR_MISSING")
+        self.assertEqual(watchdog_monitor_job_result(None),
+                         "JOB_DETAILS_UNAVAILABLE")
+        def unavailable(rid):raise RuntimeError("SYNTHETIC_ERROR")
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=unavailable)
+        watchdog=next(r for r in rows if r[0]=="Feishu Recovery Watchdog")
+        self.assertEqual(watchdog[2],"UNVERIFIED_MONITOR_SCOPE")
 
     def test_active_feishu_writer_ci_only_green_is_not_materialized(self):
         jobs=[{"name":"tests","status":"completed","conclusion":"success"}]+[
