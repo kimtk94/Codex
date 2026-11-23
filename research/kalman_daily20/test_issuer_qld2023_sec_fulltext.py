@@ -116,5 +116,86 @@ class SECFullTextTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"QLD_SEC_RAW_SIZE_INVALID"):
                 q.unpack_verified(path)
 
+
+    def test_original_edgar_sgml_financial_statements_show_zero_qlD_distributions(self):
+        trust_six_month=(
+            "ULTRA QQQ Ultra Real Estate Ultra Russell2000 "
+            "Six Months Ended November 30, 2023 (Unaudited) "
+            "Year Ended May 31, 2023 "
+            "FROM INVESTMENT ACTIVITIES: OPERATIONS: "
+            "Net investment income (loss) $ 2,256,829 $ 32,731,163 "
+            "DISTRIBUTIONS TO SHAREHOLDERS FROM: Distributable earnings "
+            "— (7,280,372) (419,095) (850,792) "
+            "Total distributions — (7,280,372) (419,095) (850,792) "
+        )
+        highlights=(
+            "Financial Highlights Ultra QQQ Six Months ended November 30, 2023 "
+            "(Unaudited) $ 57.26 $ 0.03 $ 11.43 $ — $ 11.46 "
+            "$ — $ — $ — $ — $ 68.72 20.00 % "
+            "Year ended May 31, 2023 50.68 0.45 6.24 "
+            "(0.11) (0.11) 57.26 "
+            "Year ended May 31, 2022 63.62"
+        )
+        raw=(
+            "<DOCUMENT>\n<TYPE>N-CSRS\n<SEQUENCE>1\n"
+            "<FILENAME>primary-document.htm\n<TEXT>\n"
+            "<html><body><p>ProShares Ultra QQQ November 30, 2023</p>"
+            "<p>"+trust_six_month+"</p><p>"+highlights+"</p>"
+            +"<p>"+"Y"*12000+"</p></body></html>\n</TEXT>\n</DOCUMENT>"
+        ).encode("utf-8")
+        with TemporaryDirectory() as d:
+            x=q.collect(index_report=issuer_index(),out_dir=d,
+                        fetcher=fake_source(raw))
+            self.assertEqual(x["status"],
+                             "SEC_QLD_2023_PERIOD_ZERO_DISTRIBUTIONS_ACCOUNTING_HOLD")
+            self.assertEqual(x["sec_document_envelope_format"],"EDGAR_SGML_N_CSRS_TEXT_HTML")
+            self.assertTrue(x["qld_statement_changes_fund_column_pinned"])
+            self.assertEqual(x["qld_statement_prior_fy_distributions_usd"],"7,280,372")
+            self.assertTrue(x["qld_statement_2023_period_total_distributions_reported_zero"])
+            self.assertTrue(x["qld_financial_highlights_fund_row_pinned"])
+            self.assertTrue(
+                x["qld_financial_highlights_2023_period_per_share_distributions_reported_zero"])
+            self.assertTrue(x["qld_issuer_period_zero_distributions_two_statement_agreement"])
+            self.assertFalse(x["issuer_event_cash_certified"])
+            self.assertFalse(x["historical_nonpayment_proven"])
+            self.assertEqual(x["source_sha256"],sha256(raw).hexdigest())
+
+    def test_mismatched_financial_statement_columns_downgrade_to_unscoped_hold(self):
+        body=(
+            "<html><body><p>Ultra QQQ November 30, 2023 Financial Highlights</p>"
+            "<p>Ultra QQQ Ultra Real Estate Ultra Russell2000 "
+            "Six Months Ended November 30, 2023 "
+            "DISTRIBUTIONS TO SHAREHOLDERS FROM: "
+            "Distributable earnings 0.176282 (7,280,372) "
+            "Total distributions 0.176282 (7,280,372)</p>"
+            "<p>Ultra QQQ Six Months ended November 30, 2023 (Unaudited) "
+            "$ 57.26 $ 0.03 $ 11.43 $ — $ 11.46 "
+            "$ — $ — $ — $ — $ 68.72 "
+            "Year ended May 31, 2023 50.68 "
+            "Year ended May 31, 2022 63.62</p>"
+            +"x"*12000+"</body></html>"
+        ).encode()
+        with TemporaryDirectory() as d:
+            r=q.collect(index_report=issuer_index(),out_dir=d,fetcher=fake_source(body))
+            self.assertEqual(r["status"],"SEC_FULLTEXT_SCANNED_UNSCOPED_PAYMENT_HOLD")
+            self.assertFalse(r["qld_issuer_period_zero_distributions_two_statement_agreement"])
+            self.assertFalse(r["issuer_event_cash_certified"])
+
+    def test_bad_sgml_parser_still_preserves_full_original_digest(self):
+        bad=(
+            b"<DOCUMENT>\n<TYPE>N-CSRS\n<FILENAME>primary-document.htm\n"
+            b"<TEXT><html>Ultra QQQ</html></TEXT></WRONG>"
+            +b"x"*12000
+        )
+        with TemporaryDirectory() as d:
+            x=q.collect(index_report=issuer_index(),out_dir=d,fetcher=fake_source(bad))
+            self.assertEqual(x["status"],"SEC_FULLTEXT_FETCH_OR_VALIDATE_FAILED_HOLD")
+            self.assertEqual(x["source_failure_code"],
+                             "QLD_SEC_NOT_HTML_OR_PINNED_EDGAR_SGML")
+            self.assertEqual(x["source_sha256"],sha256(bad).hexdigest())
+            self.assertEqual(x["source_archive"],q.ARCHIVE_NAME)
+            self.assertEqual(gzip.decompress((Path(d)/q.ARCHIVE_NAME).read_bytes()),bad)
+            self.assertFalse(x["issuer_event_cash_certified"])
+
 if __name__=="__main__":
     unittest.main()
