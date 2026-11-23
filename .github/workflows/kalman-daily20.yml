@@ -746,6 +746,41 @@ jobs:
           print("DAILY20_CA_VENDOR_LINEAGE_HOLD", qld["status"],
                 "issuer archive",qld["issuer_archive_grade"],"CERTIFIED 0/26")
           PY
+      - name: Pin historical SEC accession identities (QLD 2023 + QQQ 2018)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_historical_edgar.py \
+              --offline --out-dir output/daily20/research/issuer_historical_edgar
+          else
+            python research/kalman_daily20/issuer_historical_edgar.py \
+              --out-dir output/daily20/research/issuer_historical_edgar
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_historical_edgar/report.json").read_text())
+          assert r["version"] == "daily20-historical-edgar-fixed-accessions-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["issuer_cash_payment_certified"] is False
+          assert r["historical_nonpayment_proven"] is False
+          assert r["independent_adjustment_factor_certified"] is False
+          assert r["source_finality_verified_assets"] == 0
+          assert r["mutable_pdf_historical_certification"] is False
+          assert r["status"] == "HISTORICAL_EDGAR_METADATA_RESEARCH_HOLD"
+          assert {(x["symbol"],x["event_ex_date"]) for x in r["cases"]} == {
+            ("QLD","2023-09-20"), ("QQQ","2018-06-18")}
+          assert all(x["historical_issuer_event_paid_cash_certified"] is False for x in r["cases"])
+          assert all(x["underlying_report_cash_ledger_examined"] is False for x in r["cases"])
+          assert all(x["source_status"] in (
+             "OFFLINE_SOURCE_NOT_FETCHED_HOLD",
+             "SEC_FIXED_HISTORICAL_FILING_METADATA_VERIFIED_CASH_HOLD",
+             "SEC_FIXED_FILING_ANCHORS_INCOMPLETE_HOLD",
+             "SEC_FIXED_FILING_FETCH_OR_PARSE_FAILED_HOLD") for x in r["cases"])
+          print("DAILY20_SEC_PINNED_FILING_BOUNDARY_HOLD",
+                [(x["source_id"],x["source_status"]) for x in r["cases"]],
+                "CASH_CERTIFIED 0")
+          PY
       - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
         run: |
           python research/kalman_daily20/listing_asof.py \
