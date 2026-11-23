@@ -28,6 +28,10 @@ concurrency:
   # preserve serialization of main push/dispatch and BOTH scheduled passes.
   group: kalman-daily20-research-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'protected-main' }}
   cancel-in-progress: false
+  # Default single pending slot replaces older pending runs even with
+  # cancel-in-progress false. Explicit queue=max retains up to 100 waiting
+  # runs so later protected-main pushes cannot evict either scheduled seal.
+  queue: max
 
 jobs:
   contracts:
