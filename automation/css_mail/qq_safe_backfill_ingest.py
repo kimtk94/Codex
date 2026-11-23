@@ -33,12 +33,12 @@ def date_metadata_class(parts):
     message = b" ".join(blocks).decode("ascii", "replace")
     if "INTERNALDATE" not in message.upper():
         return "TOKEN_ABSENT"
-    m = re.search(r'INTERNALDATE\s+"(\d{1,2}-[A-Za-z]{3}-\d{4} '
+    m = re.search(r'INTERNALDATE\s+"( ?\d{1,2}-[A-Za-z]{3}-\d{4} '
                   r'\d{2}:\d{2}:\d{2} [+-]\d{4})"', message, re.I)
     if not m:
         return "UNSUPPORTED_FORMAT"
     try:
-        dt.datetime.strptime(m.group(1), "%d-%b-%Y %H:%M:%S %z")
+        dt.datetime.strptime(m.group(1).strip(), "%d-%b-%Y %H:%M:%S %z")
         return "VALID_ARRIVAL_DATE"
     except ValueError:
         return "INVALID_ARRIVAL_DATE"
