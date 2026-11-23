@@ -1,12 +1,15 @@
 """Offline safety tests for central workflow status publishing."""
 import datetime as dt
+import os
 import pathlib
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0,str(pathlib.Path(__file__).parent))
 from publish_central_workflow_health import (evaluate_runs, make_rows, bi_job_result,
-                                             feishu_writer_job_result, WORKFLOWS, UTC)
+                                             feishu_writer_job_result, github_fetch,
+                                             WORKFLOWS, UTC)
 
 NOW=dt.datetime(2026,10,30,0,0,tzinfo=UTC)
 
@@ -17,6 +20,56 @@ def run(id=1,conclusion="success",updated="2026-10-29T23:00:00Z",
             "event":"schedule"}
 
 class PublisherTests(unittest.TestCase):
+    def test_active_health_fetch_is_scoped_to_schedule_and_dispatch(self):
+        calls=[]
+        class Response:
+            def __init__(self, payload):self.payload=payload
+            def raise_for_status(self):pass
+            def json(self):return {"workflow_runs":self.payload}
+
+        def fake_get(url,headers,params,timeout):
+            calls.append(dict(params))
+            e=params.get("event")
+            self.assertIn(e,("schedule","workflow_dispatch"))
+            r=dict(run(id=200+len(calls)),event=e)
+            return Response([r])
+
+        with patch.dict(os.environ,{"GITHUB_TOKEN":"MOCK_TOKEN"}):
+            with patch("publish_central_workflow_health.requests.get",
+                       side_effect=fake_get):
+                result=github_fetch("feishu-sources-unified.yml")
+        self.assertEqual(len(result),2)
+        self.assertEqual({r["event"] for r in result},
+                         {"schedule","workflow_dispatch"})
+        self.assertTrue(all(x["branch"]=="main" and x["per_page"]==40 for x in calls))
+
+    def test_active_health_api_scope_violation_fails_closed(self):
+        class Response:
+            def raise_for_status(self):pass
+            def json(self):return {"workflow_runs":[dict(run(id=101),event="pull_request")]}
+        with patch.dict(os.environ,{"GITHUB_TOKEN":"MOCK_TOKEN"}):
+            with patch("publish_central_workflow_health.requests.get",
+                       return_value=Response()):
+                with self.assertRaisesRegex(RuntimeError,
+                                            "GITHUB_PRODUCTION_RUN_SCOPE_INVALID"):
+                    github_fetch("feishu-sources-unified.yml")
+
+    def test_watchdog_health_fetch_covers_scheduled_and_event_driven_runs(self):
+        requested=[]
+        class Response:
+            def __init__(self, event, rid):self.event=event;self.rid=rid
+            def raise_for_status(self):pass
+            def json(self):return {"workflow_runs":[dict(run(id=self.rid),event=self.event)]}
+        def fake_get(url,headers,params,timeout):
+            requested.append(params["event"])
+            return Response(params["event"],100+len(requested))
+        with patch.dict(os.environ,{"GITHUB_TOKEN":"MOCK_TOKEN"}):
+            with patch("publish_central_workflow_health.requests.get",
+                       side_effect=fake_get):
+                result=github_fetch("css-recurring-sources-watchdog.yml")
+        self.assertEqual(len(result),3)
+        self.assertEqual(set(requested),{"schedule","workflow_dispatch","workflow_run"})
+
     def test_recent_success_means_execution_not_business_acceptance(self):
         s,at,age,event,item=evaluate_runs([run()],NOW,6)
         self.assertEqual(s,"PASS_EXECUTION_ONLY")
