@@ -39,6 +39,27 @@ jobs:
           cd research/kalman_daily20
           python -m unittest -v test_scheduled_slot_watchdog.py
           python -m py_compile scheduled_slot_watchdog.py
+      - name: PR smoke of exact GitHub schedule-filter API (read-only; not prospective proof)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "research/kalman_daily20")
+          from ops_readiness import api
+          url = (
+              "https://api.github.com/repos/kimtk94/Codex/actions/workflows/"
+              "kalman-daily20.yml/runs"
+              "?branch=main&event=schedule&created=2026-11-21&per_page=100"
+          )
+          data = api(url, os.environ["GH_TOKEN"])
+          assert isinstance(data, dict) and isinstance(data.get("workflow_runs"), list)
+          print("DAILY20_SCHEDULE_FILTER_API_ROUTE_PASS",
+                "entries", len(data["workflow_runs"]),
+                "PR_SMOKE_NOT_PROSPECTIVE_EVIDENCE")
+          PY
       - name: Audit today's two ORIGINAL GitHub scheduled runs and remote evidence
         if: github.event_name != 'pull_request'
         env:
