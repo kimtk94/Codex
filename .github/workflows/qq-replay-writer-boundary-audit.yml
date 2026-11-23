@@ -48,8 +48,29 @@ jobs:
         run: |
           python3 -m unittest automation.css_mail.test_qq_replay_git_journal_demo -v
           python3 -m automation.css_mail.qq_replay_git_journal_demo
+      - name: Verify private journal metadata guard with synthetic cases
+        run: python3 -m unittest automation.css_mail.test_qq_replay_private_store_preflight -v
       - name: Audit all checked-out GitHub workflow writer routes
         run: python3 -m automation.css_mail.qq_replay_writer_exclusion_audit
+
+  private-journal-preflight:
+    needs: inspect
+    if: ${{ github.event_name != 'pull_request' && needs.inspect.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: TaehoonServer
+    env:
+      QQ_REPLAY_PRIVATE_JOURNAL_REPO: ${{ secrets.QQ_REPLAY_PRIVATE_JOURNAL_REPO }}
+      QQ_REPLAY_PRIVATE_JOURNAL_READ_TOKEN: ${{ secrets.QQ_REPLAY_PRIVATE_JOURNAL_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check separate private receipt store metadata (GET only, always HOLD)
+        run: python3 -m automation.css_mail.qq_replay_private_store_preflight
 
   private-review:
     needs: inspect
