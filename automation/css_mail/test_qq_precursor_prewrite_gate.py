@@ -65,7 +65,8 @@ class SnapshotGateTests(unittest.TestCase):
         expected={"invoice_number":INV,"issued_month":"","amount_krw":"900",
                   "amea_project_id":"A","h_project_id":"H","po_reference":"P",
                   "imap_folder":"INBOX","imap_uid":"410",
-                  "filename":"x.pdf","evidence":"OFFICIAL"}
+                  "filename":"x.pdf","evidence":"OFFICIAL",
+                  "backfill_utc":"2026-11-23T00:00:00+00:00"}
         cursor=snap()["cursor"]
         self.assertTrue(verify_staged_readback(expected,[expected],cursor,cursor))
         self.assertFalse(verify_staged_readback(expected,[expected,expected],cursor,cursor))
@@ -73,6 +74,16 @@ class SnapshotGateTests(unittest.TestCase):
         self.assertFalse(verify_staged_readback(expected,[modified],cursor,cursor))
         modified={**expected,"issued_month":"2026-11"}
         self.assertFalse(verify_staged_readback(expected,[modified],cursor,cursor))
+        for variant in (
+            {k:v for k,v in expected.items() if k!="backfill_utc"},
+            {**expected,"backfill_utc":""},
+            {**expected,"backfill_utc":"2026-11-23 00:00:00"},
+            {**expected,"backfill_utc":"invalid"},
+        ):
+            self.assertFalse(verify_staged_readback(variant,[variant],cursor,cursor))
+        self.assertFalse(verify_staged_readback(
+            expected,[{**expected,"backfill_utc":"2026-11-23T00:00:01+00:00"}],
+            cursor,cursor))
         moved=[{**cursor[0],"last_uid":"501"}]
         self.assertFalse(verify_staged_readback(expected,[expected],cursor,moved))
         self.assertFalse(verify_staged_readback({**expected,"issued_month":"2026-11"},

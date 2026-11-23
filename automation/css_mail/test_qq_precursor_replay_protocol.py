@@ -98,12 +98,20 @@ class ProtocolTests(unittest.TestCase):
         base=case()
         expected={**base, "issued_month":"", "amea_project_id":"A",
                   "h_project_id":"H", "po_reference":"P",
-                  "filename":"invoice.pdf"}
+                  "filename":"invoice.pdf",
+                  "backfill_utc":"2026-11-23T00:00:00+00:00"}
         b,a=snaps()
         self.assertEqual(reconcile_uncertain_attempt(expected,[],b["cursor"],a["cursor"]),
                          "ABSENT_RETRY_REQUIRES_NEW_REVIEW")
         self.assertEqual(reconcile_uncertain_attempt(expected,[expected],b["cursor"],a["cursor"]),
                          "EXACT_ROW_PRESENT_RECEIPT_UNVERIFIED_HOLD")
+        self.assertEqual(reconcile_uncertain_attempt(
+            expected,[expected],b["cursor"],a["cursor"],
+            receipt_claim={"status":"VERIFIED","approval":"claimed"}),
+            "CLAIMED_RECEIPT_UNAUTHENTICATED_HOLD")
+        self.assertEqual(reconcile_uncertain_attempt(
+            expected,[{**expected,"backfill_utc":""}],b["cursor"],a["cursor"]),
+            "CONFLICT_HOLD")
         self.assertEqual(reconcile_uncertain_attempt(expected,[expected,expected],
                                                      b["cursor"],a["cursor"]),"DUPLICATE_HOLD")
         self.assertEqual(reconcile_uncertain_attempt(expected,
