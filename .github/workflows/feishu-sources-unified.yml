@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/latest_source_sync.py'
+      - 'automation/ops/css_feishu_post_sync_verify.py'
+      - 'automation/ops/test_css_feishu_post_sync_verify.py'
+      - 'automation/ops/css_authenticated_original_probes.py'
       - 'automation/feishu/test_latest_source_sync.py'
       - 'automation/feishu/project_status_sync.py'
       - 'automation/feishu/online_project_tat_forecast.py'
@@ -44,6 +47,7 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_scope.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_status_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_latest_source_sync.py' -v
+          python3 -m unittest discover -s automation/ops -p 'test_css_feishu_post_sync_verify.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_tax_invoice_forecast_reconcile.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_monthly_revenue_canonical.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_monthly_revenue_actual_sync.py' -v
@@ -77,6 +81,21 @@ jobs:
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Ingest latest five Feishu source files and source manifest
         run: python3 automation/feishu/project_status_sync.py
+      # Independent read after writer readback: confirm original Feishu still
+      # equals projected Google cells, including source sheet IDs and dates.
+      # Fails the ingest job, blocking downstream Payment and Monthly writers.
+      - name: Independently certify current Feishu-to-mirror snapshot parity
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: python3 automation/ops/css_feishu_post_sync_verify.py
+      - name: Preserve sanitized post-write evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feishu-unified-independent-post-sync
+          path: audit-results/css-feishu-post-sync.json
+          if-no-files-found: ignore
+          retention-days: 21
       - name: Derive Online TAT and invoice-deduplicated forecast
         run: python3 automation/feishu/online_project_tat_forecast.py
       - name: Verify source-stage completion
