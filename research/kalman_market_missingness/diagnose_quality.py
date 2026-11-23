@@ -140,7 +140,7 @@ def analyze(src: Path, output: Path):
             'point_in_time_training_ready':False,
             'production_writes':False,
             'source_prices_published':False,
-            'recommendation':'Exclude the 22 flagged USD/KRW bars from OHLC-dependent research until an independently verified provider confirms corrections; do not silently impute FX or FRED.'}
+            'recommendation':f'Exclude the {len(df)} observed USD/KRW anomalous dates from OHLC-dependent research until an independently verified provider confirms corrections; do not silently impute FX or FRED.'}
         (output/'quality_diagnostic_summary.json').write_text(json.dumps(summary,indent=2,ensure_ascii=False)+'\n')
         (output/'feature_eligibility.json').write_text(
             json.dumps(make_training_gate(df.date, len(fg)),indent=2,ensure_ascii=False)+'\n')
