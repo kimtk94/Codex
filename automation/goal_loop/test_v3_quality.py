@@ -184,6 +184,51 @@ class V3QualityContractTests(unittest.TestCase):
         self.assertIn("VAT EXCLUDED", msg)
         self.assertNotIn("SECRET_LOG_MUST_NOT_LEAK", msg)
 
+    def test_v3_failed_pr_feedback_is_specific_and_does_not_leak_raw_logs(self):
+        """Real Qwen PR #1025 failure patterns become compact instructions."""
+        goal = self.loaded()
+        path = goal["allowed_files"][0]
+        failed_source = (
+            "def summarize_quotes(rows):\n"
+            "    accepted = 0\n"
+            "    for row in rows:\n"
+            "        quote_id = row['quote_id'].strip()\n"
+            "        if not isinstance(row['sample_count'], int):\n"
+            "            continue\n"
+            "    return {'totals_krw': {}, 'accepted': accepted, 'rejected': 0}\n"
+        )
+        feedback = {
+            "no_change_count": 1,
+            "previous_checks": {
+                "verdict": "FAIL",
+                "checks": [{"name": "pilot-acceptance-v3",
+                            "conclusion": "failure",
+                            "untrusted_log_excerpt": "UNTRUSTED_LOG_SECRET_SENTINEL"}],
+            },
+            "failures": [{"untrusted_log_excerpt": "UNTRUSTED_LOG_SECRET_SENTINEL"}],
+        }
+        prompt = v3_compact_prompt(self.root, goal, feedback, {path: failed_source})
+        self.assertLess(len(prompt), 5000)
+        for expected in (
+            "Increment accepted", "BEFORE calling strip", "type(sample_count) is int",
+            "wrongly accepts bool", "dict(sorted(totals.items()))",
+            "edge_case_output", "no_change_count", "different and improved",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, prompt)
+        self.assertNotIn("UNTRUSTED_LOG_SECRET_SENTINEL", prompt)
+        self.assertIn('"no_change_count":1', prompt)
+        self.assertIn('"accepted":1,"rejected":3', prompt)
+
+    def test_v3_no_change_without_ci_failure_still_supplies_repair_guidance(self):
+        goal = self.loaded()
+        path = goal["allowed_files"][0]
+        prompt = v3_compact_prompt(self.root, goal, {
+            "no_change_count": 2, "previous_checks": {"verdict": "TIMEOUT"},
+        }, {path: "def summarize_quotes(rows):\n    return {}\n"})
+        self.assertIn("Increment accepted", prompt)
+        self.assertIn('"no_change_count":2', prompt)
+
     def test_v3_model_request_limited_to_4096_context_1024_generated_tokens(self):
         goal = self.loaded()
         reply = {"message": {"content": json.dumps({
