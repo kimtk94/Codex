@@ -74,7 +74,13 @@ def inspect(runs, now, max_age_hours, cooldown_hours=RETRY_COOLDOWN_HOURS):
     if latest.get("status") != "completed" or latest.get("conclusion") not in {
             "success", "failure", "cancelled", "timed_out", "action_required", "skipped"}:
         return dict(details,state="RUN_HISTORY_UNVERIFIED")
+    # The latest failed writer must not be hidden behind a previous PASS,
+    # even while that prior PASS is still within the normal cadence window.
+    if latest.get("conclusion") != "success" and age < cooldown_hours:
+        return dict(details,state="RECENT_FAILURE_HOLD")
     if success_age is not None and success_age <= max_age_hours:
+        if latest.get("conclusion") != "success":
+            return dict(details,state="LATEST_FAILURE_HOLD")
         return dict(details,state="RECENT_SCHEDULE_SUCCESS")
     if last_good is None:
         return dict(details,state="NO_SUCCESS_BASELINE_HOLD")
@@ -143,7 +149,7 @@ def main():
     try:
         token=os.environ["GITHUB_TOKEN"]
         repo=os.environ.get("GITHUB_REPOSITORY","")
-        if repo != REPO or not token:
+        if repo != REPO or not token or os.environ.get("GITHUB_REF") != "refs/heads/main":
             raise ValueError("WATCHDOG_GITHUB_SCOPE_UNAVAILABLE")
         feishu_runs=request_json(repo,FEISHU,token)
         qq_runs=request_json(repo,QQ,token)
@@ -175,7 +181,8 @@ def main():
     if result["dispatch_state"]=="EXISTING_FEISHU_WRITER_REQUESTED":
         print("::warning title=Missing Feishu schedule recovered::Requested existing guarded writer after cooldown")
     severe={"RUN_HISTORY_UNVERIFIED","NO_PRODUCTION_HISTORY_HOLD",
-            "NO_SUCCESS_BASELINE_HOLD","STALLED_RUN_HOLD"}
+            "NO_SUCCESS_BASELINE_HOLD","STALLED_RUN_HOLD",
+            "RECENT_FAILURE_HOLD","LATEST_FAILURE_HOLD","COOLDOWN_WAIT"}
     if result["feishu"]["state"] in severe or result["qq_2026"]["state"] in severe:
         return 2
     # QQ schedule stale and writer dispatch problems remain actionable P0.
