@@ -50,11 +50,39 @@ def build_candidates(css, leads, mail, today):
     return result
 
 
+def source_rows(metadata, title):
+    """Use native grid capacity, never a stale row cap, for completeness gates.
+
+    A missing/unbounded tab cannot be interpreted as a complete Lead audit.
+    Keep the 10,000 row safety limit until a separately reviewed pagination
+    design exists; do not silently truncate at a lower historical default.
+    """
+    sheets = metadata.get("sheets")
+    if not isinstance(sheets, list):
+        raise ValueError("NBA_SOURCE_GRID_METADATA_UNAVAILABLE")
+    matches = [s.get("properties") or {} for s in sheets
+               if (s.get("properties") or {}).get("title") == title]
+    if len(matches) != 1:
+        raise ValueError("NBA_SOURCE_TAB_MISSING_OR_AMBIGUOUS")
+    grid = matches[0].get("gridProperties") or {}
+    count = grid.get("rowCount")
+    if type(count) is not int or count < 1 or count > 10000:
+        raise ValueError("NBA_SOURCE_GRID_SIZE_UNVERIFIED")
+    return count
+
+
 def sync(api, dry_run=True):
     today = date.today()
-    css = fetch(api, BOOK, "BI Followup Unified", "W500")
-    leads = fetch(api, BOOK, "Lead My Sent Audit", "T650")
-    sf = fetch(api, BOOK, "SFDC Email Leads Raw", "W700")
+    metadata = api.get(
+        spreadsheetId=BOOK,
+        fields="sheets(properties(title,gridProperties(rowCount)))",
+    ).execute()
+    css = fetch(api, BOOK, "BI Followup Unified",
+                "W" + str(source_rows(metadata, "BI Followup Unified")))
+    leads = fetch(api, BOOK, "Lead My Sent Audit",
+                  "T" + str(source_rows(metadata, "Lead My Sent Audit")))
+    sf = fetch(api, BOOK, "SFDC Email Leads Raw",
+               "W" + str(source_rows(metadata, "SFDC Email Leads Raw")))
     mail = fetch(api, MAIL_BOOK, "BI Unanswered Triage", "U1200")
     # Fail closed if the personal audit is stale or does not cover the latest
     # report: avoid publishing false "never contacted" first-email tasks.
@@ -83,14 +111,16 @@ def sync(api, dry_run=True):
     # Protect durable decisions: NEVER requeue a checked or explicitly
     # excluded record on the next pool refresh.
     checkbox_matrix = api.values().get(spreadsheetId=BOOK,
-        range="'NBA Decision Checkboxes'!A1:C4000",
+        range="'NBA Decision Checkboxes'!A1:C" +
+              str(source_rows(metadata, "NBA Decision Checkboxes")),
         valueRenderOption="UNFORMATTED_VALUE").execute().get("values", [])
     if not checkbox_matrix or checkbox_matrix[0][:2] != ["Source","Record ID"]:
         raise ValueError("Persistent decision checkbox ledger unavailable")
     completed = {(str(x[0]).strip().upper(),str(x[1]).strip().upper())
                  for x in checkbox_matrix[1:] if len(x)>2 and
                  str(x[2]).strip().upper() in {"TRUE","1","DONE","YES"}}
-    decision_rows = fetch(api, BOOK, "Lead Decision Ledger", "G700")
+    decision_rows = fetch(api, BOOK, "Lead Decision Ledger",
+                          "G" + str(source_rows(metadata, "Lead Decision Ledger")))
     blocked = {"DONE","CLOSED","EXCLUDED","SKIP","RESOLVED"}
     excluded = {("LEAD",str(x.get("Lead ID","")).strip().upper())
                 for x in decision_rows
@@ -102,13 +132,12 @@ def sync(api, dry_run=True):
                  == "SENT_AFTER_LEAD_CONFIRMED"}
     leaks = [r[4] for r in rows if r[3] == "LEAD" and str(r[4]).upper() in contacted]
     if leaks:
-        raise ValueError("Confirmed-sent Leads leaked into NBA candidates: " + ",".join(leaks[:10]))
+        # Public CI logs must not reveal private SFDC Lead identifiers.
+        raise ValueError("CONFIRMED_SENT_LEAD_REENTRY_BLOCKED_COUNT_" + str(len(leaks)))
     # Re-rank after excluded/checked records have been removed.
     for index, item in enumerate(rows, 1):
         item[0] = index
-    metadata = api.get(spreadsheetId=BOOK, fields="sheets(properties(title,gridProperties(rowCount)))").execute()
-    grid = next((x["properties"]["gridProperties"]["rowCount"] for x in metadata["sheets"]
-                 if x["properties"]["title"] == "NBA Action Pool"), 0)
+    grid = source_rows(metadata, "NBA Action Pool")
     if not rows or len(rows) + 1 > grid:
         raise ValueError(f"Unsafe candidate count={len(rows)} exceeds pool capacity={grid}")
     if dry_run:

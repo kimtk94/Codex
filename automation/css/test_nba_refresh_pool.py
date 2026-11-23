@@ -48,10 +48,26 @@ class PoolRefreshTests(unittest.TestCase):
         record=next(r for r in rows if r[4]=="Lead-2")
         self.assertEqual(record[11],"SENT_BEFORE_LEAD_ONLY")
 
+    def test_one_year_lead_rule_excludes_old_outreach_not_original_audit(self):
+        leads=personal_leads()
+        # 2025-10-25 is 366 days old at test date; 2025-10-26 is 365.
+        leads[1]["Created Date"]="2025-10-25"
+        leads[2]["Created Date"]="2025-10-26"
+        rows=build_candidates([],leads,[],self.TODAY)
+        self.assertEqual({r[4] for r in rows},{"Lead-2"})
+        # Keep source provenance intact: no deletion of historical audit IDs.
+        self.assertEqual(len(leads),450)
+
+    def test_missing_lead_age_is_not_automatically_eligible(self):
+        leads=personal_leads()
+        leads[1]["Created Date"]=""
+        with self.assertRaisesRegex(ValueError,"created date unavailable"):
+            build_candidates([],leads,[],self.TODAY)
+
     def test_guard_exists_for_sent_lead_reentry(self):
         from pathlib import Path
         source = Path("nba_refresh_pool.py").read_text(encoding="utf-8")
-        self.assertIn("Confirmed-sent Leads leaked into NBA candidates",source)
+        self.assertIn("CONFIRMED_SENT_LEAD_REENTRY_BLOCKED_COUNT_",source)
 
     def test_empty_source_fails_closed(self):
         with self.assertRaisesRegex(ValueError,"incomplete"):

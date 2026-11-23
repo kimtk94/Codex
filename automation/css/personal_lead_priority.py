@@ -46,13 +46,20 @@ def personal_lead_rows(records,today):
             continue
         if clean(r.get("Lead Status")).upper() in CLOSED or clean(r.get("Opportunity ID")):
             continue
-        email=clean(r.get("Email")).lower()
         when=created_date(r.get("Created Date"))
-        if not email or "@" not in email or not when:
-            raise ValueError("Personal Lead missing email or created date "+rid)
+        if not when:
+            # Unknown age is not proof of eligibility for the 365d policy.
+            raise ValueError("Personal Lead created date unavailable")
+        age=max(0,(today-when).days)
+        # One-year rule applies to outreach *candidates*, not original audit
+        # records. Keep all historical IDs for reconciliation and provenance.
+        if age>365:
+            continue
+        email=clean(r.get("Email")).lower()
+        if not email or "@" not in email:
+            raise ValueError("Personal Lead email unavailable")
         description=clean(r.get("Description"))
         has_desc=clean(r.get("Description Class")).upper()=="PRESENT" and len(description)>4
-        age=max(0,(today-when).days)
         if age<=7: score=85 if has_desc else 62
         elif age<=30: score=76 if has_desc else 57
         elif age<=90: score=56 if has_desc else 34

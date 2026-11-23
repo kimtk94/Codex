@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'automation/css/nba_refresh_pool.py'
+      - 'automation/css/personal_lead_priority.py'
       - 'automation/css/test_nba_refresh_pool.py'
       - 'automation/css/test_nba_refresh_pool_safety.py'
       - '.github/workflows/nba-pool-validation.yml'
