@@ -15,6 +15,11 @@ on:
         default: false
   schedule:
     - cron: '40 2,5,8,11,14,17,20,23 * * *' # 11:40,14:40,...,08:40 KST
+  # Independent fallback trigger: the mirror-only source audit runs on its
+  # own four-times-daily schedule. Ignore push and PR-based audit completions.
+  workflow_run:
+    workflows: ['CSS Live Freshness Evidence (Mirror vs Original Gate)']
+    types: [completed]
 permissions:
   contents: read
 concurrency:
@@ -38,7 +43,7 @@ jobs:
 
   monitor:
     needs: tests
-    if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
+    if: ${{ needs.tests.result == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == 'kimtk94/Codex' && github.event.workflow_run.conclusion == 'success')) }}
     permissions:
       contents: read
       actions: write
@@ -46,7 +51,7 @@ jobs:
     timeout-minutes: 8
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      CSS_WATCHDOG_AUTO_DISPATCH: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply_stale_writer == true)) && 'true' || 'false' }}
+      CSS_WATCHDOG_AUTO_DISPATCH: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.apply_stale_writer == true)) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
