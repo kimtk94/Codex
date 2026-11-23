@@ -131,14 +131,14 @@ def status_code(exc):
         return "HTTP_"+str(exc.code)
     if isinstance(exc,URLError):
         return "TRANSPORT_ERROR"
-    if isinstance(exc,ValueError):
-        s=str(exc)
-        if s.startswith("INVESCO_") and s.replace("_","").isalnum() and len(s)<80:
-            return s
     if isinstance(exc,json.JSONDecodeError):
         return "INVALID_JSON"
     if isinstance(exc,UnicodeDecodeError):
         return "INVALID_UTF8"
+    if isinstance(exc,ValueError):
+        s=str(exc)
+        if s.startswith("INVESCO_") and s.replace("_","").isalnum() and len(s)<80:
+            return s
     return "UNCLASSIFIED_ERROR"
 
 
