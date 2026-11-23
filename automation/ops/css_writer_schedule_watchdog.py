@@ -113,17 +113,34 @@ def request_json(repo, workflow, token):
         raise ValueError("WATCHDOG_REPO_NOT_ALLOWLISTED")
     if workflow not in (FEISHU, QQ):
         raise ValueError("WATCHDOG_WORKFLOW_NOT_ALLOWLISTED")
-    url = ("https://api.github.com/repos/" + repo + "/actions/workflows/" +
-           urllib.parse.quote(workflow, safe="") + "/runs?branch=main&per_page=40")
-    req = urllib.request.Request(url,headers={
-        "Authorization": "Bearer " + token,
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req,timeout=20) as response:
-        payload = json.load(response)
-    if not isinstance(payload,dict) or not isinstance(payload.get("workflow_runs"),list):
-        raise RuntimeError("WORKFLOW_RUN_HISTORY_INCOMPLETE")
-    return payload["workflow_runs"]
+    # Separately query each production event: a busy repository with dozens
+    # of PR test runs must not evict the older scheduled success baseline from
+    # the first API page and thereby permanently disable safe recovery.
+    base = ("https://api.github.com/repos/" + repo + "/actions/workflows/" +
+            urllib.parse.quote(workflow, safe="") + "/runs")
+    merged = {}
+    for event in ("schedule", "workflow_dispatch"):
+        query = urllib.parse.urlencode({"branch": "main", "event": event, "per_page": 40})
+        req = urllib.request.Request(base + "?" + query, headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"})
+        with urllib.request.urlopen(req, timeout=20) as response:
+            payload = json.load(response)
+        if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
+            raise RuntimeError("WORKFLOW_RUN_HISTORY_INCOMPLETE")
+        # API search parameters must actually be reflected by returned events.
+        for item in payload["workflow_runs"]:
+            if (not isinstance(item, dict) or item.get("event") != event
+                    or item.get("head_branch") != "main"):
+                raise RuntimeError("WORKFLOW_RUN_HISTORY_SCOPE_INVALID")
+            run_id = item.get("id")
+            if type(run_id) is not int or run_id <= 0:
+                raise RuntimeError("WORKFLOW_RUN_ID_INVALID")
+            if run_id in merged:
+                raise RuntimeError("WORKFLOW_RUN_DUPLICATE_ID")
+            merged[run_id] = item
+    return list(merged.values())
 
 
 def applied_dispatch_job_ids(repo, token, runs, now,

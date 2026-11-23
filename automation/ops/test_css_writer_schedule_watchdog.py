@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from css_writer_schedule_watchdog import (
-    inspect, reconcile, applied_dispatch_job_ids, FEISHU, QQ, REPO,
+    inspect, reconcile, request_json, applied_dispatch_job_ids, FEISHU, QQ, REPO,
 )
 
 NOW=dt.datetime(2026,11,23,12,0,tzinfo=dt.timezone.utc)
@@ -21,6 +21,48 @@ def run(hours, status="completed", result="success", event="schedule",
 
 
 class RecurringWatchdogTests(unittest.TestCase):
+    def test_history_queries_exclude_pr_noise_even_under_high_test_volume(self):
+        scheduled=dict(run(10),id=600)
+        manually_applied=dict(run(2,event="workflow_dispatch"),id=601)
+        captured=[]
+        def fake_urlopen(request,timeout):
+            url=request.full_url
+            captured.append(url)
+            if "event=schedule" in url:
+                body={"workflow_runs":[scheduled]}
+            elif "event=workflow_dispatch" in url:
+                body={"workflow_runs":[manually_applied]}
+            else:
+                raise AssertionError("UNSCOPED_HISTORY_REQUEST")
+            return io.BytesIO(json.dumps(body).encode())
+        with patch("css_writer_schedule_watchdog.urllib.request.urlopen",
+                   side_effect=fake_urlopen):
+            result=request_json(REPO,FEISHU,"PRIVATE_TOKEN")
+        self.assertEqual({x["id"] for x in result},{600,601})
+        self.assertEqual(len(captured),2)
+        self.assertTrue(all("branch=main" in url for url in captured))
+        self.assertTrue(all("per_page=40" in url for url in captured))
+
+    def test_history_api_wrong_event_fails_closed(self):
+        scheduled=dict(run(10,event="pull_request"),id=620)
+        with patch("css_writer_schedule_watchdog.urllib.request.urlopen",
+                   return_value=io.BytesIO(json.dumps(
+                       {"workflow_runs":[scheduled]}).encode())):
+            with self.assertRaisesRegex(RuntimeError,"WORKFLOW_RUN_HISTORY_SCOPE_INVALID"):
+                request_json(REPO,FEISHU,"PRIVATE_TOKEN")
+
+    def test_health_publisher_fallback_cannot_create_workflow_run_cycle(self):
+        import pathlib
+        root=pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
+        watchdog=(root/"css-recurring-sources-watchdog.yml").read_text(encoding="utf-8")
+        publisher=(root/"css-central-workflow-health.yml").read_text(encoding="utf-8")
+        self.assertIn("- 'CSS Central Workflow Health Publisher'",watchdog)
+        self.assertIn("github.event.workflow_run.event == 'schedule'",watchdog)
+        self.assertIn("- 'Feishu Sources Payment Online Monthly Unified'",publisher)
+        # Do not subscribe central publisher to watchdog completion:
+        # that would cause self-sustaining workflow_run/test-only chains.
+        self.assertNotIn("'CSS Recurring Source Writer Watchdog (Safe Recovery)'",publisher)
+
     def test_recent_success_no_new_write(self):
         state=inspect([run(2),run(5)],NOW,6)
         self.assertEqual(state["state"],"RECENT_SCHEDULE_SUCCESS")

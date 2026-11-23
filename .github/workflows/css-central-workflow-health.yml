@@ -30,6 +30,7 @@ on:
       - 'CSS Operational Acceptance Evidence'
       - 'Sales Payment Reconciliation QC'
       - 'Feishu Payment Table Audit'
+      - 'Feishu Sources Payment Online Monthly Unified'
     types: [completed]
 
 permissions:

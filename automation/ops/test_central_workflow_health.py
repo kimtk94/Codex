@@ -1,11 +1,15 @@
 """Offline safety tests for central workflow status publishing."""
 import datetime as dt
+import os
 import pathlib
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0,str(pathlib.Path(__file__).parent))
-from publish_central_workflow_health import evaluate_runs,make_rows,bi_job_result,WORKFLOWS,UTC
+from publish_central_workflow_health import (evaluate_runs, make_rows, bi_job_result,
+                                             feishu_writer_job_result, watchdog_monitor_job_result,
+                                             github_fetch, WORKFLOWS, UTC)
 
 NOW=dt.datetime(2026,10,30,0,0,tzinfo=UTC)
 
@@ -16,6 +20,56 @@ def run(id=1,conclusion="success",updated="2026-10-29T23:00:00Z",
             "event":"schedule"}
 
 class PublisherTests(unittest.TestCase):
+    def test_active_health_fetch_is_scoped_to_schedule_and_dispatch(self):
+        calls=[]
+        class Response:
+            def __init__(self, payload):self.payload=payload
+            def raise_for_status(self):pass
+            def json(self):return {"workflow_runs":self.payload}
+
+        def fake_get(url,headers,params,timeout):
+            calls.append(dict(params))
+            e=params.get("event")
+            self.assertIn(e,("schedule","workflow_dispatch"))
+            r=dict(run(id=200+len(calls)),event=e)
+            return Response([r])
+
+        with patch.dict(os.environ,{"GITHUB_TOKEN":"MOCK_TOKEN"}):
+            with patch("publish_central_workflow_health.requests.get",
+                       side_effect=fake_get):
+                result=github_fetch("feishu-sources-unified.yml")
+        self.assertEqual(len(result),2)
+        self.assertEqual({r["event"] for r in result},
+                         {"schedule","workflow_dispatch"})
+        self.assertTrue(all(x["branch"]=="main" and x["per_page"]==40 for x in calls))
+
+    def test_active_health_api_scope_violation_fails_closed(self):
+        class Response:
+            def raise_for_status(self):pass
+            def json(self):return {"workflow_runs":[dict(run(id=101),event="pull_request")]}
+        with patch.dict(os.environ,{"GITHUB_TOKEN":"MOCK_TOKEN"}):
+            with patch("publish_central_workflow_health.requests.get",
+                       return_value=Response()):
+                with self.assertRaisesRegex(RuntimeError,
+                                            "GITHUB_PRODUCTION_RUN_SCOPE_INVALID"):
+                    github_fetch("feishu-sources-unified.yml")
+
+    def test_watchdog_health_fetch_covers_scheduled_and_event_driven_runs(self):
+        requested=[]
+        class Response:
+            def __init__(self, event, rid):self.event=event;self.rid=rid
+            def raise_for_status(self):pass
+            def json(self):return {"workflow_runs":[dict(run(id=self.rid),event=self.event)]}
+        def fake_get(url,headers,params,timeout):
+            requested.append(params["event"])
+            return Response(params["event"],100+len(requested))
+        with patch.dict(os.environ,{"GITHUB_TOKEN":"MOCK_TOKEN"}):
+            with patch("publish_central_workflow_health.requests.get",
+                       side_effect=fake_get):
+                result=github_fetch("css-recurring-sources-watchdog.yml")
+        self.assertEqual(len(result),3)
+        self.assertEqual(set(requested),{"schedule","workflow_dispatch","workflow_run"})
+
     def test_recent_success_means_execution_not_business_acceptance(self):
         s,at,age,event,item=evaluate_runs([run()],NOW,6)
         self.assertEqual(s,"PASS_EXECUTION_ONLY")
@@ -66,10 +120,79 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(len(refs),len(set(refs)))
         self.assertTrue(expected.issubset(set(refs)))
         rows=make_rows(lambda filename:[run(id=98765)],NOW)
-        self.assertEqual(len(rows),19)
+        self.assertEqual(len(rows),23)
+        for label in ("Feishu Unified Writer","Feishu Recovery Watchdog",
+                      "CSS Original/Mirror Audit","QQ 2026 Historical Backfill"):
+            self.assertIn(label, [r[0] for r in rows[1:]])
         self.assertTrue(all(row[2]=="PASS_EXECUTION_ONLY" for row in rows[1:]))
         policy=next(row for row in rows if row[0]=="CSS Release Policy")
         self.assertIn("not certified",policy[8].lower())
+
+    def test_watchdog_tests_only_green_is_not_monitoring(self):
+        jobs=[{"name":"tests","status":"completed","conclusion":"success"},
+              {"name":"monitor","status":"completed","conclusion":"skipped"}]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        watchdog=next(r for r in rows if r[0]=="Feishu Recovery Watchdog")
+        self.assertEqual(watchdog[2],"NO_MONITOR")
+        self.assertIn("MONITOR_SKIPPED",watchdog[8])
+
+    def test_watchdog_actual_monitor_job_success_only_certifies_execution(self):
+        jobs=[{"name":"tests","status":"completed","conclusion":"success"},
+              {"name":"monitor","status":"completed","conclusion":"success"}]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        watchdog=next(r for r in rows if r[0]=="Feishu Recovery Watchdog")
+        self.assertEqual(watchdog[2],"PASS_EXECUTION_ONLY")
+        self.assertIn("MONITOR_EXECUTED",watchdog[8])
+        self.assertIn("do not prove",watchdog[8].lower())
+
+    def test_watchdog_job_missing_or_api_unavailable_fails_closed(self):
+        self.assertEqual(watchdog_monitor_job_result([]),
+                         "MONITOR_JOB_AMBIGUOUS_OR_MISSING")
+        self.assertEqual(watchdog_monitor_job_result(None),
+                         "JOB_DETAILS_UNAVAILABLE")
+        def unavailable(rid):raise RuntimeError("SYNTHETIC_ERROR")
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=unavailable)
+        watchdog=next(r for r in rows if r[0]=="Feishu Recovery Watchdog")
+        self.assertEqual(watchdog[2],"UNVERIFIED_MONITOR_SCOPE")
+
+    def test_active_feishu_writer_ci_only_green_is_not_materialized(self):
+        jobs=[{"name":"tests","status":"completed","conclusion":"success"}]+[
+            {"name":name,"status":"completed","conclusion":"skipped"}
+            for name in ("ingest","payment","lifecycle","monthly")]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        feishu=next(r for r in rows if r[0]=="Feishu Unified Writer")
+        self.assertEqual(feishu[2],"NO_APPLY")
+        self.assertIn("CI_ONLY_NO_APPLY",feishu[8])
+
+    def test_active_feishu_writer_proved_jobs_are_execution_not_bank_payment(self):
+        jobs=[{"name":name,"status":"completed","conclusion":"success"}
+              for name in ("tests","ingest","payment","lifecycle","monthly")]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        feishu=next(r for r in rows if r[0]=="Feishu Unified Writer")
+        self.assertEqual(feishu[2],"PASS_EXECUTION_ONLY")
+        self.assertIn("ALL_FOUR_WRITER_JOBS_SUCCESS",feishu[8])
+        self.assertIn("no bank proof",feishu[8].lower())
+
+    def test_active_feishu_writer_partial_and_missing_job_api_are_not_pass(self):
+        jobs=[{"name":name,"status":"completed","conclusion":"success"}
+              for name in ("tests","ingest","payment","lifecycle")]
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=lambda rid:jobs)
+        feishu=next(r for r in rows if r[0]=="Feishu Unified Writer")
+        self.assertEqual(feishu[2],"UNVERIFIED_WRITER_SCOPE")
+        self.assertIn("INCOMPLETE_WRITER_JOB_EVIDENCE",feishu[8])
+        def unavailable(rid):raise RuntimeError("API_UNAVAILABLE")
+        rows=make_rows(lambda filename:[run(id=123)],NOW,job_fetch=unavailable)
+        feishu=next(r for r in rows if r[0]=="Feishu Unified Writer")
+        self.assertEqual(feishu[2],"UNVERIFIED_WRITER_SCOPE")
+        self.assertIn("JOB_DETAILS_UNAVAILABLE",feishu[8])
+
+    def test_active_feishu_writer_duplicate_jobs_cannot_certify_success(self):
+        jobs=[{"name":name,"status":"completed","conclusion":"success"}
+              for name in ("ingest","payment","lifecycle","monthly")]
+        self.assertEqual(feishu_writer_job_result(jobs),"ALL_FOUR_WRITER_JOBS_SUCCESS")
+        self.assertEqual(feishu_writer_job_result(jobs+[jobs[0]]),
+                         "AMBIGUOUS_JOB_DETAILS_REVIEW")
+        self.assertEqual(feishu_writer_job_result(None),"JOB_DETAILS_UNAVAILABLE")
 
     def test_bi_workflow_failure_is_not_mislabeled_as_sync_failure(self):
         jobs=[{"name":"sync","status":"completed","conclusion":"success"},
