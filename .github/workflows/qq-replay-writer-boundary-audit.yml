@@ -50,6 +50,8 @@ jobs:
           python3 -m automation.css_mail.qq_replay_git_journal_demo
       - name: Verify private journal metadata guard with synthetic cases
         run: python3 -m unittest automation.css_mail.test_qq_replay_private_store_preflight -v
+      - name: Verify read-only CSS Drive writer inventory HOLD contract
+        run: python3 -m unittest automation.css_mail.test_qq_replay_writer_access_audit -v
       - name: Audit all checked-out GitHub workflow writer routes
         run: python3 -m automation.css_mail.qq_replay_writer_exclusion_audit
 
@@ -93,3 +95,5 @@ jobs:
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Compare private review preferences to live invoice evidence (no writes)
         run: python3 -m automation.css_mail.qq_replay_private_review_readonly
+      - name: Inspect CSS source writer permissions (Drive GET, always HOLD)
+        run: python3 -m automation.css_mail.qq_replay_writer_access_audit
