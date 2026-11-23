@@ -197,6 +197,54 @@ manual Worker invocation** may resume V3 with the same checkpoint and
 existing draft PR. Stop on any security HOLD or further repeated output;
 never enable `-Loop` or auto-merge.
 
+## V3 format HOLD after 3/12 attempts — bounded recovery
+
+The actual Windows V3 Worker reported `state=HOLD`, `attempts=3/12`,
+`CI=FAIL` with `MODEL_OUTPUT_SCHEMA` after generating draft
+[PR #1025](https://github.com/kimtk94/Codex/pull/1025).
+The model PR contains two commits, latest
+`7730b819e0d792b72e0cfb850ead8b9dd045894d`; independent
+`pilot-acceptance-v3` still failed **6/8** tests. The second commit
+corrected sorted product keys but did not fix accepted-row counting,
+unvalidated `.strip()`, empty product lines, or boolean input.
+The 3rd local attempt was rejected before another PR commit. Since the
+raw local model response was not captured, the exact malformed schema
+shape is **unknown**; do not invent its key names or content.
+
+Ollama has first-party JSON Schema support in the `/api/chat`
+`format` parameter. V3 requests now constrain the envelope to
+exactly two required string fields, `path` (one allowlisted target)
+and `content` (full Python source), with no other fields. This is
+**V3 only**: successful V2 and historical V1 settings are untouched.
+All responses are still revalidated by the local fail-closed
+`apply_proposal` function, independent AST checks, changed-path
+allowlist and remote GitHub acceptance CI; JSON Schema is not a
+security boundary or behavior proof.
+
+Malformed model JSON, extra/missing envelope fields, or generation
+truncation is now treated as `MODEL_FORMAT_RETRY` within the existing
+**two-attempt invocation and 12-attempt cumulative budgets**. Each
+rejection is recorded with a fixed code, not raw model text.
+Repeated malformed outputs end in `MODEL_FORMAT_HOLD` and stop
+Windows Worker. Prior known HOLD format error is carried into the next
+prompt without deleting the existing checkpoint. Neither PR #1025
+nor its historical failure evidence is automatically edited or merged.
+
+To test only once after the controller CI passes and the
+infrastructure PR is merged:
+
+```powershell
+cd C:\Users\KimTaeHoon\Projects\Codex
+git switch main
+git pull --ff-only origin main
+python -m automation.goal_loop.controller --goal automation/goal_loop/goals/pilot-quote-v3.json --dry-run
+Remove-Item Env:GOAL_LOOP_MODEL -ErrorAction SilentlyContinue
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\automation\goal_loop\windows_worker.ps1" -Goal "automation/goal_loop/goals/pilot-quote-v3.json"
+```
+
+No `-Loop`, no local execution of AI-authored code, no automatic
+PR merge, and no real quotation/SFDC/Feishu input.
+
 ## Architecture
 
 The local **Qwen2.5 Coder 3B / 16K** instance edits an exact allowlisted source file in a **new Git worktree**, using a Markdown goal document and a versioned JSON contract. It syntax-compiles edited Python locally **without executing it**, pushes only the agent feature branch, opens a **draft pull request**, and executes independent acceptance tests only on unprivileged GitHub Actions runners. All accepted check runs must match the exact pushed commit SHA and GitHub Actions app. No direct main writes, no PR merge, no mail/CRM/trade/deploy effects.
