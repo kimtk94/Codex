@@ -15,8 +15,17 @@ def baseline():
     year2025 = ("name: QQ 2025\njobs:\n  backfill:\n"
                 "    env:\n      BACKFILL_YEAR: '2025'\n"
                 "    run: python3 " + LEGACY_WRITER)
-    scripts = {SAFE_WRITER: 'if mode == "APPLY": raise RuntimeError("GATE")',
-               LEGACY_WRITER:'def main(): pass'}
+    scripts = {SAFE_WRITER: (
+                   'def guard_2026_stage_apply(mode,year,tab):\n'
+                   '    if mode=="APPLY" and year==2026:\n'
+                   '        raise RuntimeError("QQ_2026_APPLY_HARD_HOLD_WRITER_EXCLUSION_UNVERIFIED")\n'
+                   'guard_2026_stage_apply(mode,requested_year,TAB)\n'
+                   'if mode == "APPLY": raise RuntimeError("GATE")'),
+               LEGACY_WRITER:(
+                    'def guard_legacy_2026_target(year,tab):\n'
+                    '    raise RuntimeError("QQ_LEGACY_2026_APPLY_HARD_HOLD_UNVERIFIED_WRITER")\n'
+                    'guard_legacy_2026_target(requested_year,TAB)\n'
+                    'def main(): pass')}
     return {MAIN_WORKFLOW: main, "qq-2025-invoice-backfill.yml": year2025}, scripts
 
 
@@ -30,6 +39,23 @@ class WriterBoundaryTests(unittest.TestCase):
         self.assertEqual(r["atomic_cas_verified"], 0)
         self.assertEqual(r["status"], "HOLD")
         self.assertNotIn(TARGET, json.dumps(r))
+    def test_source_guard_removed_is_detected(self):
+        workflows,scripts=baseline()
+        scripts[SAFE_WRITER]=scripts[SAFE_WRITER].replace(
+            "guard_2026_stage_apply(mode,requested_year,TAB)",
+            "pass  # guard bypassed")
+        result=assess(workflows,scripts)
+        self.assertIn("2026_SOURCE_HARD_HOLD_MISSING",result["blocking_rule_codes"])
+        self.assertEqual(result["writer_exclusion_verified"],0)
+
+    def test_legacy_hard_hold_removed_is_detected(self):
+        workflows,scripts=baseline()
+        scripts[LEGACY_WRITER]=scripts[LEGACY_WRITER].replace(
+            "guard_legacy_2026_target(requested_year,TAB)","pass")
+        result=assess(workflows,scripts)
+        self.assertIn("LEGACY_2026_SOURCE_HARD_HOLD_MISSING",
+                      result["blocking_rule_codes"])
+
     def test_2026_apply_job_is_detected(self):
         workflows, scripts = baseline()
         workflows[MAIN_WORKFLOW] += (

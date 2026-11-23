@@ -43,7 +43,22 @@ def resolve_uidvalidity(im, folder):
                 return match.group(1)
     raise RuntimeError("UIDVALIDITY_UNAVAILABLE_AFTER_STATUS")
 
+def guard_legacy_2026_target(year, tab):
+    """Reject any 2026 run or target from this always-writing legacy client.
+
+    Historical 2025 paths remain valid. A wrong year or tab is never a way
+    to enable 2026 stage writes, including the early canonical seeding path.
+    """
+    if year==2026 or tab=="QQ 2026 Invoice Backfill":
+        raise RuntimeError("QQ_LEGACY_2026_APPLY_HARD_HOLD_UNVERIFIED_WRITER")
+
+
 def main():
+    try:
+        requested_year=int(os.getenv("BACKFILL_YEAR","2025"))
+    except ValueError:
+        raise RuntimeError("BACKFILL_YEAR_INVALID") from None
+    guard_legacy_2026_target(requested_year,TAB)
     cred=service_account.Credentials.from_service_account_info(json.loads(os.environ["CKD_DRIVE_SA_JSON"]),scopes=["https://www.googleapis.com/auth/spreadsheets"])
     s=AuthorizedSession(cred)
     meta=call(s,"GET","?fields=sheets.properties.title")
@@ -53,7 +68,7 @@ def main():
     old=call(s,"GET","/values/"+quote("A1:K10000")).get("values",[])
     if old and old[0]!=HEAD:raise RuntimeError("BACKFILL_HEADER_MISMATCH")
     by_invoice={str(row[0]):row for row in old[1:] if row and row[0]}
-    year=int(os.getenv("BACKFILL_YEAR","2025"))
+    year=requested_year
     # Checkpoint per year, folder, and UIDVALIDITY to avoid repeated capped scans.
     tabs={x["properties"]["title"] for x in meta["sheets"]}
     for tab in (CURSOR_TAB,AUDIT_TAB):

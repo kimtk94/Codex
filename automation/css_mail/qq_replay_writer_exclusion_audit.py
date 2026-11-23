@@ -66,6 +66,16 @@ def assess(workflows, scripts):
         if APPLY_MODE.search(content) and SAFE_WRITER in content:
             unsafe += 1
             reasons.add("SECONDARY_APPLY_ROUTE")
+    # Assert source-level 2026 hard HOLD exists, not just a PREVIEW setting
+    # in GitHub Actions. This is a conservative static code check.
+    if ("def guard_2026_stage_apply(" not in scripts[SAFE_WRITER]
+            or "guard_2026_stage_apply(mode,requested_year,TAB)" not in scripts[SAFE_WRITER]
+            or "QQ_2026_APPLY_HARD_HOLD_WRITER_EXCLUSION_UNVERIFIED" not in scripts[SAFE_WRITER]):
+        reasons.add("2026_SOURCE_HARD_HOLD_MISSING")
+    if ("def guard_legacy_2026_target(" not in scripts[LEGACY_WRITER]
+            or "guard_legacy_2026_target(requested_year,TAB)" not in scripts[LEGACY_WRITER]
+            or "QQ_LEGACY_2026_APPLY_HARD_HOLD_UNVERIFIED_WRITER" not in scripts[LEGACY_WRITER]):
+        reasons.add("LEGACY_2026_SOURCE_HARD_HOLD_MISSING")
     if not re.search(r"mode\s*==\s*['\x22]APPLY['\x22]",
                      scripts[SAFE_WRITER]):
         # Cannot assume writer behavior is unchanged; this audit is for the
