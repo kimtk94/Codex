@@ -102,7 +102,7 @@ class LiveDryRunTests(unittest.TestCase):
 
     def test_more_than_one_thousand_leads_are_all_read_without_truncation(self):
         vals=sources()
-        stamp=datetime.now(timezone.utc).isoformat(timespec="seconds")
+        stamp=vals["Lead My Sent Audit"][1][-1]
         for i in range(450,1053):
             vals["Lead My Sent Audit"].append(
                 [f"Lead-{i}","2026-11-20",f"lead{i}@example.com",
