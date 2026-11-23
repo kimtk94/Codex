@@ -236,7 +236,9 @@ class ProofTests(unittest.TestCase):
         cases = [
             (b'1 (INTERNALDATE NIL)', "DATE_NIL"),
             (b'1 (INTERNALDATE 22-Nov-2026 10:00:00 +0900)', "DATE_UNQUOTED"),
-            (b'1 (INTERNALDATE "2-Nov-2026 10:00:00 +0900")', "DATE_SINGLE_DIGIT_DAY"),
+            (b'1 (INTERNALDATE "2-Nov-2026 10:00:00 +0900")', "VALID_ARRIVAL_DATE"),
+            (b'1 (INTERNALDATE " 2-Nov-2026 10:00:00 +0900")', "VALID_ARRIVAL_DATE"),
+            (b'1 (INTERNALDATE "2-Foo-2026 10:00:00 +0900")', "DATE_INVALID"),
             (b'1 (INTERNALDATE "22-Nov-2026 10:00:00 +09:00")', "DATE_COLON_TIMEZONE"),
             (b'1 (INTERNALDATE {12}', "DATE_IMAP_LITERAL"),
             (b'1 (INTERNALDATE BADDATE)', "DATE_FORMAT_OTHER"),
@@ -292,6 +294,14 @@ class ProofTests(unittest.TestCase):
             b'1 (INTERNALDATE "40-Nov-2026 10:00:00 +0900")']))
         self.assertTrue(proof.extract_date_metadata([
             b'1 (INTERNALDATE "22-Nov-2026 10:00:00 +0900")']))
+        self.assertTrue(proof.extract_date_metadata([
+            b'1 (INTERNALDATE "2-Nov-2026 10:00:00 +0900")']))
+        self.assertTrue(proof.extract_date_metadata([
+            b'1 (INTERNALDATE " 2-Nov-2026 10:00:00 +0900")']))
+        self.assertFalse(proof.extract_date_metadata([
+            b'1 (INTERNALDATE "2-Foo-2026 10:00:00 +0900")']))
+        self.assertFalse(proof.extract_date_metadata([
+            b'1 (INTERNALDATE "2-Nov-2026 10:00:00 +09:00")']))
 
     def test_caps_excessive_target_volume(self):
         cases=[ext("209126"+str(i).zfill(6),uid=str(100+i))
