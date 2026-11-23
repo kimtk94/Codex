@@ -32,6 +32,7 @@ SNAP_PREFIX = "research/stability/snapshots/"
 FIRST_SCHEDULE = "40 2 * * 2-6"
 REPLAY_SCHEDULE = "40 4 * * 2-6"
 VALID_SCHEDULE_SLOTS = ("", FIRST_SCHEDULE, REPLAY_SCHEDULE)
+VALID_EVENT_ORIGINS = ("", "push", "schedule", "workflow_dispatch")
 
 
 def require(condition, message):
@@ -83,8 +84,15 @@ def validate_prior(blob, core):
         }
 
 
-def decide(core, prior, session, *, clock, schedule_slot="", current_run_id=None):
+def decide(core, prior, session, *, clock, schedule_slot="", current_run_id=None,
+           event_name=""):
     require(schedule_slot in VALID_SCHEDULE_SLOTS, "UNKNOWN_SCHEDULE_SLOT")
+    require(event_name in VALID_EVENT_ORIGINS, "UNKNOWN_GITHUB_EVENT_ORIGIN")
+    if event_name == "schedule":
+        require(schedule_slot in (FIRST_SCHEDULE, REPLAY_SCHEDULE),
+                "SCHEDULED_EVENT_WITHOUT_AN_EXACT_SLOT")
+    elif event_name:
+        require(schedule_slot == "", "NON_SCHEDULED_EVENT_FORGED_A_SLOT")
     require(len(core) == 20 and len(set(core)) == 20,
             "UNIVERSE_NOT_20_UNIQUE")
     require(isinstance(session, str) and
@@ -123,6 +131,14 @@ def decide(core, prior, session, *, clock, schedule_slot="", current_run_id=None
     if mode == "FIRST_GENUINE_SEAL_EXPECTED":
         require(session >= FIRST_ELIGIBLE and prior_snapshot is None,
                 "RETROSPECTIVE_FIRST_SEAL_NOT_ALLOWED")
+        # Daily20 research also runs automatically on PR-related main pushes.
+        # A push that happens after the NYSE close but before the scheduled
+        # 02:40 UTC first pass must NOT steal the original 60 event hashes.
+        # A *deliberate* manual dispatch retains the existing research-only
+        # recovery behavior, but does not count as the scheduled first run
+        # in the independent two-slot watchdog.
+        require(event_name != "push",
+                "MAIN_PUSH_MUST_NOT_PREEMPT_SCHEDULED_FIRST_SEAL")
     # A scheduled replay must NOT become a belated first seal if the earlier
     # GitHub scheduled job failed or never ran. This preflight executes before
     # either original forward writer; an abort means no files are published.
@@ -146,6 +162,7 @@ def decide(core, prior, session, *, clock, schedule_slot="", current_run_id=None
         "prior_session": prior["prior_manifest_session"],
         "prior_actions_run_id": prior["prior_actions_run_id"],
         "mode": mode, "scheduled_slot": schedule_slot,
+        "github_event_origin": event_name,
         "scheduled_replay_first_seal_verified": (schedule_slot == REPLAY_SCHEDULE
             and mode == "SAME_SESSION_REPLAY_EXPECTED"),
         "research_only": True,
@@ -301,6 +318,7 @@ def main():
     p.add_argument("--config", default="research/kalman_daily20/universe.json")
     p.add_argument("--qc", required=True)
     p.add_argument("--schedule-slot", default="")
+    p.add_argument("--event-name", default="")
     p.add_argument("--pre", required=True)
     p.add_argument("--bull-dir")
     p.add_argument("--bear-dir")
@@ -319,6 +337,7 @@ def main():
         report = decide(spec["core"], prior, session,
                         clock=datetime.now(timezone.utc),
                         schedule_slot=a.schedule_slot,
+                        event_name=a.event_name,
                         current_run_id=os.environ.get("GITHUB_RUN_ID"))
         report["prior_results_zip_sha256"] = digest(prior_blob)
         write_json(a.pre, report)
@@ -330,6 +349,8 @@ def main():
         pre = json.loads(Path(a.pre).read_text())
         require(pre.get("scheduled_slot") == a.schedule_slot,
                 "PREFLIGHT_POSTFLIGHT_SCHEDULE_ROLE_CHANGED")
+        require(pre.get("github_event_origin") == a.event_name,
+                "PREFLIGHT_POSTFLIGHT_EVENT_ORIGIN_CHANGED")
         require(pre.get("prior_results_zip_sha256") == digest(prior_blob)
                 and pre.get("session") == session,
                 "PREFLIGHT_PRIOR_SOURCE_OR_SESSION_CHANGED")
