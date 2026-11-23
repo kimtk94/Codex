@@ -81,6 +81,48 @@ check; hardcoded constants can still produce incorrect logic. GitHub
 Actions remains the independent acceptance authority, and the historical
 2/12 attempt count and PR #1007 remain unchanged.
 
+## V2 3B 200-second timeout — compact request recovery
+
+On 2026-11-23 the real local V2 Worker stopped with
+`LOCAL_OLLAMA_GENERATION_TIMEOUT:model=qwen25coder3b-16k:limit=200:elapsed=200`.
+The prior checkpoint remained at **2/12** attempts, and failed agent
+PR #1007 was unchanged. This does not establish whether Ollama was CPU-bound,
+memory-bound or busy with another queued model; the laptop was not connected
+for direct resource measurements.
+
+The V2-only request now uses `num_ctx=4096` (previously 16384),
+`num_predict=512` (previously uncapped), fixed concise AST-extracted
+input/output examples instead of full independent test text or CI logs,
+and model response telemetry. **The 3B HTTP timeout stays 200 seconds.**
+V1 request settings, required security checks and V2's 12-attempt cumulative
+limit are unchanged.
+
+Before retrying, manually inspect local model loading/performance in PowerShell
+so the remaining budget is not spent on a repeatedly unresponsive process:
+
+```powershell
+cd C:\Users\KimTaeHoon\Projects\Codex
+git switch main
+git pull --ff-only origin main
+ollama ps
+python -m automation.goal_loop.model_probe --model qwen25coder3b-16k --timeout 120
+```
+
+The probe does not execute AI-authored Python or consume goal attempts.
+If it times out or has poor latency, stop and investigate local RAM/CPU
+pressure instead of launching the Worker. If it responds acceptably, use
+a **single shot** with explicit V2 goal and no `-Loop`:
+
+```powershell
+Remove-Item Env:GOAL_LOOP_MODEL -ErrorAction SilentlyContinue
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\automation\goal_loop\windows_worker.ps1" -Goal "automation/goal_loop/goals/pilot-status-v2.json"
+```
+
+The Worker will print prompt size, context and generation cap,
+plus `prompt_eval_count` / `eval_count` when Ollama returns those fields.
+Only a subsequent exact-commit `pilot-acceptance-v2` PASS proves that
+model-generated code has met the independent contract.
+
 ## Architecture
 
 The local **Qwen2.5 Coder 3B / 16K** instance edits an exact allowlisted source file in a **new Git worktree**, using a Markdown goal document and a versioned JSON contract. It syntax-compiles edited Python locally **without executing it**, pushes only the agent feature branch, opens a **draft pull request**, and executes independent acceptance tests only on unprivileged GitHub Actions runners. All accepted check runs must match the exact pushed commit SHA and GitHub Actions app. No direct main writes, no PR merge, no mail/CRM/trade/deploy effects.
