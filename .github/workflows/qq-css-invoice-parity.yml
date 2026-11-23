@@ -229,7 +229,6 @@ jobs:
                    "internaldate_date_format_not_standard",
                    "internaldate_date_nil",
                    "internaldate_date_unquoted",
-                   "internaldate_date_single_digit_day",
                    "internaldate_date_colon_timezone",
                    "internaldate_date_imap_literal",
                    "internaldate_date_format_other",
@@ -242,6 +241,28 @@ jobs:
                    "scan_at","verified_at")
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a",encoding="utf-8") as output:
               output.write("### Targeted QQ prior-cursor/blank-month original proof (READ-ONLY)\n")
+              output.write("Legal single-digit IMAP arrival day is accepted as arrival metadata only. It never proves an Invoice issue month or authorizes a financial write.\n")
+              # Actionable fixed-category summary: counts only; NULL != zero.
+              # These categories overlap and must never be added as invoice totals.
+              review=(("Source-proved prior-cursor evidence (case approval required)",
+                       "replay_source_proved_hold"),
+                      ("Prior-cursor case approvals absent",
+                       "replay_protocol_approval_absent"),
+                      ("Blank issued-month records (official issue date required)",
+                       "BLANK_ISSUED_MONTH"),
+                      ("QQ/Extract UID conflicts to rebind from original",
+                       "blank_month_qq_extract_uid_conflict"),
+                      ("Post-cursor pending for subsequent ingestion",
+                       "POST_CURSOR_PENDING"),
+                      ("Valid IMAP arrival dates (NOT issue dates)",
+                       "imap_arrival_metadata_available"),
+                      ("Official issued-date evidence verified",
+                       "original_invoice_issue_date_proved"))
+              output.write("\n**Next operator actions (counts, not additive):**\\n")
+              for label,field in review:
+                  value=summary[field] if field in summary else "UNVERIFIED"
+                  output.write(f"- {label}: {value}\n")
+              output.write("\n**No canonical Invoice or cursor writes permitted by this audit.**\\n")
               for field in allowed:
                   if field in summary:output.write(f"- {field}: {summary[field]}\n")
           PY

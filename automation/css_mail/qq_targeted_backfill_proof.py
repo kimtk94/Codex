@@ -183,7 +183,7 @@ def classify_internaldate_response(status, parts):
     if "INTERNALDATE" not in payload.upper():
         return "DATE_TOKEN_ABSENT"
     match = re.search(
-        r'INTERNALDATE\s+"(\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{4})"',
+        r'INTERNALDATE\s+"( ?\d{1,2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{4})"',
         payload, re.I)
     if not match:
         # Classify only structure, never print or persist private IMAP values.
@@ -191,37 +191,26 @@ def classify_internaldate_response(status, parts):
             return "DATE_NIL"
         if re.search(r'INTERNALDATE\s+\d{1,2}-[A-Za-z]{3}-\d{4}', payload, re.I):
             return "DATE_UNQUOTED"
-        if re.search(r'INTERNALDATE\s+"\d-[A-Za-z]{3}-\d{4}', payload, re.I):
-            return "DATE_SINGLE_DIGIT_DAY"
+        # Single-digit days are valid IMAP arrival dates, not errors.
         if re.search(r'INTERNALDATE\s+"\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}', payload, re.I):
             return "DATE_COLON_TIMEZONE"
         if re.search(r'INTERNALDATE\s+\{\d+\}', payload, re.I):
             return "DATE_IMAP_LITERAL"
         return "DATE_FORMAT_OTHER"
     try:
-        dt.datetime.strptime(match.group(1), "%d-%b-%Y %H:%M:%S %z")
+        dt.datetime.strptime(match.group(1).strip(), "%d-%b-%Y %H:%M:%S %z")
         return "VALID_ARRIVAL_DATE"
     except ValueError:
         return "DATE_INVALID"
 
 
 def extract_date_metadata(parts):
-    """Mail arrival INTERNALDATE metadata only: NEVER the official issue date."""
-    pieces = [v for item in parts or []
-              for v in ((item if isinstance(item, bytes) else
-                         b" ".join(x for x in item if isinstance(x, bytes))),)
-              if v]
-    text = b" ".join(pieces).decode("ascii", "replace")
-    match = re.search(
-        r'INTERNALDATE\s+"(\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{4})"',
-        text)
-    if not match:
-        return False
-    try:
-        dt.datetime.strptime(match.group(1), "%d-%b-%Y %H:%M:%S %z")
-        return True
-    except ValueError:
-        return False
+    """Validate IMAP arrival timestamp only; never treat as Invoice issue date.
+
+    Real Exmail sends one-digit or space-padded day numbers. Reuse the same
+    strict parser as the aggregate classifier and never emit raw timestamps.
+    """
+    return classify_internaldate_response("OK", parts) == "VALID_ARRIVAL_DATE"
 
 
 def parsed_matches(value, expected):
