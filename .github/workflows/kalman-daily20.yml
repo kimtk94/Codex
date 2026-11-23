@@ -715,6 +715,37 @@ jobs:
           print("DAILY20_QLD2023_API_RESEARCH_HOLD",r["status"],
                 "failure_code",r["fetch_error_code"],"stage",r["failure_stage"],"0/26")
           PY
+      - name: Reconcile issuer API versus vendor lineage (two unresolved cases; research-only)
+        run: |
+          python research/kalman_daily20/issuer_ca_provider_reconciliation.py \
+            --gap output/daily20/research/issuer_ca_gap_audit.json \
+            --qld-dir output/daily20/research/issuer_qld2023_api \
+            --qqq-dir output/daily20/research/issuer_qqq2018_rule \
+            --out output/daily20/research/issuer_ca_provider_reconciliation.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_ca_provider_reconciliation.json").read_text())
+          assert r["version"] == "daily20-ca-vendor-lineage-reconciliation-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["source_finality_verified_assets"] == 0
+          assert r["issuer_distribution_payments_certified"] == 0
+          assert r["publisher_rows_are_directly_archived"] is False
+          assert r["issuer_api_absence_never_implies_historical_nonpayment"] is True
+          assert r["status"] == "TWO_CORPORATE_ACTION_SOURCE_DISAGREEMENTS_HOLD"
+          assert {(x["symbol"],x["ex_date"]) for x in r["cases"]} == {
+            ("QQQ","2018-06-18"), ("QLD","2023-09-20")}
+          qld=next(x for x in r["cases"] if x["symbol"] == "QLD")
+          assert qld["historical_nonpayment_proven"] is False
+          assert qld["upstream_feed_independence_certified"] is False
+          assert qld["issuer_cash_payment_certified"] is False
+          assert qld["issuer_adjustment_factor_certified"] is False
+          if "${{ github.event_name }}" != "pull_request" and qld["issuer_api_source_sha256"]:
+              assert qld["issuer_archive_grade"] == "ARCHIVED_ORIGINAL_BYTES_HASH_VERIFIED"
+          print("DAILY20_CA_VENDOR_LINEAGE_HOLD", qld["status"],
+                "issuer archive",qld["issuer_archive_grade"],"CERTIFIED 0/26")
+          PY
       - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
         run: |
           python research/kalman_daily20/listing_asof.py \
