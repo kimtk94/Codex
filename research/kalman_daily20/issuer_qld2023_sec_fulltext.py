@@ -34,15 +34,15 @@ MAX_RAW = 80_000_000
 MAX_GZIP = 32_000_000
 CHUNK = 512 * 1024
 TEXT_RULES = {
-    "fund_heading": r"\\b(?:proshares\\s+)?ultra\\s+qqq\\b",
-    "report_period": r"november\\s+30,?\\s+2023",
+    "fund_heading": r"\b(?:proshares\s+)?ultra\s+qqq\b",
+    "report_period": r"november\s+30,?\s+2023",
     "sept_exdate_iso": r"2023[-/]09[-/]20",
-    "sept_exdate_words": r"september\\s+20,?\\s+2023",
-    "candidate_original_dividend": r"(?<![0-9])0\\.176282(?![0-9])",
-    "candidate_post_split_dividend": r"(?<![0-9])0\\.088141(?![0-9])",
-    "financial_highlights": r"financial\\s+highlights",
-    "distribution_shareholders": r"distributions?\\s+to\\s+shareholders",
-    "distribution_net_investment": r"distributions?\\s+from\\s+net\\s+investment\\s+income",
+    "sept_exdate_words": r"september\s+20,?\s+2023",
+    "candidate_original_dividend": r"(?<![0-9])0\.176282(?![0-9])",
+    "candidate_post_split_dividend": r"(?<![0-9])0\.088141(?![0-9])",
+    "financial_highlights": r"financial\s+highlights",
+    "distribution_shareholders": r"distributions?\s+to\s+shareholders",
+    "distribution_net_investment": r"distributions?\s+from\s+net\s+investment\s+income",
 }
 REQUIRED_META = ("QLD_2023_09",
                  "SEC_FIXED_HISTORICAL_FILING_METADATA_VERIFIED_CASH_HOLD")
@@ -96,7 +96,8 @@ def get_full_document(archive_path):
                                 dir=archive_path.parent, delete=False) as tmp:
             temp = Path(tmp.name)
         try:
-            with gzip.open(temp,"wb",compresslevel=6,mtime=None) as out:
+            with temp.open("wb") as binary, gzip.GzipFile(
+                fileobj=binary, mode="wb", compresslevel=6, mtime=0) as out:
                 while True:
                     chunk = response.read(CHUNK)
                     if not chunk:
