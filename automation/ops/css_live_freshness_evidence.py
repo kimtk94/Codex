@@ -57,6 +57,24 @@ def _nonnegative_krw(value):
     return int(raw)
 
 
+def relative_snapshot_order(net_stamp, lifecycle_stamp):
+    """Compare explicitly dated KST mirror snapshots; not a causal diagnosis."""
+    def parse(value):
+        try:
+            return dt.datetime.strptime(value, "%Y-%m-%d %H:%M:%S KST")
+        except (TypeError, ValueError):
+            return None
+    net_at = parse(net_stamp)
+    life_at = parse(lifecycle_stamp)
+    if net_at is None or life_at is None:
+        return "UNVERIFIED_TIMESTAMPS"
+    if life_at > net_at:
+        return "LIFECYCLE_NEWER_THAN_NET"
+    if net_at > life_at:
+        return "NET_NEWER_THAN_LIFECYCLE"
+    return "SAME_TIMESTAMP"
+
+
 def month_gross_net(authority, net_table, month, lifecycle=None):
     gross_row = find_key([authority[0]] + [r for r in authority[1:]
         if cell(r, 2) == "CANONICAL_ACTUAL_GROSS"], month)
@@ -89,6 +107,9 @@ def month_gross_net(authority, net_table, month, lifecycle=None):
             "lifecycle_gross_differs_from_net": life_gross != monthly_gross,
             "net_snapshot_at": cell(monthly, 7),
             "lifecycle_snapshot_at": cell(life, 11),
+            "snapshot_order": relative_snapshot_order(cell(monthly, 7), cell(life, 11)),
+            "invoice_identity_review_required": (life_gross != monthly_gross or
+                                                life_count != actual_count),
         })
         result["snapshot_amount_parity"] = (
             parity and life_gross == gross and life_count == count)
@@ -304,6 +325,14 @@ def main():
     revenue_ok = report["snapshot_integrity"]["revenue"]["snapshot_amount_parity"]
     if not revenue_ok:
         print("::warning title=Revenue snapshot mismatch::Lifecycle/Net VAT/Authority mirror parity is not established")
+        # Count and order are evidence for triage, never permission to rewrite.
+        snapshot = report["snapshot_integrity"]["revenue"]
+        print("REVENUE_SNAPSHOT_HOLD month=" + snapshot["month"] +
+              " invoice_count_delta_lifecycle_minus_net=" +
+              str(snapshot.get("invoice_count_delta_lifecycle_minus_net")) +
+              " order=" + snapshot.get("snapshot_order", "UNVERIFIED") +
+              " source_invoice_identity_review=REQUIRED")
+
     if health["stale_green_rows"] or health["unknown_timestamp_green_rows"]:
         print("::warning title=Legacy Health stale PASS::Old PASS labels are not live certification")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -317,7 +346,13 @@ def main():
                       "Legacy stale PASS rows: **" + str(health["stale_green_rows"]) +
                       "**; unknown-date PASS rows: **" +
                       str(health["unknown_timestamp_green_rows"]) + "**.\n\n")
-            out.write("| Domain | Source | Sink | Business status |\n|---|---|---|---|\n")
+            snapshot = report["snapshot_integrity"]["revenue"]
+            out.write("Revenue count difference (Lifecycle - Net VAT): **" +
+                      str(snapshot.get("invoice_count_delta_lifecycle_minus_net")) +
+                      "**; timestamp ordering: **" +
+                      snapshot.get("snapshot_order", "UNVERIFIED") +
+                      "**. Verify original invoice IDs before any recalculation.\\n\\n")
+            out.write("| Domain | Source | Sink | Business status |\\n|---|---|---|---|\\n")
             for item in report["domains"]:
                 out.write("| " + item["name"] + " | BLOCK | BLOCK | BLOCK |\n")
             out.write("\nSee artifact `css-live-freshness-evidence` for snapshot counts/reasons.\n")
