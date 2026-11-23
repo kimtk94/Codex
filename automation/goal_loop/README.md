@@ -64,6 +64,23 @@ $env:GOAL_LOOP_MODEL = "qwen2.5-coder:7b"
 GitHub Actions remains the sole authority for AI-authored code behavior
 and `pilot-acceptance-v2`.
 
+## V2 CI failure evidence from real Ollama PR #1007
+
+The first local V2 run used **2 of 12** attempts and produced
+[draft PR #1007](https://github.com/kimtk94/Codex/pull/1007).
+At exact head `4d9cff6a6a6d74a89b4f36da5a4f8c2a907fbdc5`,
+the independent `pilot-acceptance-v2` job failed **9 subtests**:
+the model converted inputs to upper case without mapping synonyms
+(e.g. `PASSED` -> `PASSED` instead of `PASS`). The controller and
+main-write-guard checks succeeded. **Do not treat this as AI success.**
+
+The narrowed AST-only V2 preflight now rejects candidates that do not
+contain the three canonical output string literals `PASS`, `FAIL`,
+and `HOLD` in the function body. This is a **necessary, not sufficient**
+check; hardcoded constants can still produce incorrect logic. GitHub
+Actions remains the independent acceptance authority, and the historical
+2/12 attempt count and PR #1007 remain unchanged.
+
 ## Architecture
 
 The local **Qwen2.5 Coder 3B / 16K** instance edits an exact allowlisted source file in a **new Git worktree**, using a Markdown goal document and a versioned JSON contract. It syntax-compiles edited Python locally **without executing it**, pushes only the agent feature branch, opens a **draft pull request**, and executes independent acceptance tests only on unprivileged GitHub Actions runners. All accepted check runs must match the exact pushed commit SHA and GitHub Actions app. No direct main writes, no PR merge, no mail/CRM/trade/deploy effects.

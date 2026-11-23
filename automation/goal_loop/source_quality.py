@@ -51,7 +51,21 @@ def validate_v2_source(source):
                 raise SourceQualityError("V2_FORBIDDEN_DYNAMIC_EXECUTION")
     if not any(isinstance(node, ast.Return) for node in ast.walk(fn)):
         raise SourceQualityError("V2_MISSING_RETURN")
+    # The actual CI discovered a model returning the uppercased input
+    # unchanged. An identity normalizer contains no canonical PASS/FAIL
+    # output constants, and cannot satisfy V2's exact categorical contract.
+    # This is only a cheap *necessary* AST check: it does not prove behavior,
+    # replace independent tests or execute generated code.
+    output_literals = {
+        node.value for node in ast.walk(fn)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and node.value in ("PASS", "FAIL", "HOLD")
+    }
+    missing = {"PASS", "FAIL", "HOLD"} - output_literals
+    if missing:
+        raise SourceQualityError("V2_MISSING_CANONICAL_OUTPUTS:" + ",".join(sorted(missing)))
     return {"function": "normalize_status", "module_level_safe": True,
+            "canonical_outputs_present": True,
             "ast_nodes": len(list(ast.walk(tree)))}
 
 
