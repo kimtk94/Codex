@@ -243,6 +243,42 @@ class ScheduledSlotWatchdogTests(unittest.TestCase):
         self.assertIsNone(one_record('print("DAILY20_TWO_PASS_PHASE_READY")',
                                      READY_RE))
 
+    def test_real_publisher_readback_and_first_seal_log_are_both_required(self):
+        run = {"id": 810, "event": "schedule", "head_branch": "main",
+               "head_sha": MODEL, "created_at": "2026-11-24T02:41:00Z",
+               "status": "completed", "conclusion": "success"}
+        research = (
+            "2026Z DAILY20_TWO_PASS_PHASE_READY 2026-11-23 "
+            "FIRST_GENUINE_SEAL_EXPECTED slot 40 2 * * 2-6\n"
+            "2026Z DAILY20_TWO_PASS_INTEGRITY_HOLD 2026-11-23 "
+            "mode FIRST_GENUINE_SEAL_EXPECTED status "
+            "FIRST_SEAL_26_PRICE_420_FEATURE_40_MODEL_60_EVENT_ATTESTED_HOLD "
+            "changed False new 60"
+        )
+        publish = (
+            '2026Z ***"DAILY20_DRIVE_READBACK": ***'
+            '"version": "daily20-drive-readback-v1", '
+            '"status": "READBACK_VERIFIED", "session": "2026-11-23"***'
+            "\n2026Z DAILY20_FIRST_SEAL_CHECK_V1 session=2026-11-23 "
+            "status=NEW_SESSION_ORIGINAL_INPUTS_AND_EVENTS_ATTESTED_RESEARCH_HOLD "
+            "deep=1 current=YES original_run=810 snapshot_sha=" + SHA
+        )
+        jobs = [
+            {"name": name, "conclusion": "success"}
+            for name in ("contracts", "restore-drive-cache",
+                         "daily-research", "persist-google-drive")
+        ]
+        evidence = job_evidence(run, jobs, research, publish)
+        self.assertEqual(evidence["slot"], FIRST)
+        self.assertEqual(evidence["post"]["new"], "60")
+        self.assertTrue(evidence["remote_drive_readback"])
+        self.assertEqual(evidence["first_seal_readback"]["original_run"], 810)
+        self.assertEqual(judge(evidence, witness(SECOND))["status"], "PASS")
+        modified = publish.replace('"session": "2026-11-23"',
+                                   '"session": "2026-11-20"')
+        self.assertFalse(job_evidence(run, jobs, research, modified)[
+            "remote_drive_readback"])
+
     def test_dont_accept_fake_legacy_first_seal_log(self):
         run = {"id": 810, "event": "schedule", "head_branch": "main",
                "head_sha": MODEL, "created_at": "2026-11-24T02:41:00Z",
