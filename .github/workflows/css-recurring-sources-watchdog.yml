@@ -17,7 +17,6 @@ on:
     - cron: '40 2,5,8,11,14,17,20,23 * * *' # 11:40,14:40,...,08:40 KST
 permissions:
   contents: read
-  actions: write
 concurrency:
   group: css-recurring-sources-watchdog
   cancel-in-progress: false
@@ -40,6 +39,9 @@ jobs:
   monitor:
     needs: tests
     if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
