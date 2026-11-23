@@ -8,7 +8,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from css_authenticated_original_probes import (
     compare_feishu_projection, validate_mail_coverage, same_rows, manifest_index,
     latest_ingest_checkpoint, parse_internaldate, missing_arrival_buckets,
-    sanitized_gap_counts,
+    sanitized_gap_counts, summarized_feishu_drift_triage,
 )
 
 
@@ -31,6 +31,83 @@ def feishu_snapshot():
 
 
 class OriginalProbesTests(unittest.TestCase):
+    def test_feishu_drift_triage_separates_display_and_business_changes(self):
+        header = ["Invoice Number", "Outstanding Amount", "Status", "Note"]
+        original = {
+            "sheet_id": "source_v1", "source_date": "2026-11-23",
+            "row_count": 3, "schema": "HEADER_MATCHED",
+            "projected_grid": [
+                header, ["PRIVATE_A", "1,000", "Open", "Note"],
+                ["PRIVATE_B", "2,000", "Open", "Note"],
+                ["PRIVATE_C", "3,000", "Open", "Note"],
+            ],
+        }
+        mirror = [
+            header, ["PRIVATE_A", "1000", "Open", "Note"],
+            ["PRIVATE_B", "2,000", "", "Note"],
+            ["PRIVATE_C", "3,000", "Open", "Note "],
+        ]
+        metadata = {"id": "source_v1", "date": "2026-11-23",
+                    "rows": 3, "schema": "HEADER_MATCHED"}
+        result = compare_feishu_projection(original, metadata, mirror)
+        triage = summarized_feishu_drift_triage(
+            {"formats": {"Payment Outstanding": result}})
+        item = triage["Payment Outstanding"]
+        self.assertEqual(item["triage"], "CONTENT_OR_MISSING_CELL_REVIEW")
+        self.assertEqual(item["changed_cells"], 3)
+        self.assertEqual(item["presentation_only_cells"], 2)
+        self.assertEqual(item["content_or_presence_cells"], 1)
+        self.assertEqual(item["financial_field_cells"], 1)
+        self.assertEqual(item["status_field_cells"], 1)
+        self.assertNotIn("PRIVATE_A", str(triage))
+        self.assertNotIn("Invoice Number", str(triage))
+        self.assertEqual(triage["Payment Receipt"]["triage"], "UNVERIFIED")
+
+    def test_feishu_display_only_drift_still_not_certified(self):
+        sample = feishu_snapshot()
+        sample["projected_grid"][1][1] = "1,000"
+        meta = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        mirror = [["Project Number", "Invoice Amount"],
+                  ["X1", "1000"], ["X2", "2000"]]
+        triage = summarized_feishu_drift_triage({"formats": {
+            "Payment Outstanding": compare_feishu_projection(sample, meta, mirror)
+        }})["Payment Outstanding"]
+        self.assertEqual(triage["triage"], "PRESENTATION_ONLY_REVIEW")
+        self.assertEqual(triage["changed_cells"], 1)
+        self.assertEqual(triage["content_or_presence_cells"], 0)
+
+    def test_feishu_metadata_only_mismatch_and_valid_snapshot(self):
+        sample = feishu_snapshot()
+        base = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        bad = dict(base, id="stale_source_id")
+        a = summarized_feishu_drift_triage({"formats": {
+            "eTax Invoice": compare_feishu_projection(sample, bad,
+                                                      sample["projected_grid"])
+        }})["eTax Invoice"]
+        self.assertEqual(a["changed_cells"], 0)
+        self.assertEqual(a["triage"], "SOURCE_VERSION_OR_METADATA_REVIEW")
+        ok = summarized_feishu_drift_triage({"formats": {
+            "eTax Invoice": compare_feishu_projection(sample, base,
+                                                      sample["projected_grid"])
+        }})["eTax Invoice"]
+        self.assertEqual(ok["triage"], "SNAPSHOT_MATCH_ONLY")
+
+    def test_feishu_unavailable_or_inconsistent_counts_are_unknown(self):
+        partial = {"formats": {"Payment Receipt": {
+            "status": "SINK_LAG", "content_different_cell_count": 2,
+            "drift_characteristics": {"NUMERIC_DISPLAY_ONLY": 2},
+            "customer": "PRIVATE_EMAIL",
+        }}}
+        result = summarized_feishu_drift_triage(partial)
+        self.assertEqual(result["Payment Receipt"]["triage"], "UNVERIFIED")
+        self.assertIsNone(result["Payment Receipt"]["changed_cells"])
+        self.assertNotIn("PRIVATE_EMAIL", str(result))
+        missing = summarized_feishu_drift_triage({"status":"SOURCE_UNAVAILABLE"})
+        self.assertTrue(all(x["triage"]=="UNVERIFIED" for x in missing.values()))
+        self.assertTrue(all(x["changed_cells"] is None for x in missing.values()))
+
     def test_operational_gap_summary_is_aggregate_only(self):
         secret = "PRIVATE_CUSTOMER_ABC"
         mail = {

@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from css_live_freshness_evidence import observe, month_gross_net
+from css_live_freshness_evidence import observe, month_gross_net, relative_snapshot_order
 
 UTC = dt.timezone.utc
 NOW = dt.datetime(2026, 11, 9, 1, 0, tzinfo=UTC)
@@ -134,6 +134,35 @@ class LiveEvidenceTests(unittest.TestCase):
         self.assertEqual(finance["checks"][1]["reason"],
                          "CANONICAL_REVENUE_SNAPSHOT_MISMATCH")
         self.assertEqual(finance["status"], "BLOCK")
+
+    def test_revenue_snapshot_skew_shows_order_but_never_approves_write(self):
+        data = example()
+        data["BI Revenue Net VAT Monthly"][1][7] = "2026-11-23 10:00:00 KST"
+        data["BI Revenue Lifecycle Monthly"][1][11] = "2026-11-23 14:00:00 KST"
+        data["BI Revenue Lifecycle Monthly"][1][5] = "10"
+        report = observe(data, NOW, "2026-11")
+        snapshot = report["snapshot_integrity"]["revenue"]
+        self.assertFalse(snapshot["snapshot_amount_parity"])
+        self.assertEqual(snapshot["invoice_count_delta_lifecycle_minus_net"], 3)
+        self.assertEqual(snapshot["snapshot_order"], "LIFECYCLE_NEWER_THAN_NET")
+        self.assertTrue(snapshot["invoice_identity_review_required"])
+        self.assertEqual(report["blocked_domains"], 9)
+        self.assertFalse(report["source_probed_live"])
+        self.assertFalse(report["sink_readback_live"])
+
+    def test_revenue_order_requires_valid_full_kst_timestamps(self):
+        self.assertEqual(relative_snapshot_order("2026-11-23 14:00:00 KST",
+                                                 "2026-11-23 10:00:00 KST"),
+                         "NET_NEWER_THAN_LIFECYCLE")
+        self.assertEqual(relative_snapshot_order("2026-11-23 10:00:00 KST",
+                                                 "2026-11-23 10:00:00 KST"),
+                         "SAME_TIMESTAMP")
+        self.assertEqual(relative_snapshot_order("updated today",
+                                                 "2026-11-23 10:00:00 KST"),
+                         "UNVERIFIED_TIMESTAMPS")
+        self.assertEqual(relative_snapshot_order("2026-11-23 10:00:00",
+                                                 "2026-11-23 10:00:00 KST"),
+                         "UNVERIFIED_TIMESTAMPS")
 
     def test_stale_legacy_health_pass_is_not_a_live_green(self):
         report = observe(example(), NOW, "2026-11")

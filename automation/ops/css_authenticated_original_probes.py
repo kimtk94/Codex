@@ -507,6 +507,78 @@ def live_feishu(session):
         "live_base_payment_certified": False,
     }
 
+def summarized_feishu_drift_triage(feishu):
+    """Classify fixed-source drift without leaking any source headers or values.
+
+    Counts in a published audit are diagnostic only. Even presentation-only
+    mismatches remain SINK_LAG until an authenticated readback proves equality.
+    Missing evidence must never be promoted to zero differences.
+    """
+    source_names = ("Payment Outstanding", "Payment Receipt",
+                    "Prepayments", "eTax Invoice")
+    categories = ("SOURCE_FILLED_MIRROR_EMPTY", "MIRROR_FILLED_SOURCE_EMPTY",
+                  "WHITESPACE_ONLY", "UNICODE_NORMALIZATION_ONLY",
+                  "NUMERIC_DISPLAY_ONLY", "SUBSTANTIVE_NONEMPTY_CHANGE")
+    roles = ("FINANCIAL_FIELD", "DATE_TIME_FIELD", "STATUS_FIELD",
+             "NOTE_FIELD", "REFERENCE_FIELD", "OTHER_OR_UNCLASSIFIED_FIELD")
+
+    def nonnegative(value):
+        return value if type(value) is int and 0 <= value <= 100000000 else None
+
+    formats = feishu.get("formats") if isinstance(feishu, dict) else None
+    formats = formats if isinstance(formats, dict) else {}
+    result = {}
+    for name in source_names:
+        source = formats.get(name)
+        if not isinstance(source, dict):
+            result[name] = {"triage": "UNVERIFIED", "changed_cells": None,
+                            "presentation_only_cells": None,
+                            "content_or_presence_cells": None,
+                            "financial_field_cells": None,
+                            "status_field_cells": None}
+            continue
+        count = nonnegative(source.get("content_different_cell_count"))
+        shapes = source.get("drift_characteristics")
+        fields = source.get("drift_business_field_roles")
+        shape_values = ([nonnegative(shapes.get(k)) for k in categories]
+                        if isinstance(shapes, dict) else [])
+        role_values = ([nonnegative(fields.get(k)) for k in roles]
+                       if isinstance(fields, dict) else [])
+        if (count is None or len(shape_values) != len(categories)
+                or len(role_values) != len(roles)
+                or any(x is None for x in shape_values + role_values)
+                or sum(shape_values) != count or sum(role_values) != count):
+            result[name] = {"triage": "UNVERIFIED", "changed_cells": None,
+                            "presentation_only_cells": None,
+                            "content_or_presence_cells": None,
+                            "financial_field_cells": None,
+                            "status_field_cells": None}
+            continue
+
+        presentation = sum(shape_values[2:5])
+        substantive = shape_values[0] + shape_values[1] + shape_values[5]
+        state = source.get("status")
+        if state not in ("SINK_LAG", "PASS_SNAPSHOT_PROJECTION_ONLY"):
+            triage = "UNVERIFIED"
+        elif state == "PASS_SNAPSHOT_PROJECTION_ONLY":
+            triage = "SNAPSHOT_MATCH_ONLY" if count == 0 else "UNVERIFIED"
+        elif count == 0:
+            triage = "SOURCE_VERSION_OR_METADATA_REVIEW"
+        elif substantive > 0:
+            triage = "CONTENT_OR_MISSING_CELL_REVIEW"
+        else:
+            triage = "PRESENTATION_ONLY_REVIEW"
+        result[name] = {
+            "triage": triage,
+            "changed_cells": count,
+            "presentation_only_cells": presentation,
+            "content_or_presence_cells": substantive,
+            "financial_field_cells": role_values[0],
+            "status_field_cells": role_values[2],
+        }
+    return result
+
+
 def sanitized_gap_counts(mail, feishu):
     """Fixed-label aggregate diagnostics only: no customer IDs, text, or amounts.
 
@@ -526,6 +598,7 @@ def sanitized_gap_counts(mail, feishu):
             name: count((formats.get(name) or {}).get("content_different_cell_count"))
             for name in fixed_sources
         },
+        "feishu_drift_triage_by_format": summarized_feishu_drift_triage(feishu),
     }
     return result
 
@@ -604,6 +677,16 @@ def main():
                           for name, value in
                           safe_counts["feishu_changed_cells_by_format"].items()) +
                       ". None means unavailable.\n\n")
+            out.write("\nFeishu drift triage (read-only aggregate; no automatic repair):\n\n")
+            out.write("| Feishu format | Triage | Display-only cells | Substantive/presence cells | Financial columns | Status columns |\n")
+            out.write("|---|---|---:|---:|---:|---:|\n")
+            for fmt, summary in safe_counts["feishu_drift_triage_by_format"].items():
+                out.write("| " + fmt + " | " + summary["triage"] + " | " +
+                          str(summary["presentation_only_cells"]) + " | " +
+                          str(summary["content_or_presence_cells"]) + " | " +
+                          str(summary["financial_field_cells"]) + " | " +
+                          str(summary["status_field_cells"]) + " |\n")
+            out.write("\nNone denotes unverified, not zero. Even display-only drift is not a business PASS.\n\n")
             out.write("Source access failures never count as NO_NEW_DATA. See sanitized artifact.\n")
     # Reporting must succeed even if the source is unavailable; each source has
     # explicit SOURCE_UNAVAILABLE evidence and can never be promoted to PASS.
