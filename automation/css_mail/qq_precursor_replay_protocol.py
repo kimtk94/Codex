@@ -154,7 +154,8 @@ def plan_cases(cases, approvals, before, after, proofs, now):
     return result
 
 
-def reconcile_uncertain_attempt(expected, stage_rows, cursor_before, cursor_after):
+def reconcile_uncertain_attempt(expected, stage_rows, cursor_before, cursor_after,
+                                receipt_claim=None):
     """Future crash-after-append simulation. Never retry or persist here."""
     if cursor_before != cursor_after:
         return "CURSOR_CHANGED_HOLD"
@@ -168,5 +169,9 @@ def reconcile_uncertain_attempt(expected, stage_rows, cursor_before, cursor_afte
         return "ABSENT_RETRY_REQUIRES_NEW_REVIEW"
     if not verify_staged_readback(expected, matching, cursor_before, cursor_after):
         return "CONFLICT_HOLD"
-    # Evidence of a row is NOT evidence that a durable receipt exists.
+    # The row matches an expected write, but it is not proof that the save
+    # happened under an authenticated, durable, independent approval/receipt.
+    # Even a caller-controlled "VERIFIED" field must not authorize a retry.
+    if receipt_claim is not None:
+        return "CLAIMED_RECEIPT_UNAUTHENTICATED_HOLD"
     return "EXACT_ROW_PRESENT_RECEIPT_UNVERIFIED_HOLD"

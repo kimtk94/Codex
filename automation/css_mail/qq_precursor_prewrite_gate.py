@@ -5,6 +5,7 @@ This module NEVER executes a writer or grants approval. Google Sheets GET
 followed by PUT is not an atomic CAS; a stable snapshot is informational only.
 Identifiers/hashes remain in process memory, never in public artifacts.
 """
+import datetime as dt
 import hashlib
 import json
 import re
@@ -105,8 +106,21 @@ def verify_staged_readback(expected,staging_rows,cursor_before,cursor_after):
     actual=matches[0]
     keys=("invoice_number","issued_month","amount_krw","amea_project_id",
           "h_project_id","po_reference","imap_folder","imap_uid",
-          "filename","evidence")
-    # Non-authoritative mail arrival dates must never invent issue months.
+          "filename","evidence","backfill_utc")
+    # This checks the *future persisted row*, not the pre-write plan.
+    # A missing or fabricated execution timestamp must not be accepted as
+    # evidence of a durable post-save result. Only an explicitly supplied
+    # timezone-aware backfill_utc in the expected written payload qualifies.
+    ts=expected.get("backfill_utc")
+    if not isinstance(ts,str) or not ts:
+        return False
+    try:
+        parsed=dt.datetime.fromisoformat(ts.replace("Z","+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        return False
+    # Non-authoritative IMAP arrival dates cannot invent issue months.
     if expected.get("issued_month") not in (None,""):
         return False
     if any(str(actual.get(k,""))!=str(expected.get(k,"")) for k in keys):

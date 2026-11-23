@@ -36,6 +36,10 @@ jobs:
         run: python3 -m unittest automation.css_mail.test_qq_replay_plan_readonly -v
       - name: Validate case-bound stage-only request intents (no execution)
         run: python3 -m unittest automation.css_mail.test_qq_replay_stage_request_readonly -v
+      - name: Enforce complete post-save readback and untrusted receipt HOLD
+        run: |
+          python3 -m unittest automation.css_mail.test_qq_precursor_prewrite_gate -v
+          python3 -m unittest automation.css_mail.test_qq_precursor_replay_protocol -v
       - name: Exercise local-only transaction and crash reconciliation
         run: |
           python3 -m unittest automation.css_mail.test_qq_replay_transaction_rehearsal -v
