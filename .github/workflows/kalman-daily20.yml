@@ -23,7 +23,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: kalman-daily20-research
+  # GitHub Actions retains at most one running and one pending run per group.
+  # Separate PR-only numerical research from the protected main writer queue;
+  # preserve serialization of main push/dispatch and BOTH scheduled passes.
+  group: kalman-daily20-research-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'protected-main' }}
   cancel-in-progress: false
 
 jobs:
@@ -1001,6 +1004,7 @@ jobs:
           python research/kalman_daily20/next_session_two_pass_contract.py \
             --phase pre \
             --schedule-slot "${{ github.event.schedule }}" \
+            --event-name "${{ github.event_name }}" \
             --prior-zip output/daily20/cache/previous-results.zip \
             --qc output/daily20/qc.json \
             --pre output/daily20/research/two_pass/preflight.json
@@ -1013,6 +1017,9 @@ jobs:
           assert not r["live_execution"] and not r["strategy_promoted"]
           assert not r["price_certified"] and r["no_historical_reseal"]
           assert (r["expected_new_bull"],r["expected_new_bear"]) in ((0,0),(20,40))
+          assert r["github_event_origin"]=="${{ github.event_name }}"
+          if r["github_event_origin"]=="push":
+              assert r["expected_new_bull"]==r["expected_new_bear"]==0
           if r["scheduled_slot"]=="40 4 * * 2-6":
               assert r["scheduled_replay_first_seal_verified"]
               assert r["mode"]=="SAME_SESSION_REPLAY_EXPECTED"
@@ -1089,6 +1096,7 @@ jobs:
           python research/kalman_daily20/next_session_two_pass_contract.py \
             --phase post \
             --schedule-slot "${{ github.event.schedule }}" \
+            --event-name "${{ github.event_name }}" \
             --prior-zip output/daily20/cache/previous-results.zip \
             --qc output/daily20/qc.json \
             --pre output/daily20/research/two_pass/preflight.json \
