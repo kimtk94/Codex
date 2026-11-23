@@ -5,6 +5,10 @@ on:
       - '.github/workflows/nba-verified-pool-pipeline.yml'
       - 'automation/css/nba_mail_evidence_audit.py'
       - 'automation/css/test_nba_mail_evidence_audit.py'
+      - 'automation/css/nba_refresh_pool.py'
+      - 'automation/css/personal_lead_priority.py'
+      - 'automation/css/test_nba_refresh_pool.py'
+      - 'automation/css/test_nba_refresh_pool_safety.py'
   push:
     branches: [main]
     paths:
