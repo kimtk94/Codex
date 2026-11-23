@@ -117,12 +117,12 @@ jobs:
           assert decision["new_versioned_candidate_archive_created"] is False
           assert decision["daily20_first_seal_touched"] is False
           summary = (
-              "### Kalman market backfill decision: HOLD\\n"
-              f"- Same-provider candidate rows: {decision['same_provider_available_candidate_rows']}\\n"
-              f"- Adjustment-basis mismatch assets: {decision['incompatible_price_basis_asset_count']}\\n"
-              f"- Unfilled market tail observations: {decision['unfilled_market_tail_rows']}\\n"
-              f"- FRED series without PIT certification: {decision['fred_series_blocked_for_pit_training']}\\n"
-              "- Approved source replacements: **0**; no trading or first-seal changes\\n"
+              "### Kalman market backfill decision: HOLD\n"
+              f"- Same-provider candidate rows: {decision['same_provider_available_candidate_rows']}\n"
+              f"- Adjustment-basis mismatch assets: {decision['incompatible_price_basis_asset_count']}\n"
+              f"- Unfilled market tail observations: {decision['unfilled_market_tail_rows']}\n"
+              f"- FRED series without PIT certification: {decision['fred_series_blocked_for_pit_training']}\n"
+              "- Approved source replacements: **0**; no trading or first-seal changes\n"
           )
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
               fh.write(summary)
