@@ -52,6 +52,7 @@ def validate_mail_coverage(folders, staged_keys):
     original = set()
     recent_original = set()
     scan_original = set()
+    year_original = set()
     counts = {}
     for label, entry in folders.items():
         folder, validity, uids = entry["folder"], entry["uidvalidity"], entry["uids"]
@@ -62,7 +63,8 @@ def validate_mail_coverage(folders, staged_keys):
         keys = {str(folder) + "|" + str(validity) + "|" + str(uid) for uid in uids}
         if keys & original:
             raise ValueError("ORIGINAL_MAIL_UID_NAMESPACE_CONFLICT")
-        for field, collector in (("recent_uids", recent_original), ("scan_uids", scan_original)):
+        for field, collector in (("recent_uids", recent_original), ("scan_uids", scan_original),
+                                 ("year_uids", year_original)):
             members = entry.get(field)
             if not isinstance(members, list) or len(members) != len(set(members)):
                 raise ValueError("ORIGINAL_MAIL_WINDOW_EVIDENCE_MISSING")
@@ -76,10 +78,15 @@ def validate_mail_coverage(folders, staged_keys):
         counts[label] = len(uids)
     if not original:
         raise ValueError("ORIGINAL_MAILBOX_UNEXPECTED_EMPTY")
+    # Window hierarchy must be consistent. A missing/incomplete source
+    # window must not quietly become zero missing.
+    if not (recent_original <= scan_original <= year_original <= original):
+        raise ValueError("ORIGINAL_MAIL_WINDOW_HIERARCHY_INVALID")
     staged = set(staged_keys)
     missing = len(original - staged)
     recent_missing = len(recent_original - staged)
     scan_missing = len(scan_original - staged)
+    year_missing = len(year_original - staged)
     return {
         "original_mailboxes_queried": 2,
         "imap_uid_count": len(original),
@@ -95,6 +102,12 @@ def validate_mail_coverage(folders, staged_keys):
         "scan_60d_missing_uid_count": scan_missing,
         "scan_60d_state": "PASS_UID_ONLY" if scan_missing == 0 else "SINK_LAG",
         "historical_outside_60d_uid_gap": len((original - scan_original) - staged),
+        "scan_365d_uid_count": len(year_original),
+        "scan_365d_missing_uid_count": year_missing,
+        "scan_365d_state": "PASS_UID_ONLY" if year_missing == 0 else "SINK_LAG",
+        "historical_61_to_365d_uid_gap": len((year_original - scan_original) - staged),
+        "historical_outside_365d_uid_gap": len((original - year_original) - staged),
+        "window_scope": "IMAP_INTERNALDATE_DAY_GRAIN_ROLLING_365D",
         "mime_body_verified": False,
         "mailbox_history_scope": "CURRENT_IMAP_INBOX_AND_SENT_ONLY",
     }
@@ -114,6 +127,129 @@ def same_rows(source, mirror):
     return all(normalize(a) == normalize(b) for a, b in zip(source, mirror))
 
 
+def classify_projection_drift(source_grid, mirror_grid):
+    """Only fixed labels and counts. Never emit values, headers or coordinates.
+
+    This diagnostic separates purely representational differences from
+    substantively different strings. A classification does NOT certify that
+    the source is correct or explain why it changed.
+    """
+    import collections
+    import decimal
+    import unicodedata
+
+    shape_counts = collections.Counter()
+    role_counts = collections.Counter()
+    header = source_grid[0] if source_grid else []
+
+    def role(col):
+        name = clean(header[col]).casefold() if col < len(header) else ""
+        if re.search(r"amount|balance|total|outstanding|price|fee|tax|paid|currency|krw|usd|金额|金額|余额|未收|应收", name):
+            return "FINANCIAL_FIELD"
+        if re.search(r"date|time|日期|时间", name):
+            return "DATE_TIME_FIELD"
+        if re.search(r"status|stage|state|状态|进度", name):
+            return "STATUS_FIELD"
+        if re.search(r"remark|note|comment|description|备注|说明", name):
+            return "NOTE_FIELD"
+        if re.search(r"number|record.?id|invoice|contract|project|编号|单号", name):
+            return "REFERENCE_FIELD"
+        return "OTHER_OR_UNCLASSIFIED_FIELD"
+
+    def as_number(value):
+        # Do not drop meaningful text or infer that values differing by units
+        # are numerically equal. Only ASCII grouping commas are ignored.
+        normalized = unicodedata.normalize("NFKC", value).strip()
+        if not re.fullmatch(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", normalized):
+            return None
+        try:
+            return decimal.Decimal(normalized.replace(",", ""))
+        except decimal.InvalidOperation:
+            return None
+
+    for row in range(max(len(source_grid), len(mirror_grid))):
+        source = source_grid[row] if row < len(source_grid) else []
+        mirror = mirror_grid[row] if row < len(mirror_grid) else []
+        for col in range(max(len(source), len(mirror))):
+            left = clean(source[col]) if col < len(source) else ""
+            right = clean(mirror[col]) if col < len(mirror) else ""
+            if left == right:
+                continue
+            role_counts[role(col)] += 1
+            if left and not right:
+                kind = "SOURCE_FILLED_MIRROR_EMPTY"
+            elif right and not left:
+                kind = "MIRROR_FILLED_SOURCE_EMPTY"
+            elif " ".join(left.split()) == " ".join(right.split()):
+                kind = "WHITESPACE_ONLY"
+            elif unicodedata.normalize("NFKC", left) == unicodedata.normalize("NFKC", right):
+                kind = "UNICODE_NORMALIZATION_ONLY"
+            elif (as_number(left) is not None and as_number(right) is not None
+                  and as_number(left) == as_number(right)):
+                kind = "NUMERIC_DISPLAY_ONLY"
+            else:
+                kind = "SUBSTANTIVE_NONEMPTY_CHANGE"
+            shape_counts[kind] += 1
+    return {
+        "drift_characteristics": {
+            name: shape_counts[name] for name in (
+                "SOURCE_FILLED_MIRROR_EMPTY", "MIRROR_FILLED_SOURCE_EMPTY",
+                "WHITESPACE_ONLY", "UNICODE_NORMALIZATION_ONLY",
+                "NUMERIC_DISPLAY_ONLY", "SUBSTANTIVE_NONEMPTY_CHANGE")
+        },
+        "drift_business_field_roles": {
+            name: role_counts[name] for name in (
+                "FINANCIAL_FIELD", "DATE_TIME_FIELD", "STATUS_FIELD",
+                "NOTE_FIELD", "REFERENCE_FIELD", "OTHER_OR_UNCLASSIFIED_FIELD")
+        },
+    }
+
+
+def projection_drift_counts(source_grid, mirror_grid):
+    """Aggregate content differences without exposing any row/column identity.
+
+    No source data, customer values, cell positions, samples, or hashes are
+    included in the returned evidence. Empty trailing cells remain equivalent.
+    """
+    rows = max(len(source_grid), len(mirror_grid))
+    different_rows = 0
+    different_columns = set()
+    different_cells = 0
+    source_only_cells = 0
+    mirror_only_cells = 0
+    changed_nonempty_cells = 0
+    for r in range(rows):
+        original = source_grid[r] if r < len(source_grid) else []
+        copied = mirror_grid[r] if r < len(mirror_grid) else []
+        row_diff = False
+        for col in range(max(len(original), len(copied))):
+            left = clean(original[col]) if col < len(original) else ""
+            right = clean(copied[col]) if col < len(copied) else ""
+            if left == right:
+                continue
+            row_diff = True
+            different_cells += 1
+            different_columns.add(col)
+            if left and not right:
+                source_only_cells += 1
+            elif right and not left:
+                mirror_only_cells += 1
+            else:
+                changed_nonempty_cells += 1
+        if row_diff:
+            different_rows += 1
+    return {
+        "content_different_row_count": different_rows,
+        "content_different_cell_count": different_cells,
+        "content_different_column_count": len(different_columns),
+        "source_nonempty_mirror_empty_cell_count": source_only_cells,
+        "mirror_nonempty_source_empty_cell_count": mirror_only_cells,
+        "changed_nonempty_cell_count": changed_nonempty_cells,
+        "missing_mirror_row_count": max(0, len(source_grid) - len(mirror_grid)),
+        "unexpected_mirror_row_count": max(0, len(mirror_grid) - len(source_grid)),
+    }
+
+
 def compare_feishu_projection(source, mirror_meta, mirror_grid):
     """The Feishu original is independently fetched, including all projected rows."""
     identity_ok = (source.get("sheet_id") == mirror_meta.get("id") and
@@ -121,7 +257,10 @@ def compare_feishu_projection(source, mirror_meta, mirror_grid):
     count_ok = (isinstance(mirror_meta.get("rows"), int)
                 and source.get("row_count") == mirror_meta["rows"])
     schema_ok = source.get("schema") == mirror_meta.get("schema")
-    content_ok = same_rows(source.get("projected_grid") or [], mirror_grid)
+    original_grid = source.get("projected_grid") or []
+    content_ok = same_rows(original_grid, mirror_grid)
+    aggregate_drift = projection_drift_counts(original_grid, mirror_grid)
+    drift_categories = classify_projection_drift(original_grid, mirror_grid)
     parity = identity_ok and count_ok and schema_ok and content_ok
     return {
         "source_date": source.get("source_date"),
@@ -131,6 +270,8 @@ def compare_feishu_projection(source, mirror_meta, mirror_grid):
         "row_count_parity": count_ok,
         "schema_parity": schema_ok,
         "content_parity": content_ok,
+        **aggregate_drift,
+        **drift_categories,
         "status": "PASS_SNAPSHOT_PROJECTION_ONLY" if parity else "SINK_LAG",
         "invoice_issue_dates_certified": False,
         "bank_payments_certified": False,
@@ -257,7 +398,7 @@ def live_mail(session):
                 raise RuntimeError("QQ_FULL_UID_SEARCH_FAILED")
             ids = [v.decode("ascii", "strict") for v in result[0].split()]
             since = {}
-            for days, window in ((3, "recent_uids"), (60, "scan_uids")):
+            for days, window in ((3, "recent_uids"), (60, "scan_uids"), (365, "year_uids")):
                 cutoff = (dt.datetime.now(dt.timezone.utc) -
                           dt.timedelta(days=days)).strftime("%d-%b-%Y")
                 code, reply = im.uid("SEARCH", None, "SINCE", cutoff)
