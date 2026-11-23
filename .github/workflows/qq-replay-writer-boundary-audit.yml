@@ -52,6 +52,8 @@ jobs:
         run: python3 -m unittest automation.css_mail.test_qq_replay_private_store_preflight -v
       - name: Verify read-only CSS Drive writer inventory HOLD contract
         run: python3 -m unittest automation.css_mail.test_qq_replay_writer_access_audit -v
+      - name: Test private writer identity drift (synthetic only)
+        run: python3 -m unittest automation.css_mail.test_qq_replay_writer_identity_audit -v
       - name: Audit all checked-out GitHub workflow writer routes
         run: python3 -m automation.css_mail.qq_replay_writer_exclusion_audit
 
@@ -97,3 +99,5 @@ jobs:
         run: python3 -m automation.css_mail.qq_replay_private_review_readonly
       - name: Inspect CSS source writer permissions (Drive GET, always HOLD)
         run: python3 -m automation.css_mail.qq_replay_writer_access_audit
+      - name: Compare private writer identities to live CSS permissions (GET only)
+        run: python3 -m automation.css_mail.qq_replay_writer_identity_audit
