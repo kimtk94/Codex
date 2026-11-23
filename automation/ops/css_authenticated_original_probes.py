@@ -677,17 +677,17 @@ def main():
                           for name, value in
                           safe_counts["feishu_changed_cells_by_format"].items()) +
                       ". None means unavailable.\n\n")
-            out.write("\\nFeishu drift triage (read-only aggregate; no automatic repair):\\n\\n")
-            out.write("| Feishu format | Triage | Display-only cells | Substantive/presence cells | Financial columns | Status columns |\\n")
-            out.write("|---|---|---:|---:|---:|---:|\\n")
+            out.write("\nFeishu drift triage (read-only aggregate; no automatic repair):\n\n")
+            out.write("| Feishu format | Triage | Display-only cells | Substantive/presence cells | Financial columns | Status columns |\n")
+            out.write("|---|---|---:|---:|---:|---:|\n")
             for fmt, summary in safe_counts["feishu_drift_triage_by_format"].items():
                 out.write("| " + fmt + " | " + summary["triage"] + " | " +
                           str(summary["presentation_only_cells"]) + " | " +
                           str(summary["content_or_presence_cells"]) + " | " +
                           str(summary["financial_field_cells"]) + " | " +
-                          str(summary["status_field_cells"]) + " |\\n")
-            out.write("\\nNone denotes unverified, not zero. Even display-only drift is not a business PASS.\\n\\n")
-            out.write("Source access failures never count as NO_NEW_DATA. See sanitized artifact.\\n")
+                          str(summary["status_field_cells"]) + " |\n")
+            out.write("\nNone denotes unverified, not zero. Even display-only drift is not a business PASS.\n\n")
+            out.write("Source access failures never count as NO_NEW_DATA. See sanitized artifact.\n")
     # Reporting must succeed even if the source is unavailable; each source has
     # explicit SOURCE_UNAVAILABLE evidence and can never be promoted to PASS.
     return 0
