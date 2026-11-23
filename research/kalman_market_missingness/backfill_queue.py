@@ -362,7 +362,7 @@ def main():
         json.dumps(plan, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")
     (out / "backfill_decision.json").write_text(
-        json.dumps(plan["release_decision"], indent=2, ensure_ascii=False) + "\\n",
+        json.dumps(plan["release_decision"], indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")
     csv_out(out / "backfill_market_queue.csv", plan["market_queue"])
     csv_out(out / "backfill_fred_queue.csv", plan["fred_queue"])
