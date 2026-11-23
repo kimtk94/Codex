@@ -18,7 +18,9 @@ on:
   # Independent fallback trigger: the mirror-only source audit runs on its
   # own four-times-daily schedule. Ignore push and PR-based audit completions.
   workflow_run:
-    workflows: ['CSS Live Freshness Evidence (Mirror vs Original Gate)']
+    workflows:
+      - 'CSS Live Freshness Evidence (Mirror vs Original Gate)'
+      - 'CSS Central Workflow Health Publisher'
     types: [completed]
 permissions:
   contents: read
