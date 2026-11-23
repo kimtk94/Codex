@@ -95,6 +95,37 @@ class V2QualityTests(unittest.TestCase):
         self.assertTrue(result["module_level_safe"])
         self.assertEqual(result["function"], "normalize_status")
 
+    def test_real_qwen_v2_identity_proposal_is_rejected_statically(self):
+        # Exact model-output shape from PR #1007; no model code is imported.
+        qwen = (
+            "def normalize_status(value):\n"
+            '    """Return PASS/FAIL/HOLD according to the independent V2 goal."""\n'
+            '    return str(value).strip().upper() if isinstance(value, str) else "HOLD"\n'
+        )
+        with self.assertRaisesRegex(SourceQualityError, "V2_MISSING_CANONICAL_OUTPUTS"):
+            validate_v2_source(qwen)
+        goal = self.parsed_goal()
+        target = self.root / goal["allowed_files"][0]
+        before = target.read_text(encoding="utf-8")
+        with self.assertRaisesRegex(Hold, "MODEL_V2_SOURCE_QUALITY:V2_MISSING_CANONICAL_OUTPUTS"):
+            apply_proposal(self.root, goal, {"path": goal["allowed_files"][0], "content": qwen})
+        self.assertEqual(target.read_text(encoding="utf-8"), before)
+
+    def test_canonical_output_literals_are_required_but_not_sufficient(self):
+        # This shape passes only a structural check; actual behavioral
+        # correctness remains the authority of GitHub acceptance CI.
+        fake = (
+            "def normalize_status(value):\n"
+            '    return "PASS" if value == "x" else "FAIL" if value == "y" else "HOLD"\n'
+        )
+        self.assertTrue(validate_v2_source(fake)["canonical_outputs_present"])
+        for omitted in ("PASS", "FAIL", "HOLD"):
+            source = fake.replace('"' + omitted + '"', '"WRONG"')
+            with self.subTest(omitted=omitted), self.assertRaisesRegex(
+                SourceQualityError, "V2_MISSING_CANONICAL_OUTPUTS"
+            ):
+                validate_v2_source(source)
+
     def test_v1_import_time_assert_is_statically_rejected(self):
         bad = VALID_SOURCE + "\nassert normalize_status('unknown') == 'HOLD'\n"
         with self.assertRaisesRegex(SourceQualityError,
