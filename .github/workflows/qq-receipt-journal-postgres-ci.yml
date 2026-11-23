@@ -1,0 +1,53 @@
+name: QQ Receipt Journal PostgreSQL Contract (Synthetic Only)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/css_mail/sql/qq_receipt_journal_*.sql'
+      - '.github/workflows/qq-receipt-journal-postgres-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/sql/qq_receipt_journal_*.sql'
+      - '.github/workflows/qq-receipt-journal-postgres-ci.yml'
+permissions:
+  contents: read
+jobs:
+  postgres-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      pg:
+        image: postgres:17
+        env:
+          POSTGRES_DB: qq_synthetic
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic_password_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d qq_synthetic"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: qq_synthetic
+      PGPASSWORD: synthetic_password_not_a_secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL command-line client when missing
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
+      - name: Validate idempotency and irreversible HOLD schema
+        run: |
+          psql -v ON_ERROR_STOP=1 -f automation/css_mail/sql/qq_receipt_journal_001.sql
+          psql -v ON_ERROR_STOP=1 -f automation/css_mail/sql/qq_receipt_journal_synthetic_test.sql
+      - name: Confirm no synthetic records remain
+        run: |
+          psql -v ON_ERROR_STOP=1 -Atc "SELECT 'QQ_RECEIPT_JOURNAL_CI_HOLD_EMPTY=' || CASE WHEN (SELECT count(*) FROM qq_receipt_journal.claims) = 0 AND (SELECT count(*) FROM qq_receipt_journal.events) = 0 THEN 'PASS' ELSE 'FAIL' END" | grep 'QQ_RECEIPT_JOURNAL_CI_HOLD_EMPTY=PASS'
