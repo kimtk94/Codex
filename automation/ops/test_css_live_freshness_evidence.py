@@ -42,6 +42,23 @@ def example():
             ["Month", "Gross", "Net", "kUSD", "Count", "Pending", "Forecast", "Verified", "Evidence"],
             ["2026-11", "49544550", "45040500", "30", "7", "10678250", "35239470", "date", "proof"],
         ],
+        "BI Revenue Lifecycle Monthly": [
+            ["Month", "Actual Invoice KRW", "Pending Verified KRW",
+             "Forecast KRW", "Combined KRW (verified + estimate)",
+             "Invoice Count", "Open Statement Count", "Pending Amount Unknown",
+             "Forecast Projects", "Partial Billing Reviews", "Data Quality",
+             "Snapshot KST"],
+            ["2026-11", "₩49,544,550", "₩10,678,250", "₩35,239,470",
+             "₩95,462,270", "7", "0", "0", "3", "0",
+             "INVOICES_VERIFIED_FORECAST_ESTIMATE",
+             "2026-11-09 09:00:00 KST"],
+        ],
+        "Automation Health": [
+            ["Component", "Last success KST", "State", "Detail"],
+            ["Feishu", "2026-10-24 13:46:32 KST", "PASS", "old run"],
+            ["CSS Quotes", "2026-11-09 09:00:00 KST", "PASS", "recent run"],
+            ["Quote Review", "2026-11-09 09:00:00 KST", "FAILED", "ignored"],
+        ],
         "Payment Reconciliation QC": [
             ["Payment Reconciliation QC", "date", "READ_ONLY"],
             ["Metric", "Value", "Meaning"],
@@ -101,6 +118,52 @@ class LiveEvidenceTests(unittest.TestCase):
         d = observe(data, NOW, "2026-11")
         p = next(x for x in d["domains"] if x["id"] == "payment_revenue")
         self.assertEqual(p["checks"][1]["reason"], "CANONICAL_REVENUE_SNAPSHOT_MISMATCH")
+
+    def test_lifecycle_changed_since_net_snapshot_is_a_visible_hold(self):
+        data = example()
+        data["BI Revenue Lifecycle Monthly"][1][1] = "₩55,176,550"
+        data["BI Revenue Lifecycle Monthly"][1][5] = "10"
+        report = observe(data, NOW, "2026-11")
+        result = report["snapshot_integrity"]["revenue"]
+        self.assertFalse(result["snapshot_amount_parity"])
+        self.assertEqual(result["invoice_count_delta_lifecycle_minus_net"], 3)
+        self.assertTrue(result["lifecycle_gross_differs_from_net"])
+        self.assertNotIn("55176550", str(report))
+        self.assertNotIn("49544550", str(result))
+        finance = next(x for x in report["domains"] if x["id"] == "payment_revenue")
+        self.assertEqual(finance["checks"][1]["reason"],
+                         "CANONICAL_REVENUE_SNAPSHOT_MISMATCH")
+        self.assertEqual(finance["status"], "BLOCK")
+
+    def test_stale_legacy_health_pass_is_not_a_live_green(self):
+        report = observe(example(), NOW, "2026-11")
+        health = report["snapshot_integrity"]["legacy_health"]
+        self.assertEqual(health["legacy_green_rows"], 2)
+        self.assertEqual(health["stale_green_rows"], 1)
+        self.assertEqual(health["unknown_timestamp_green_rows"], 0)
+        self.assertFalse(health["legacy_green_is_current_proof"])
+        monitor = next(x for x in report["domains"] if x["id"] == "monitor")
+        self.assertEqual(monitor["checks"][0]["reason"],
+                         "LEGACY_HEALTH_GREEN_STATUS_NOT_CURRENT")
+        self.assertEqual(monitor["status"], "BLOCK")
+
+    def test_undated_legacy_pass_never_becomes_current(self):
+        data = example()
+        data["Automation Health"][2][1] = "2026-11-09 (manual audit)"
+        report = observe(data, NOW, "2026-11")
+        health = report["snapshot_integrity"]["legacy_health"]
+        self.assertEqual(health["unknown_timestamp_green_rows"], 1)
+        self.assertFalse(health["legacy_green_is_current_proof"])
+
+    def test_noninteger_money_and_missing_lifecycle_fail_closed(self):
+        data = example()
+        data["BI Revenue Lifecycle Monthly"][1][1] = "₩49,544,550.50"
+        with self.assertRaisesRegex(ValueError, "REVENUE_MIRROR_AMOUNT_INVALID"):
+            observe(data, NOW, "2026-11")
+        data = example()
+        data.pop("BI Revenue Lifecycle Monthly")
+        with self.assertRaisesRegex(ValueError, "MIRROR_TAB_MISSING_OR_TRUNCATED"):
+            observe(data, NOW, "2026-11")
 
     def test_missing_source_tab_never_becomes_zero_new_data(self):
         data = example()
