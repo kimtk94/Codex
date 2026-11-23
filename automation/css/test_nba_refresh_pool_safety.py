@@ -42,7 +42,7 @@ class FakeValues:
             def execute(self):return {"values":self.value}
         self.read_ranges.append(range)
         name=range.split("'!")[0][1:]
-        match=re.search(r"(\\d+)$", range)
+        match=re.search(r"(\d+)$", range)
         if not match:
             raise AssertionError("Missing synthetic bounded range")
         return Request(self.sources[name][:int(match.group(1))])
