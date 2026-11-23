@@ -19,6 +19,8 @@ else:
     from qq_replay_plan_readonly import PLAN_HEADER, validate_plan
     from qq_replay_stage_request_readonly import REQUEST_HEADER, REQUEST_TAB, assess_requests
 
+DEFAULT_CSS_SOURCE_SHEET_ID = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
+
 HEADER = [
     "No.", "Invoice Number", "Amount KRW", "Project ID", "H Project Number",
     "PO Reference", "Original PDF Filename", "IMAP UID", "UIDVALIDITY",
@@ -209,7 +211,7 @@ def main():
     # Credential is opt-in; an unconfigured or undiscoverable private review
     # file must remain HOLD, never authorize any stage write.
     review_id=os.getenv("QQ_REPLAY_REVIEW_SHEET_ID","").strip()
-    source_id=(os.getenv("CSS_SHEET_ID") or "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY").strip()
+    source_id=(os.getenv("CSS_SHEET_ID") or DEFAULT_CSS_SOURCE_SHEET_ID).strip()
     credential=os.getenv("CKD_DRIVE_SA_JSON","").strip()
     if not credential:
         print("QQ_PRIVATE_REVIEW_AUDIT="+json.dumps({

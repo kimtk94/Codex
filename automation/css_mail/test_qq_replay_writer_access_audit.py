@@ -7,7 +7,10 @@ from contextlib import redirect_stdout
 from unittest import mock
 
 from automation.css_mail.qq_replay_writer_access_audit import (
-    analyze_permissions, fetch_permissions, main
+    analyze_permissions, fetch_permissions, main, DEFAULT_CSS_SOURCE_SHEET_ID
+)
+from automation.css_mail.qq_replay_private_review_readonly import (
+    DEFAULT_CSS_SOURCE_SHEET_ID as REVIEW_SOURCE_SHEET_ID
 )
 
 
@@ -106,6 +109,10 @@ class DriveWriterAuditTests(unittest.TestCase):
             fetch_permissions(Session(),"B"*28)
         with self.assertRaisesRegex(ValueError, "SOURCE_FILE_ID_INVALID"):
             fetch_permissions(Session(),"bad/file")
+
+    def test_shared_source_id_is_single_existing_review_source(self):
+        self.assertEqual(DEFAULT_CSS_SOURCE_SHEET_ID,REVIEW_SOURCE_SHEET_ID)
+        self.assertRegex(DEFAULT_CSS_SOURCE_SHEET_ID,r"^[A-Za-z0-9_-]{20,128}$")
 
     def test_missing_credentials_prints_no_identifiers(self):
         sink=io.StringIO()

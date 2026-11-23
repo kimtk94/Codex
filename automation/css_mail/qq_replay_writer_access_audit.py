@@ -13,6 +13,11 @@ import json
 import os
 import re
 
+if __package__:
+    from .qq_replay_private_review_readonly import DEFAULT_CSS_SOURCE_SHEET_ID
+else:
+    from qq_replay_private_review_readonly import DEFAULT_CSS_SOURCE_SHEET_ID
+
 BASELINE = {
     "owner": 1,
     "writer": 3,
@@ -151,7 +156,9 @@ def fetch_permissions(session, file_id):
 
 
 def main():
-    source_id = (os.getenv("CSS_SHEET_ID") or "").strip()
+    # Reuse the already established source ID from the authenticated
+    # seven-invoice read-only review path. Do not add a new public identifier.
+    source_id = (os.getenv("CSS_SHEET_ID") or DEFAULT_CSS_SOURCE_SHEET_ID).strip()
     credential = (os.getenv("CKD_DRIVE_SA_JSON") or "").strip()
     if not source_id or not credential:
         result = _hold("PERMISSION_AUDIT_NOT_CONFIGURED")
