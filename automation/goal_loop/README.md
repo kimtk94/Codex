@@ -171,6 +171,32 @@ laptop, now with V3-only compact prompt, `num_ctx=4096` and capped
 background worker is started. Do not use `-Loop` until explicit
 human approval and independently passing V3 CI.
 
+## V3 attempt 2/12 — no-progress hold recovery
+
+On the first local V3 test, Qwen generated a draft
+[PR #1025](https://github.com/kimtk94/Codex/pull/1025) and the independent
+[GitHub CI run #45160642060](https://github.com/kimtk94/Codex/actions/runs/45160642060)
+failed **6 of 8 tests**. Model output counted accepted rows as zero,
+validated quote/product strings only after calling `.strip()`, accidentally
+accepted `bool` as integer, failed to reject empty product names, and
+did not alphabetically sort product keys. The second attempt produced
+no material change, so the Worker stopped safely at
+`NO_PROGRESS_HOLD`, **2/12** attempts.
+
+The V3-only prompt now includes an exact, small repair checklist derived
+from this **synthetic** goal's original contract and two synthetic examples
+that test duplicates, boolean counts, empty product names, and zero prices.
+When the preceding CI verdict is FAIL or an attempt repeats unchanged code,
+the prompt explicitly requires a new, improved implementation. Full CI logs
+remain excluded, because they are untrusted and can overload the 16GB laptop.
+Neither the independent tests nor the model code in PR #1025 is edited.
+
+The previous `NO_PROGRESS_HOLD` must not be silently cleared or rewritten.
+After this controller fix is CI-verified and merged, a **new single-shot
+manual Worker invocation** may resume V3 with the same checkpoint and
+existing draft PR. Stop on any security HOLD or further repeated output;
+never enable `-Loop` or auto-merge.
+
 ## Architecture
 
 The local **Qwen2.5 Coder 3B / 16K** instance edits an exact allowlisted source file in a **new Git worktree**, using a Markdown goal document and a versioned JSON contract. It syntax-compiles edited Python locally **without executing it**, pushes only the agent feature branch, opens a **draft pull request**, and executes independent acceptance tests only on unprivileged GitHub Actions runners. All accepted check runs must match the exact pushed commit SHA and GitHub Actions app. No direct main writes, no PR merge, no mail/CRM/trade/deploy effects.
