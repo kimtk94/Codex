@@ -25,7 +25,7 @@ from zipfile import ZipFile, BadZipFile
 
 from issuer_ca_primary_evidence import text_of_html
 
-VERSION = "daily20-qld-2023-ncsrs-fulltext-v1"
+VERSION = "daily20-qld-2023-ncsrs-fulltext-v2"
 SEC_URL = ("https://www.sec.gov/Archives/edgar/data/1174610/"
            "000200004824000003/primary-document.htm")
 ARCHIVE_NAME = "qld_2023_original_full_ncsrs.htm.gz"
@@ -133,11 +133,92 @@ def unpack_verified(archive_path, expected_digest=None):
     return raw, digest
 
 
+def qld_fund_accounting(body):
+    """Match 2023 Jun-Nov fund-specific reporting columns, not trading dates.
+
+    SEC 2023 N-CSRS is a TRUST-wide document. The QLD period column is the
+    *first* after the three fund names, followed by the prior May 2023 year.
+    Both QLD Statements of Changes and Financial Highlights must agree on a
+    dash (no distribution) for June 1 through November 30 2023.
+    A dash is evidence of what this issuer period report states, not a
+    custodial transaction audit, ex-date nullification, or price certification.
+    """
+    report = {
+        "qld_reporting_window": "2023-06-01/2023-11-30",
+        "qld_statement_changes_fund_column_pinned": False,
+        "qld_statement_2023_period_total_distributions_reported_zero": False,
+        "qld_statement_prior_fy_distributions_usd": None,
+        "qld_statement_visible_text_offset": None,
+        "qld_statement_bounded_excerpt": None,
+        "qld_financial_highlights_fund_row_pinned": False,
+        "qld_financial_highlights_2023_period_per_share_distributions_reported_zero": False,
+        "qld_financial_highlights_prior_fy_per_share_distribution_displayed_usd": None,
+        "qld_financial_highlights_visible_text_offset": None,
+        "qld_financial_highlights_bounded_excerpt": None,
+        "qld_issuer_period_zero_distributions_two_statement_agreement": False,
+        "event_specific_historical_nonpayment_certified": False,
+    }
+    period_header=re.search(
+        r"Ultra QQQ Ultra Real Estate Ultra Russell2000 "
+        r"Six Months Ended November 30, 2023", body, re.I)
+    if period_header:
+        window=body[period_header.start():period_header.start()+3400]
+        changes=re.search(
+            r"DISTRIBUTIONS TO SHAREHOLDERS FROM:\s+Distributable earnings"
+            r"\s+([—-])\s+\(\s*([0-9,]+)\s*\).*?"
+            r"Total distributions\s+([—-])\s+\(\s*([0-9,]+)\s*\)",
+            window,re.I|re.S)
+        if changes:
+            report["qld_statement_changes_fund_column_pinned"]=True
+            report["qld_statement_visible_text_offset"]=period_header.start()
+            report["qld_statement_prior_fy_distributions_usd"]=changes.group(4)
+            report["qld_statement_2023_period_total_distributions_reported_zero"]=(
+                changes.group(1) in ("—","-") and changes.group(3) in ("—","-"))
+            report["qld_statement_bounded_excerpt"]=window[
+                max(0,changes.start()-90):min(len(window),changes.end()+60)]
+    highlights=re.search(
+        r"Ultra QQQ Six Months ended November 30, 2023 "
+        r"\(Unaudited\)\s+(.*?)\s+Year ended May 31, 2023"
+        r"\s+(.*?)\s+Year ended May 31, 2022",
+        body,re.I|re.S)
+    if highlights:
+        row=highlights.group(1).replace("\u200c","")
+        prior=highlights.group(2).replace("\u200c","")
+        monetary=re.findall(r"\$\s*([—-]|\d+(?:\.\d+)?)",row)
+        prior_monetary=re.findall(r"\$?\s*(?:\(\s*)?(\d+(?:\.\d+)?)",prior)
+        if len(monetary)>=10 and monetary[0].replace(".","",1).isdigit():
+            report["qld_financial_highlights_fund_row_pinned"]=True
+            report["qld_financial_highlights_visible_text_offset"]=highlights.start()
+            report["qld_financial_highlights_2023_period_per_share_distributions_reported_zero"]=(
+                monetary[5:9] in (["—"]*4,["-"]*4))
+            report["qld_financial_highlights_bounded_excerpt"]=row[:370]
+            # Exact historic FY per-share totals require independently
+            # reconciling parentheses in the prior row. Do not infer here.
+    report["qld_issuer_period_zero_distributions_two_statement_agreement"]=(
+        report["qld_statement_changes_fund_column_pinned"]
+        and report["qld_statement_2023_period_total_distributions_reported_zero"]
+        and report["qld_financial_highlights_fund_row_pinned"]
+        and report["qld_financial_highlights_2023_period_per_share_distributions_reported_zero"])
+    return report
+
+
 def scan(raw):
     if len(raw)>MAX_RAW:
         raise ValueError("QLD_SEC_TOO_BIG_FOR_TEXT_SCAN")
-    if not raw.lstrip()[:256].lower().startswith((b"<!doctype",b"<html",b"<head",b"<?xml")):
-        raise ValueError("QLD_SEC_NOT_HTML")
+    prefix=raw.lstrip()[:256].lower()
+    plain_html=prefix.startswith((b"<!doctype",b"<html",b"<head",b"<?xml"))
+    # SEC serves some fixed 1940 Act filings with their ORIGINAL EDGAR SGML
+    # <DOCUMENT><TYPE>N-CSRS ... <TEXT><html> ... </TEXT></DOCUMENT>
+    # envelope rather than a bare HTML file. Verify the precise pinned type,
+    # filename, and closing envelope before accepting that original format.
+    edgar_sgml=(
+        prefix.startswith(b"<document>")
+        and b"<type>n-csrs" in prefix
+        and b"<filename>primary-document.htm" in prefix
+        and b"<text>" in prefix
+        and raw.rstrip().lower().endswith(b"</document>"))
+    if not (plain_html or edgar_sgml):
+        raise ValueError("QLD_SEC_NOT_HTML_OR_PINNED_EDGAR_SGML")
     body=text_of_html(raw)
     lower=body.lower()
     matches={}
@@ -159,14 +240,18 @@ def scan(raw):
     identifiable=(matches["fund_heading"]["total_unscoped_hits"]>0
                   and matches["report_period"]["total_unscoped_hits"]>0
                   and matches["financial_highlights"]["total_unscoped_hits"]>0)
+    accounting=qld_fund_accounting(body)
     return {
         "source_text_length":len(body),
+        "sec_document_envelope_format":(
+            "EDGAR_SGML_N_CSRS_TEXT_HTML" if edgar_sgml else "HTML"),
         "document_anchors_present":identifiable,
         "unscoped_full_filing_text_term_counts":matches,
         "bounded_unscoped_source_snippets":snippets,
-        "text_evidence_scope":"FULL_TRUST_REPORT_NOT_QLD_EVENT_PAYMENT_LEDGER",
+        "text_evidence_scope":"FUND_SPECIFIC_PERIOD_ACCOUNTING_NOT_EX_DATE_LEDGER",
         "september_payment_certified":False,
         "fund_specific_payment_allocation_certified":False,
+        **accounting,
     }
 
 
@@ -231,13 +316,18 @@ def collect(*, offline=False, index_report=None, out_dir=None,
         raw,digest=unpack_verified(archive,metadata["source_sha256"])
         if digest != metadata["source_sha256"]:
             raise ValueError("QLD_SEC_SOURCE_DIGEST_MISMATCH")
-        findings=scan(raw)
+        # Preserve the verified source hash and archive name even if the
+        # later HTML/SGML text scanner fails or the scope is incomplete.
         out.update(metadata)
-        out.update(findings)
         out["source_archive"]=ARCHIVE_NAME
-        out["status"]=("SEC_FULLTEXT_SCANNED_UNSCOPED_PAYMENT_HOLD"
-                       if findings["document_anchors_present"]
-                       else "SEC_FULLTEXT_ANCHORS_MISSING_HOLD")
+        findings=scan(raw)
+        out.update(findings)
+        out["status"]=(
+            "SEC_QLD_2023_PERIOD_ZERO_DISTRIBUTIONS_ACCOUNTING_HOLD"
+            if findings["qld_issuer_period_zero_distributions_two_statement_agreement"]
+            else "SEC_FULLTEXT_SCANNED_UNSCOPED_PAYMENT_HOLD"
+            if findings["document_anchors_present"]
+            else "SEC_FULLTEXT_ANCHORS_MISSING_HOLD")
     except (OSError,ValueError,URLError,HTTPError,TimeoutError,
             UnicodeDecodeError,gzip.BadGzipFile) as exc:
         out["status"]="SEC_FULLTEXT_FETCH_OR_VALIDATE_FAILED_HOLD"
