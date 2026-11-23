@@ -507,6 +507,28 @@ def live_feishu(session):
         "live_base_payment_certified": False,
     }
 
+def sanitized_gap_counts(mail, feishu):
+    """Fixed-label aggregate diagnostics only: no customer IDs, text, or amounts.
+
+    Unknown or unavailable observations remain None, never a misleading zero.
+    """
+    def count(value):
+        return value if type(value) is int and 0 <= value <= 100000000 else None
+
+    formats = feishu.get("formats") if isinstance(feishu.get("formats"), dict) else {}
+    fixed_sources = ("Payment Outstanding", "Payment Receipt",
+                     "Prepayments", "eTax Invoice")
+    result = {
+        "qq_missing_365d": count(mail.get("scan_365d_missing_uid_count")),
+        "qq_missing_61_to_365d": count(mail.get("historical_61_to_365d_uid_gap")),
+        "qq_missing_older_than_365d": count(mail.get("historical_outside_365d_uid_gap")),
+        "feishu_changed_cells_by_format": {
+            name: count((formats.get(name) or {}).get("content_different_cell_count"))
+            for name in fixed_sources
+        },
+    }
+    return result
+
 
 def main():
     now = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -537,7 +559,9 @@ def main():
     path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     mail = result["qq_mail"]
     feishu = result["feishu_sheets"]
+    safe_counts = sanitized_gap_counts(mail, feishu)
     print("CSS_ORIGINAL_SOURCE_PROBES " + json.dumps({
+        **safe_counts,
         "qq_source": mail.get("status"),
         "qq_uid_coverage": mail.get("uid_coverage_state", "UNVERIFIED"),
         "qq_uid_gap_count": mail.get("missing_uid_count"),
@@ -571,6 +595,15 @@ def main():
                       " | " + feishu.get("mirror_projection_status", "UNVERIFIED") +
                       " | Not certified: invoicing/payment |\n")
             out.write("| SFDC objects | Not checked | Not checked | Not certified: Save |\n\n")
+            out.write("QQ historical UID gap (61-365d / older than 365d): " +
+                      str(safe_counts["qq_missing_61_to_365d"]) + " / " +
+                      str(safe_counts["qq_missing_older_than_365d"]) + ". " +
+                      "None means not verified, not zero.\n\n")
+            out.write("Feishu original-to-mirror changed cells (fixed source labels only): " +
+                      ", ".join(name + "=" + str(value)
+                          for name, value in
+                          safe_counts["feishu_changed_cells_by_format"].items()) +
+                      ". None means unavailable.\n\n")
             out.write("Source access failures never count as NO_NEW_DATA. See sanitized artifact.\n")
     # Reporting must succeed even if the source is unavailable; each source has
     # explicit SOURCE_UNAVAILABLE evidence and can never be promoted to PASS.
