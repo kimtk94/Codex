@@ -8,6 +8,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from css_authenticated_original_probes import (
     compare_feishu_projection, validate_mail_coverage, same_rows, manifest_index,
     latest_ingest_checkpoint, parse_internaldate, missing_arrival_buckets,
+    sanitized_gap_counts,
 )
 
 
@@ -30,6 +31,50 @@ def feishu_snapshot():
 
 
 class OriginalProbesTests(unittest.TestCase):
+    def test_operational_gap_summary_is_aggregate_only(self):
+        secret = "PRIVATE_CUSTOMER_ABC"
+        mail = {
+            "scan_365d_missing_uid_count": 14,
+            "historical_61_to_365d_uid_gap": 7,
+            "historical_outside_365d_uid_gap": 123,
+            "customer_email": secret,
+        }
+        feishu = {
+            "formats": {
+                "Payment Outstanding": {
+                    "content_different_cell_count": 3,
+                    "source_customer": secret,
+                },
+                "eTax Invoice": {"content_different_cell_count": 0},
+                "Unknown Private Tab": {"content_different_cell_count": 999},
+            }
+        }
+        result = sanitized_gap_counts(mail, feishu)
+        self.assertEqual(result["qq_missing_365d"], 14)
+        self.assertEqual(result["qq_missing_61_to_365d"], 7)
+        self.assertEqual(result["qq_missing_older_than_365d"], 123)
+        self.assertEqual(result["feishu_changed_cells_by_format"]["Payment Outstanding"], 3)
+        self.assertIsNone(result["feishu_changed_cells_by_format"]["Payment Receipt"])
+        self.assertEqual(result["feishu_changed_cells_by_format"]["eTax Invoice"], 0)
+        self.assertNotIn(secret, str(result))
+        self.assertNotIn("Unknown Private Tab", str(result))
+
+    def test_operational_gap_summary_unknown_is_not_zero(self):
+        result = sanitized_gap_counts({"status": "SOURCE_UNAVAILABLE"},
+                                      {"status": "SOURCE_UNAVAILABLE"})
+        self.assertIsNone(result["qq_missing_365d"])
+        self.assertIsNone(result["qq_missing_61_to_365d"])
+        self.assertIsNone(result["qq_missing_older_than_365d"])
+        self.assertTrue(all(value is None for value in
+                            result["feishu_changed_cells_by_format"].values()))
+        bad = sanitized_gap_counts({"scan_365d_missing_uid_count": True,
+                                    "historical_61_to_365d_uid_gap": -1},
+                                   {"formats": {"eTax Invoice": {
+                                       "content_different_cell_count": "0"}}})
+        self.assertIsNone(bad["qq_missing_365d"])
+        self.assertIsNone(bad["qq_missing_61_to_365d"])
+        self.assertIsNone(bad["feishu_changed_cells_by_format"]["eTax Invoice"])
+
     def test_verified_original_uids_and_staging_are_covered_only(self):
         keys = ["INBOX|256|1", "INBOX|256|2", "Sent Messages|512|3", "OLD|1|99"]
         r = validate_mail_coverage(mail_folders(), keys)
