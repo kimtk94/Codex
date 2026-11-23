@@ -159,6 +159,23 @@ def feishu_writer_job_result(jobs):
     return "PARTIAL_WRITER_SCOPE_HOLD"
 
 
+def watchdog_monitor_job_result(jobs):
+    """A green tests-only watchdog run has not performed scheduled monitoring."""
+    if not isinstance(jobs,list):
+        return "JOB_DETAILS_UNAVAILABLE"
+    matches=[j for j in jobs if isinstance(j,dict) and j.get("name")=="monitor"]
+    if len(matches)!=1:
+        return "MONITOR_JOB_AMBIGUOUS_OR_MISSING"
+    job=matches[0]
+    if job.get("status")!="completed":
+        return "MONITOR_IN_PROGRESS"
+    return {"success":"MONITOR_EXECUTED",
+            "skipped":"MONITOR_SKIPPED",
+            "failure":"MONITOR_FAILED",
+            "cancelled":"MONITOR_CANCELLED"}.get(job.get("conclusion"),
+                                                   "MONITOR_UNVERIFIED")
+
+
 def make_rows(fetch, now, job_fetch=None):
     rows=[]
     seen=set()
@@ -198,6 +215,20 @@ def make_rows(fetch, now, job_fetch=None):
                         state="NO_APPLY"
                     elif proof!="ALL_FOUR_WRITER_JOBS_SUCCESS":
                         state="UNVERIFIED_WRITER_SCOPE"
+        if filename=="css-recurring-sources-watchdog.yml" and run is not None:
+            if job_fetch is None:
+                detail=boundary+"; MONITOR_JOB_SCOPE_UNVERIFIED"
+            else:
+                try:
+                    proof=watchdog_monitor_job_result(job_fetch(run["id"]))
+                except (requests.RequestException,RuntimeError,ValueError):
+                    proof="JOB_DETAILS_UNAVAILABLE"
+                detail=boundary+"; "+proof
+                if state in ("PASS_EXECUTION_ONLY","STALE"):
+                    if proof=="MONITOR_SKIPPED":
+                        state="NO_MONITOR"
+                    elif proof!="MONITOR_EXECUTED":
+                        state="UNVERIFIED_MONITOR_SCOPE"
         rows.append([label,group,state,time,str(age) if age is not None else "",
                      url,event,now.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST"),
                      detail,filename])
