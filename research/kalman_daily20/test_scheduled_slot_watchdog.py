@@ -139,7 +139,7 @@ class ScheduledSlotWatchdogTests(unittest.TestCase):
 
     def test_two_schedules_must_have_identical_code_commit(self):
         b = witness(SECOND)
-        b["head_sha"] = "b" * 40
+        b["head_sha"] = "c" * 40
         self.assertIn("CODE_SHA_CHANGED_BETWEEN_REPLAYS",
                       judge(witness(FIRST), b)["problem_codes"])
 
