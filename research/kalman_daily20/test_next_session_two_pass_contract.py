@@ -106,6 +106,90 @@ class TwoPassContractTests(unittest.TestCase):
         self.assertFalse(p["price_certified"])
         self.assertTrue(p["scheduled_admission_open"])
 
+    def test_main_push_at_first_seal_time_cannot_preempt_schedule(self):
+        with self.assertRaisesRegex(
+                RuntimeError, "MAIN_PUSH_MUST_NOT_PREEMPT_SCHEDULED_FIRST_SEAL"):
+            decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                   event_name="push")
+
+    def test_first_schedule_still_seals_complete_new_cohort(self):
+        result = decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                        schedule_slot=FIRST_SCHEDULE, event_name="schedule",
+                        current_run_id="genuine-first-schedule")
+        self.assertEqual(result["mode"], "FIRST_GENUINE_SEAL_EXPECTED")
+        self.assertEqual(result["github_event_origin"], "schedule")
+        self.assertEqual((result["expected_new_bull"],
+                          result["expected_new_bear"]), (20, 40))
+        self.assertFalse(result["strategy_promoted"])
+
+    def test_deliberate_manual_first_seal_remains_research_only(self):
+        result = decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                        event_name="workflow_dispatch")
+        self.assertEqual(result["expected_new_bull"], 20)
+        self.assertEqual(result["expected_new_bear"], 40)
+        self.assertEqual(result["scheduled_slot"], "")
+        self.assertFalse(result["scheduled_replay_first_seal_verified"])
+        self.assertFalse(result["price_certified"])
+
+    def test_push_existing_legacy_session_can_recheck_without_reseal(self):
+        old = prior_stub()
+        old["current_prior_bull_keys"] = {
+            ("2026-11-20", sym): {} for sym in CORE
+        }
+        old["current_prior_bear_keys"] = {
+            ("2026-11-20", sym, family): {} for sym in CORE
+            for family in ("BEAR_LOGISTIC", "BEAR_RULE")
+        }
+        r = decide(CORE, old, "2026-11-20",
+                   clock="2026-11-21T02:40:00+00:00",
+                   event_name="push")
+        self.assertEqual(r["mode"],
+                         "LEGACY_REPLAY_NO_20261120_ORIGINAL_FEATURES_HOLD")
+        self.assertEqual((r["expected_new_bull"], r["expected_new_bear"]),
+                         (0, 0))
+
+    def test_push_existing_prospective_original_rechecks_without_reseal(self):
+        old = prior_stub()
+        old["prior_manifest_session"] = SESSION
+        old["current_prior_bull_keys"] = {
+            (SESSION, sym): {} for sym in CORE
+        }
+        old["current_prior_bear_keys"] = {
+            (SESSION, sym, fam): {} for sym in CORE
+            for fam in ("BEAR_LOGISTIC", "BEAR_RULE")
+        }
+        old["frozen_snapshot_sha256"] = {
+            SNAP_PREFIX + SESSION + ".json": "a" * 64}
+        result = decide(CORE, old, SESSION, clock=CHECK_TIME,
+                        event_name="push")
+        self.assertEqual(result["mode"], "SAME_SESSION_REPLAY_EXPECTED")
+        self.assertEqual(result["expected_new_bull"], 0)
+        self.assertEqual(result["expected_new_bear"], 0)
+
+    def test_schedule_without_exact_cron_cannot_be_claimed(self):
+        with self.assertRaisesRegex(
+                RuntimeError, "SCHEDULED_EVENT_WITHOUT_AN_EXACT_SLOT"):
+            decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                   event_name="schedule", schedule_slot="")
+
+    def test_push_cannot_forge_a_scheduled_slot(self):
+        with self.assertRaisesRegex(
+                RuntimeError, "NON_SCHEDULED_EVENT_FORGED_A_SLOT"):
+            decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                   event_name="push", schedule_slot=FIRST_SCHEDULE)
+
+    def test_manual_dispatch_cannot_forge_a_scheduled_slot(self):
+        with self.assertRaisesRegex(
+                RuntimeError, "NON_SCHEDULED_EVENT_FORGED_A_SLOT"):
+            decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                   event_name="workflow_dispatch", schedule_slot=FIRST_SCHEDULE)
+
+    def test_unsupported_event_origin_cannot_pass_first_seal(self):
+        with self.assertRaisesRegex(
+                RuntimeError, "UNKNOWN_GITHUB_EVENT_ORIGIN"):
+            decide(CORE, prior_stub(), SESSION, clock=CHECK_TIME,
+                   event_name="pull_request")
+
     def test_nov23_second_pass_existing_complete_seal(self):
         prior = prior_stub()
         prior["current_prior_bull_keys"] = {
