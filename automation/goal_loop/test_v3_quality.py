@@ -7,8 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from automation.goal_loop.controller import (
-    Hold, acceptance_check_name, apply_proposal, load_goal,
+    Hold, acceptance_check_name, apply_proposal, load_goal, run,
     ollama_proposal, unsafe_ci_gate_failed, v3_compact_prompt,
+    v3_output_json_schema,
 )
 from automation.goal_loop.source_quality import (
     SourceQualityError, validate_v3_source,
@@ -229,6 +230,77 @@ class V3QualityContractTests(unittest.TestCase):
         self.assertIn("Increment accepted", prompt)
         self.assertIn('"no_change_count":2', prompt)
 
+    def test_v3_enforces_exact_ollama_schema_without_executing_model_code(self):
+        schema = v3_output_json_schema()
+        self.assertEqual(schema["type"], "object")
+        self.assertEqual(schema["required"], ["path", "content"])
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(set(schema["properties"]), {"path", "content"})
+        self.assertEqual(schema["properties"]["path"]["enum"],
+                         ["automation/goal_loop/pilot_quote_summary_v3.py"])
+        self.assertEqual(schema["properties"]["content"]["type"], "string")
+
+    def test_v3_schema_error_retry_consumes_budget_without_git_push(self):
+        goal = self.loaded()
+        actions = []
+        def fake_cmd(args, *unused, **kwargs):
+            actions.append(args[:])
+            if args[:4] == ["git", "remote", "get-url", "origin"]:
+                return {"ok": True, "code": 0,
+                        "output": "https://github.com/kimtk94/Codex.git\n"}
+            return {"ok": True, "code": 0, "output": ""}
+        with patch("pathlib.Path.home", return_value=self.root), \
+             patch("automation.goal_loop.controller.shutil.which",
+                   return_value="git"), \
+             patch("automation.goal_loop.controller.require_local_model"), \
+             patch("automation.goal_loop.controller.run_cmd",
+                   side_effect=fake_cmd), \
+             patch("automation.goal_loop.controller.ollama_proposal",
+                   return_value={"code": "not-allowed", "explanation": "wrong"}) as model:
+            result = run(self.root, goal)
+        self.assertEqual(result["state"], "MODEL_FORMAT_HOLD")
+        self.assertEqual(len(result["evidence"]["iterations"]), 2)
+        self.assertTrue(all(item.get("format_rejected")
+                            for item in result["evidence"]["iterations"]))
+        self.assertTrue(all(item["reason"] == "MODEL_OUTPUT_SCHEMA"
+                            for item in result["evidence"]["iterations"]))
+        self.assertEqual(model.call_count, 2)
+        self.assertFalse(any(cmd[:2] == ["git", "push"] for cmd in actions))
+        self.assertFalse(any(cmd[:3] == ["gh", "pr", "create"] for cmd in actions))
+
+    def test_v3_invalid_json_retry_remains_bounded(self):
+        goal = self.loaded()
+        def fake_cmd(args, *unused, **kwargs):
+            if args[:4] == ["git", "remote", "get-url", "origin"]:
+                return {"ok": True, "code": 0,
+                        "output": "https://github.com/kimtk94/Codex.git\n"}
+            return {"ok": True, "code": 0, "output": ""}
+        with patch("pathlib.Path.home", return_value=self.root), \
+             patch("automation.goal_loop.controller.shutil.which",
+                   return_value="git"), \
+             patch("automation.goal_loop.controller.require_local_model"), \
+             patch("automation.goal_loop.controller.run_cmd",
+                   side_effect=fake_cmd), \
+             patch("automation.goal_loop.controller.ollama_proposal",
+                   side_effect=Hold("MODEL_INVALID_JSON")):
+            result = run(self.root, goal)
+        self.assertEqual(result["state"], "MODEL_FORMAT_HOLD")
+        self.assertEqual(result["evidence"]["last_format_rejection"],
+                         "MODEL_INVALID_JSON")
+        self.assertEqual(len(result["evidence"]["iterations"]), 2)
+
+    def test_v3_explicit_last_format_rejection_is_in_prompt_without_raw_output(self):
+        goal = self.loaded()
+        path = goal["allowed_files"][0]
+        prompt = v3_compact_prompt(self.root, goal, {
+            "last_format_rejection": "MODEL_OUTPUT_SCHEMA",
+            "previous_checks": {"verdict": "FAIL"},
+        }, {path: "def summarize_quotes(rows):\n    return {}\n"})
+        self.assertIn('"last_format_rejection":"MODEL_OUTPUT_SCHEMA"', prompt)
+        self.assertIn("EXACTLY TWO fields", prompt)
+        self.assertIn("BOTH string values", prompt)
+        self.assertNotIn("some raw malicious generated code", prompt)
+
     def test_v3_model_request_limited_to_4096_context_1024_generated_tokens(self):
         goal = self.loaded()
         reply = {"message": {"content": json.dumps({
@@ -245,6 +317,7 @@ class V3QualityContractTests(unittest.TestCase):
         body = json.loads(url.call_args.args[0].data.decode("utf-8"))
         self.assertEqual(body["options"]["num_ctx"], 4096)
         self.assertEqual(body["options"]["num_predict"], 1024)
+        self.assertEqual(body["format"], v3_output_json_schema())
         self.assertEqual(body["keep_alive"], "5m")
         self.assertLess(len(body["messages"][1]["content"]), 5000)
         self.assertEqual(url.call_args.kwargs["timeout"], 200)
