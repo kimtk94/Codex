@@ -8,6 +8,8 @@ A repository owner must first create a **new dedicated private repository**, own
 
 The current tool connection cannot create this repository. Create the dedicated private repository through GitHub's **New repository** UI, using a purpose-specific name; the audit deliberately does not assume a chosen repo name.
 
+**Before configuring any real token in the PUBLIC Codex repo**, review branch protection, workflow edit permissions, GitHub environment restrictions and code owners. A publicly viewable repository can contain workflows that use secrets on trusted main/schedule executions; do not add a token until only trusted code can execute with it.
+
 A separate, owner-approved step may later provision a **fine-grained read-only token** limited to that private repo for repository metadata verification. Configure the following *as GitHub environment secrets*, not source variables, in the existing `TaehoonServer` environment:
 
 - `QQ_REPLAY_PRIVATE_JOURNAL_REPO`: the exact `kimtk94/<private-repo-name>` string

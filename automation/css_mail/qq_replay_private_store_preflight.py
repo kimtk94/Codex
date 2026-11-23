@@ -69,15 +69,20 @@ def check_private_repository(metadata, repo_path):
     return _hold("PRIVATE_METADATA_OK_NO_EXECUTION_AUTHORITY", metadata_ok=True)
 
 
+class _RejectRedirects(request.HTTPRedirectHandler):
+    """Do not forward a private-repo bearer token through HTTP redirects."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _read_metadata(repo_path, token, opener=None):
     """GitHub GET only. Never echoes credentials or private repo identifiers."""
     match = REPO_PATTERN.fullmatch(repo_path or "")
     if not match or match.group(1) != EXPECTED_OWNER:
         return None
-    opener = opener or request.urlopen
-    # No redirects to foreign hosts are intentionally followed by this
-    # implementation? urllib can follow redirects; token safety therefore
-    # needs a custom same-origin redirect handler (below).
+    # urllib normally follows redirects; block them so the private token
+    # cannot be forwarded if a response points at an unexpected host.
+    opener = opener or request.build_opener(_RejectRedirects()).open
     uri = "https://api.github.com/repos/" + match.group(1) + "/" + match.group(2)
     req = request.Request(uri, headers={
         "Authorization": "Bearer " + token,

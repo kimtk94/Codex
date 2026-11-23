@@ -7,7 +7,7 @@ from contextlib import redirect_stdout
 from unittest import mock
 
 from automation.css_mail.qq_replay_private_store_preflight import (
-    check_private_repository, _read_metadata, main,
+    check_private_repository, _read_metadata, _RejectRedirects, main,
 )
 
 
@@ -83,6 +83,12 @@ class StorePreflightTests(unittest.TestCase):
         self.assertEqual(calls[0][0],"GET")
         self.assertIn("api.github.com/repos/",calls[0][1])
         self.assertEqual(calls[0][2],"Bearer synthetic-token")
+
+    def test_http_redirect_never_forwards_private_token(self):
+        guard=_RejectRedirects()
+        result=guard.redirect_request(
+            None,None,302,"Found",{},"https://untrusted.invalid/steal")
+        self.assertIsNone(result)
 
     def test_without_secrets_preflight_prints_only_safe_hold(self):
         stdout=io.StringIO()
