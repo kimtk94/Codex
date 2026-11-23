@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "goal_id": "pilot-quote-summary-v3",
+  "document": "docs/automation/goal-loop-pilot-v3.md",
+  "repo": "kimtk94/Codex",
+  "base_branch": "main",
+  "allowed_files": [
+    "automation/goal_loop/pilot_quote_summary_v3.py"
+  ],
+  "verify": [
+    [
+      "python",
+      "-m",
+      "unittest",
+      "automation.goal_loop.pilot_acceptance_v3",
+      "-v"
+    ]
+  ],
+  "required_checks": [
+    "goal-loop-controller-tests",
+    "pilot-acceptance-v3",
+    "main-write-guard"
+  ],
+  "max_iterations": 2,
+  "max_minutes": 35,
+  "model": "qwen25coder3b-16k"
+}

@@ -12,7 +12,8 @@ Set-Location $repo
 # Keep V1's exhausted checkpoint immutable; use the goal ID for V2.
 $approvedGoals = @(
     "automation/goal_loop/goals/pilot-status.json",
-    "automation/goal_loop/goals/pilot-status-v2.json"
+    "automation/goal_loop/goals/pilot-status-v2.json",
+    "automation/goal_loop/goals/pilot-quote-v3.json"
 )
 $normalizedGoal = $Goal.Replace([char]92, [char]47)
 if ($normalizedGoal -notin $approvedGoals) {
