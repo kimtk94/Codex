@@ -789,7 +789,11 @@ def run(root, goal, *, dry_run=False):
                             if isinstance(item, dict)
                         ),
                         "previous_checks": evidence.get("last_ci", {}),
-                        "failures": ci_failure_feedback(work_dir, goal,
+                        # V2 uses bounded AST-derived examples and concise
+                        # check summaries; fetching full CI logs wastes time
+                        # and could add untrusted prompt-injection text.
+                        "failures": [] if goal["goal_id"] == "pilot-status-normalizer-v2"
+                        else ci_failure_feedback(work_dir, goal,
                                    evidence.get("last_ci", {}).get("checks", []))}
             iteration = {"number": len(evidence["iterations"]) + 1,
                          "local_code_execution": False}
