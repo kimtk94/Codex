@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 import unittest
 
 from scheduled_slot_watchdog import (
-    FIRST, SECOND, VERSION, evaluate, job_evidence,
+    FIRST, SECOND, VERSION, audit_calendar, evaluate, job_evidence,
     one_record, READY_RE, POST_RE,
 )
 
@@ -205,6 +205,25 @@ class ScheduledSlotWatchdogTests(unittest.TestCase):
         self.assertEqual(r["status"], "PASS")
         self.assertEqual(r["expected_first_new_signals"], 0)
         self.assertEqual(r["expected_second_new_signals"], 0)
+
+    def test_true_xnys_calendar_nov23_first_day_close(self):
+        session, fresh = audit_calendar(
+            datetime(2026, 11, 24, 6, 25, tzinfo=timezone.utc)
+        )
+        self.assertEqual(session, "2026-11-23")
+        self.assertTrue(fresh)
+
+    def test_true_xnys_calendar_thanksgiving_and_early_close(self):
+        holiday_session, is_new = audit_calendar(
+            datetime(2026, 11, 27, 6, 25, tzinfo=timezone.utc)
+        )
+        self.assertEqual(holiday_session, "2026-11-25")
+        self.assertFalse(is_new)
+        friday_session, is_new_friday = audit_calendar(
+            datetime(2026, 11, 28, 6, 25, tzinfo=timezone.utc)
+        )
+        self.assertEqual(friday_session, "2026-11-27")
+        self.assertTrue(is_new_friday)
 
     def test_holiday_first_fake_new_signal_is_rejected(self):
         a, b = witness(FIRST, due=False), witness(SECOND, due=False)
