@@ -139,7 +139,12 @@ def run_writer(mail, sheets, mode="APPLY", approved=True):
         writer,"call",new=sheets.call
     ),mock.patch.object(
         writer.imaplib,"IMAP4_SSL",return_value=mail
+    ),mock.patch.object(
+        writer,"guard_2026_stage_apply",return_value=None
     ),contextlib.redirect_stdout(io.StringIO()):
+        # Existing integration tests exercise the legacy all-or-nothing writer
+        # using only fake Sheets/IMAP; this explicit test-only override NEVER
+        # exists in production. Production APPLY is separately hard-blocked.
         return writer.main()
 
 
@@ -222,6 +227,35 @@ class WriterIntegrationTests(unittest.TestCase):
             run_writer(mail,sheets,mode="APPLY",approved=False)
         self.assertEqual(sheets.puts,[])
         self.assertEqual(mail.calls,[])
+
+    def test_production_2026_apply_hard_hold_even_with_yes(self):
+        """The actual main() refuses APPLY before auth, network or Sheets."""
+        for tab,year in (("QQ 2026 Invoice Backfill","2026"),
+                         ("QQ Historical Invoice Backfill","2026"),
+                         ("QQ 2026 Invoice Backfill","2025")):
+            with self.subTest(year=year,tab=tab):
+                with mock.patch.dict(os.environ,{
+                    "BACKFILL_WRITE_MODE":"APPLY",
+                    "BACKFILL_STAGE_WRITES_APPROVED":"YES",
+                    "BACKFILL_YEAR":year,
+                }),mock.patch.object(writer,"TAB",tab),mock.patch.object(
+                    writer.service_account.Credentials,"from_service_account_info",
+                    side_effect=AssertionError("should not load credentials")
+                ),mock.patch.object(
+                    writer.imaplib,"IMAP4_SSL",
+                    side_effect=AssertionError("should not open IMAP")
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError,"QQ_2026_APPLY_HARD_HOLD_WRITER_EXCLUSION_UNVERIFIED"
+                    ):
+                        writer.main()
+
+    def test_2025_legacy_route_and_2026_preview_remain_eligible(self):
+        for mode,year,tab in (
+            ("PREVIEW",2026,"QQ 2026 Invoice Backfill"),
+            ("APPLY",2025,"QQ Historical Invoice Backfill"),
+        ):
+            writer.guard_2026_stage_apply(mode,year,tab)
 
     def test_unverified_mail_must_not_mutate_issued_month(self):
         mail=FakeMail({101:[attachment("209126000701")]})

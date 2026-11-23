@@ -52,12 +52,29 @@ def resolve_uidvalidity(im, folder, diagnostic=None):
                 return match.group(1)
     raise RuntimeError("UIDVALIDITY_UNAVAILABLE_AFTER_STATUS")
 
+def guard_2026_stage_apply(mode, year, tab):
+    """Permanent fail-closed 2026 source gate until approved atomic writer exists.
+
+    No environment variable, workflow dispatch input or review-sheet text may
+    bypass this. This guard must be revised in a separately approved PR only
+    after authenticated per-case consent, all-writer exclusion and receipts.
+    It is intentionally checked before any service-account or IMAP access.
+    """
+    if mode=="APPLY" and (year==2026 or tab=="QQ 2026 Invoice Backfill"):
+        raise RuntimeError("QQ_2026_APPLY_HARD_HOLD_WRITER_EXCLUSION_UNVERIFIED")
+
+
 def main():
     mode=os.getenv("BACKFILL_WRITE_MODE","PREVIEW").strip().upper()
     if mode not in ("PREVIEW","APPLY"):
         raise RuntimeError("BACKFILL_WRITE_MODE_INVALID")
     if mode=="APPLY" and os.getenv("BACKFILL_STAGE_WRITES_APPROVED","")!="YES":
         raise RuntimeError("BACKFILL_WRITER_APPROVAL_GATE")
+    try:
+        requested_year=int(os.getenv("BACKFILL_YEAR","2025"))
+    except ValueError:
+        raise RuntimeError("BACKFILL_YEAR_INVALID") from None
+    guard_2026_stage_apply(mode,requested_year,TAB)
     print("QQ_SAFE_STAGE=START",flush=True)
     cred=service_account.Credentials.from_service_account_info(json.loads(os.environ["CKD_DRIVE_SA_JSON"]),scopes=["https://www.googleapis.com/auth/spreadsheets"])
     s=AuthorizedSession(cred)
@@ -73,7 +90,7 @@ def main():
     print("QQ_SAFE_STAGE=STAGING_SOURCE_LOADED",flush=True)
     if old and old[0]!=HEAD:raise RuntimeError("BACKFILL_HEADER_MISMATCH")
     by_invoice={str(row[0]):row for row in old[1:] if row and row[0]}
-    year=int(os.getenv("BACKFILL_YEAR","2025"))
+    year=requested_year
     # Checkpoint per year, folder, and UIDVALIDITY to avoid repeated capped scans.
     tabs={x["properties"]["title"] for x in meta["sheets"]}
     for tab in (CURSOR_TAB,AUDIT_TAB):
