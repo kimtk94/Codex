@@ -31,6 +31,8 @@ class ScheduledHandoffConcurrencyStaticTests(unittest.TestCase):
         value = self.raw
         self.assertIn("group: kalman-daily20-research-", value)
         self.assertIn("cancel-in-progress: false", value)
+        self.assertIn("queue: max", value)
+        self.assertEqual(value.count("  queue: max"), 1)
         self.assertIn("|| 'protected-main'", value)
         self.assertIn("persist-google-drive:", value)
         self.assertIn("if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'", value)
