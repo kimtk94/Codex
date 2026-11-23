@@ -35,8 +35,15 @@ def timestamp(value):
     return parsed.astimezone(UTC) if parsed.tzinfo else None
 
 
-def inspect(runs, now, max_age_hours, cooldown_hours=RETRY_COOLDOWN_HOURS):
-    """Fail closed on incomplete or ambiguous GitHub run history."""
+def inspect(runs, now, max_age_hours, cooldown_hours=RETRY_COOLDOWN_HOURS,
+            verified_applied_ids=None):
+    """Fail closed on incomplete history and *unverified* manual/dispatch runs.
+
+    A completed workflow_dispatch alone only proves unit tests might have run.
+    The recoverer's success counts as fresh materialization only when all
+    downstream jobs were separately verified as successful via the Jobs API.
+    """
+    verified_applied_ids = frozenset(verified_applied_ids or ())
     if now.tzinfo is None:
         raise ValueError("WATCHDOG_NOW_TZ_REQUIRED")
     if not isinstance(runs, list):
@@ -60,15 +67,24 @@ def inspect(runs, now, max_age_hours, cooldown_hours=RETRY_COOLDOWN_HOURS):
     selected.sort(key=lambda pair: pair[0], reverse=True)
     newest, latest = selected[0]
     age = (now-newest).total_seconds()/3600
-    good = [at for at,run in selected
-            if run.get("event") == "schedule"
-            and run.get("status") == "completed" and run.get("conclusion") == "success"]
-    # A manual workflow_dispatch without apply=true can run tests but no writer:
-    # never mistake such a success for a production materialization.
-    last_good = max(good) if good else None
+    scheduled_good = [at for at,run in selected
+                      if run.get("event") == "schedule"
+                      and run.get("status") == "completed" and run.get("conclusion") == "success"]
+    applied_good = [at for at,run in selected
+                    if run.get("event") == "workflow_dispatch"
+                    and run.get("status") == "completed" and run.get("conclusion") == "success"
+                    and type(run.get("id")) is int and run["id"] in verified_applied_ids]
+    # Preserve the independent scheduled-success baseline: never create a
+    # new autonomous writer from a standalone unverified manual job success.
+    schedule_at = max(scheduled_good) if scheduled_good else None
+    recovered_at = max(applied_good) if applied_good else None
+    last_good = max([t for t in (schedule_at,recovered_at) if t is not None],
+                    default=None)
     success_age = (now-last_good).total_seconds()/3600 if last_good else None
     details = {"last_success_age_hours": round(success_age,2) if success_age is not None else None,
-               "last_attempt_age_hours": round(age,2), "eligible": False}
+               "last_attempt_age_hours": round(age,2), "eligible": False,
+               "verified_recovered_success": bool(recovered_at and (not schedule_at or
+                                                                     recovered_at > schedule_at))}
     if latest.get("status") in ACTIVE:
         return dict(details,state="RUNNING" if age <= max_age_hours else "STALLED_RUN_HOLD")
     if latest.get("status") != "completed" or latest.get("conclusion") not in {
@@ -81,8 +97,10 @@ def inspect(runs, now, max_age_hours, cooldown_hours=RETRY_COOLDOWN_HOURS):
     if success_age is not None and success_age <= max_age_hours:
         if latest.get("conclusion") != "success":
             return dict(details,state="LATEST_FAILURE_HOLD")
-        return dict(details,state="RECENT_SCHEDULE_SUCCESS")
-    if last_good is None:
+        return dict(details,state=("RECENT_VERIFIED_RECOVERY_SUCCESS"
+                                   if details["verified_recovered_success"]
+                                   else "RECENT_SCHEDULE_SUCCESS"))
+    if schedule_at is None:
         return dict(details,state="NO_SUCCESS_BASELINE_HOLD")
     if age < cooldown_hours:
         return dict(details,state="COOLDOWN_WAIT" if latest.get("conclusion") == "success"
@@ -108,6 +126,53 @@ def request_json(repo, workflow, token):
     return payload["workflow_runs"]
 
 
+def applied_dispatch_job_ids(repo, token, runs, now,
+                             window_hours=WRITER_MAX_AGE_HOURS):
+    """Confirm that a successful workflow_dispatch actually ran all writers.
+
+    GitHub may mark a manual CI-only run green while ingest/payment/monthly
+    were skipped. Never count such a run as successful recovery.
+    """
+    if repo != REPO or not isinstance(runs, list):
+        raise ValueError("RECOVERY_RUN_LIST_UNVERIFIED")
+    verified = set()
+    for run in runs:
+        if (not isinstance(run, dict) or run.get("event") != "workflow_dispatch"
+                or run.get("head_branch") != "main"
+                or run.get("status") != "completed"
+                or run.get("conclusion") != "success"):
+            continue
+        created = timestamp(run.get("created_at"))
+        if created is None:
+            raise RuntimeError("RECOVERY_RUN_TIMESTAMP_UNVERIFIED")
+        if created > now + dt.timedelta(minutes=5):
+            raise RuntimeError("RECOVERY_RUN_TIMESTAMP_FUTURE")
+        if now - created > dt.timedelta(hours=window_hours):
+            continue
+        run_id = run.get("id")
+        if type(run_id) is not int or run_id <= 0:
+            raise RuntimeError("RECOVERY_RUN_ID_UNVERIFIED")
+        url = ("https://api.github.com/repos/" + repo +
+               "/actions/runs/" + str(run_id) + "/jobs?per_page=40")
+        request = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.load(response)
+        if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
+            raise RuntimeError("RECOVERY_JOBS_UNVERIFIED")
+        jobs = payload["jobs"]
+        if payload.get("total_count", 0) > len(jobs):
+            raise RuntimeError("RECOVERY_JOBS_TRUNCATED")
+        success = {job.get("name") for job in jobs
+                   if isinstance(job, dict) and job.get("status") == "completed"
+                   and job.get("conclusion") == "success"}
+        if {"ingest", "payment", "lifecycle", "monthly"} <= success:
+            verified.add(run_id)
+    return verified
+
+
 def dispatch_existing_writer(repo, token):
     if repo != REPO:
         raise ValueError("WATCHDOG_REPO_NOT_ALLOWLISTED")
@@ -121,9 +186,11 @@ def dispatch_existing_writer(repo, token):
             raise RuntimeError("WRITER_DISPATCH_NOT_ACCEPTED")
 
 
-def reconcile(feishu_runs,qq_runs,now,auto_dispatch=False,dispatch=None):
+def reconcile(feishu_runs,qq_runs,now,auto_dispatch=False,dispatch=None,
+              verified_applied_ids=None):
     """No dispatch if unknown, busy, failed recently, or no verified schedule baseline."""
-    feishu=inspect(feishu_runs,now,WRITER_MAX_AGE_HOURS)
+    feishu=inspect(feishu_runs,now,WRITER_MAX_AGE_HOURS,
+                   verified_applied_ids=verified_applied_ids)
     qq=inspect(qq_runs,now,QQ_MAX_AGE_HOURS)
     result={"feishu":feishu,"qq_2026":qq,"dispatch_state":"NOT_REQUESTED",
             "feishu_writer_owned_by_existing_unified_workflow":True,
@@ -153,9 +220,11 @@ def main():
             raise ValueError("WATCHDOG_GITHUB_SCOPE_UNAVAILABLE")
         feishu_runs=request_json(repo,FEISHU,token)
         qq_runs=request_json(repo,QQ,token)
+        verified = applied_dispatch_job_ids(repo,token,feishu_runs,now)
         auto=os.environ.get("CSS_WATCHDOG_AUTO_DISPATCH","false").lower()=="true"
         result=reconcile(feishu_runs,qq_runs,now,auto,
-                         lambda:dispatch_existing_writer(repo,token))
+                         lambda:dispatch_existing_writer(repo,token),
+                         verified_applied_ids=verified)
         result["checked_utc"]=now.isoformat()
     except Exception as exc:
         result={"checked_utc":now.isoformat(),"state":"RUN_HISTORY_UNVERIFIED",
