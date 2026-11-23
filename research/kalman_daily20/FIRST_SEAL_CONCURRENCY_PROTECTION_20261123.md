@@ -14,8 +14,8 @@ Use a Github expression:
 `kalman-daily20-research-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'protected-main' }}`
 
 - **Each PR** gets an independent test-only queue and never consumes the pending scheduled seal's group.
-- **Protected `main`** push, manual dispatch, **02:40 first** and **04:40 replay** continue to share one serialized group. This is essential: they can all access the same pinned results ZIP. The patch does not create parallel Drive writers or remove the existing post-save independent readback.
-- GitHub `cancel-in-progress: false` retained. Main pushes can still cause pending replacement inside the one protected-main group; this change reduces the exposure but does **not** guarantee scheduler delivery. Dedicated heartbeat and external ChatGPT monitor remain necessary.
+- **Protected `main`** push, manual dispatch, **02:40 first** and **04:40 replay** continue to share one serialized, `queue: max` group. This is essential: they can all access the same pinned results ZIP. The patch does not create parallel Drive writers or remove the existing post-save independent readback.
+- GitHub `cancel-in-progress: false` is retained and the current officially supported `queue: max` option is now explicit. **Up to 100 pending** protected-main runs remain queued instead of older pending schedules being displaced by later pushes; they run FIFO by entry to the concurrency queue. This also applies to PR-specific queues. The queue is not unlimited, and a late run after the next exchange opens still fails the prospective admission window: **the scheduler is not guaranteed to dispatch**, so GitHub heartbeat and external ChatGPT checks remain mandatory.
 
 ## Enforce first-seal provenance before forward writers
 
