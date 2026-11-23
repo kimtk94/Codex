@@ -236,7 +236,7 @@ def main():
         with open(summary,"a",encoding="utf-8") as out:
             out.write("## Recurring ingestion health (schedule vs independent watchdog)\n\n")
             out.write("Existing Feishu unified Writer only; no new writer. QQ 2026 backfill monitored only.\n\n")
-            out.write("| Pipeline | Health state | Last scheduled success age (h) | Last attempt age (h) |\n")
+            out.write("| Pipeline | Health state | Last verified writer/schedule success age (h) | Last attempt age (h) |\n")
             out.write("|---|---|---:|---:|\n")
             for name in ("feishu","qq_2026"):
                 item=result.get(name) or {}
