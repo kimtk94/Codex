@@ -201,19 +201,28 @@ def make_plan(macro_blob, daily_blob, *, now=None):
         queue = []
         for key in sorted(markets):
             mode = mode_market(key)
+            old_frame = pd.read_parquet(BytesIO(mzip.read(markets[key])))
+            actual_dates = frame_dates(old_frame, key)
+            # Multi-market archives use one XNYS as-of in the manifest, while
+            # BTC trades 24/7, USD/KRW can have Saturday-stamped bars, and
+            # Korean markets have a separate exchange calendar. Subtracting
+            # the uniform US date from BTC counts Oct 31 twice when it was
+            # already present in the original immutable ZIP.
+            asset_last = str(actual_dates.max())
+            require(asset_last <= target_day,
+                    "SOURCE_ASSET_OBSERVATION_AFTER_REFERENCE:" + key)
             expected = date_keys(str(date.fromordinal(
-                date.fromisoformat(source_day).toordinal() + 1
+                date.fromisoformat(asset_last).toordinal() + 1
             )), target_day, mode)
             if key in daily:
-                old_frame = pd.read_parquet(BytesIO(mzip.read(markets[key])))
                 new_frame = pd.read_parquet(BytesIO(dzip.read(daily[key])))
                 info = shared_candidate(old_frame, new_frame, key=key,
-                                        source_day=source_day,
+                                        source_day=asset_last,
                                         target_day=target_day)
             else:
                 info = {
                     "indicator": key, "layer": "MARKET", "frequency": mode,
-                    "source_last": source_day, "target_last": target_day,
+                    "source_last": asset_last, "target_last": target_day,
                     "expected_tail_rows": len(expected),
                     "candidate_tail_rows": 0,
                     "candidate_missing_expected_rows": len(expected),
@@ -247,6 +256,12 @@ def make_plan(macro_blob, daily_blob, *, now=None):
                 if x["indicator"] in PAIRED_SHARED)
     missing = sum(x["candidate_missing_expected_rows"] for x in queue)
     can_reuse = len([x for x in queue if x["candidate_tail_rows"] > 0])
+    # Every required outstanding date must be accounted for exactly once
+    # by a distinct staged candidate or an explicit refetch task; do not
+    # count already observed off-market-day BTC/FX rows as missing.
+    required_tail = sum(x["expected_tail_rows"] for x in queue)
+    require(required_tail == cross + missing,
+            "TAIL_LEDGER_CANDIDATE_ACCOUNTING_MISMATCH")
     return {
         "version": VERSION,
         "status": "BACKFILL_CANDIDATES_STAGED_METADATA_ONLY_RESEARCH_HOLD",
@@ -265,6 +280,7 @@ def make_plan(macro_blob, daily_blob, *, now=None):
         "market_only_assets_need_new_collection": MACRO_MARKET_COUNT-len(PAIRED_SHARED),
         "same_vendor_candidate_tail_rows": cross,
         "candidate_missing_expected_tail_rows": missing,
+        "market_expected_tail_rows_total": required_tail,
         "market_assets_with_any_reusable_candidate": can_reuse,
         "fred_series_require_republication_check": len(fred_tasks),
         "fred_latest_revised_not_pit": True,
