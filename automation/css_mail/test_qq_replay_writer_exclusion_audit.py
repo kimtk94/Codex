@@ -20,6 +20,9 @@ def baseline():
                    '    if mode=="APPLY" and year==2026:\n'
                    '        raise RuntimeError("QQ_2026_APPLY_HARD_HOLD_WRITER_EXCLUSION_UNVERIFIED")\n'
                    'guard_2026_stage_apply(mode,requested_year,TAB)\n'
+                   'def google_sheet_scopes(mode):\n'
+                   '    return ["https://www.googleapis.com/auth/spreadsheets.readonly"]\n'
+                   'scopes=google_sheet_scopes(mode)\n'
                    'if mode == "APPLY": raise RuntimeError("GATE")'),
                LEGACY_WRITER:(
                     'def guard_legacy_2026_target(year,tab):\n'
@@ -47,6 +50,16 @@ class WriterBoundaryTests(unittest.TestCase):
         result=assess(workflows,scripts)
         self.assertIn("2026_SOURCE_HARD_HOLD_MISSING",result["blocking_rule_codes"])
         self.assertEqual(result["writer_exclusion_verified"],0)
+
+    def test_preview_writable_scope_or_missing_binding_is_blocked(self):
+        workflows,scripts=baseline()
+        scripts[SAFE_WRITER]=scripts[SAFE_WRITER].replace(
+            "scopes=google_sheet_scopes(mode)",
+            'scopes=["https://www.googleapis.com/auth/spreadsheets"]')
+        report=assess(workflows,scripts)
+        self.assertIn("PREVIEW_READONLY_OAUTH_SCOPE_MISSING",
+                      report["blocking_rule_codes"])
+        self.assertEqual(report["stage_writes"],0)
 
     def test_legacy_hard_hold_removed_is_detected(self):
         workflows,scripts=baseline()

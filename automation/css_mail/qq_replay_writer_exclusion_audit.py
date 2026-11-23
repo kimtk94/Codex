@@ -76,6 +76,10 @@ def assess(workflows, scripts):
             or "guard_legacy_2026_target(requested_year,TAB)" not in scripts[LEGACY_WRITER]
             or "QQ_LEGACY_2026_APPLY_HARD_HOLD_UNVERIFIED_WRITER" not in scripts[LEGACY_WRITER]):
         reasons.add("LEGACY_2026_SOURCE_HARD_HOLD_MISSING")
+    if ("def google_sheet_scopes(mode):" not in scripts[SAFE_WRITER]
+            or 'scopes=google_sheet_scopes(mode)' not in scripts[SAFE_WRITER]
+            or 'https://www.googleapis.com/auth/spreadsheets.readonly' not in scripts[SAFE_WRITER]):
+        reasons.add("PREVIEW_READONLY_OAUTH_SCOPE_MISSING")
     if not re.search(r"mode\s*==\s*['\x22]APPLY['\x22]",
                      scripts[SAFE_WRITER]):
         # Cannot assume writer behavior is unchanged; this audit is for the

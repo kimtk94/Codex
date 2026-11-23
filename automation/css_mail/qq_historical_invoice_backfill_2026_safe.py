@@ -52,6 +52,17 @@ def resolve_uidvalidity(im, folder, diagnostic=None):
                 return match.group(1)
     raise RuntimeError("UIDVALIDITY_UNAVAILABLE_AFTER_STATUS")
 
+def google_sheet_scopes(mode):
+    """PREVIEW must use a read-only OAuth token, even for a writer SA."""
+    if mode=="PREVIEW":
+        return ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    if mode=="APPLY":
+        # Only historical non-2026 routes can reach this; the separate
+        # hard-HOLD guard rejects 2026 before tokens are requested.
+        return ["https://www.googleapis.com/auth/spreadsheets"]
+    raise RuntimeError("BACKFILL_WRITE_MODE_INVALID")
+
+
 def guard_2026_stage_apply(mode, year, tab):
     """Permanent fail-closed 2026 source gate until approved atomic writer exists.
 
@@ -76,7 +87,9 @@ def main():
         raise RuntimeError("BACKFILL_YEAR_INVALID") from None
     guard_2026_stage_apply(mode,requested_year,TAB)
     print("QQ_SAFE_STAGE=START",flush=True)
-    cred=service_account.Credentials.from_service_account_info(json.loads(os.environ["CKD_DRIVE_SA_JSON"]),scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    cred=service_account.Credentials.from_service_account_info(
+        json.loads(os.environ["CKD_DRIVE_SA_JSON"]),
+        scopes=google_sheet_scopes(mode))
     s=AuthorizedSession(cred)
     print("QQ_SAFE_STAGE=SHEETS_AUTH_READY",flush=True)
     meta=call(s,"GET","?fields=sheets.properties.title")
