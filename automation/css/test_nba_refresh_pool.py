@@ -67,7 +67,7 @@ class PoolRefreshTests(unittest.TestCase):
     def test_guard_exists_for_sent_lead_reentry(self):
         from pathlib import Path
         source = Path("nba_refresh_pool.py").read_text(encoding="utf-8")
-        self.assertIn("Confirmed-sent Leads leaked into NBA candidates",source)
+        self.assertIn("CONFIRMED_SENT_LEAD_REENTRY_BLOCKED_COUNT_",source)
 
     def test_empty_source_fails_closed(self):
         with self.assertRaisesRegex(ValueError,"incomplete"):
