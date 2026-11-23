@@ -44,6 +44,10 @@ jobs:
         run: |
           python3 -m unittest automation.css_mail.test_qq_replay_transaction_rehearsal -v
           python3 -m automation.css_mail.qq_replay_transaction_rehearsal
+      - name: Simulate atomic Git receipt claims and replay HOLD (local only)
+        run: |
+          python3 -m unittest automation.css_mail.test_qq_replay_git_journal_demo -v
+          python3 -m automation.css_mail.qq_replay_git_journal_demo
       - name: Audit all checked-out GitHub workflow writer routes
         run: python3 -m automation.css_mail.qq_replay_writer_exclusion_audit
 
