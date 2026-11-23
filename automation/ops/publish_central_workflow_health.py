@@ -204,18 +204,44 @@ def make_rows(fetch, now, job_fetch=None):
     return [HEADERS]+rows
 
 
+# Fetch active recurring production events separately so PR/push CI traffic
+# cannot hide the last *scheduled* materialization or monitoring execution.
+# Legacy workflows keep the original behavior for backward compatibility.
+RECURRING_EVENTS={
+    "feishu-sources-unified.yml": ("schedule","workflow_dispatch"),
+    "css-recurring-sources-watchdog.yml": ("schedule","workflow_dispatch","workflow_run"),
+    "css-live-freshness-evidence.yml": ("schedule","workflow_dispatch"),
+    "qq-mail-2026-backfill.yml": ("schedule","workflow_dispatch"),
+}
+
+
 def github_fetch(filename):
     gh=os.environ.get("GITHUB_TOKEN")
     if not gh:raise RuntimeError("GITHUB_READ_TOKEN_MISSING")
     url="https://api.github.com/repos/"+REPO+"/actions/workflows/"+quote(filename)+"/runs"
-    response=requests.get(url,headers={"Accept":"application/vnd.github+json",
-        "Authorization":"Bearer "+gh,"X-GitHub-Api-Version":"2022-11-28"},
-        params={"branch":"main","per_page":12},timeout=35)
-    response.raise_for_status()
-    data=response.json()
-    rows=data.get("workflow_runs")
-    if not isinstance(rows,list):raise RuntimeError("GITHUB_WORKFLOW_RUNS_MISSING")
-    return rows
+    events=RECURRING_EVENTS.get(filename, (None,))
+    result=[]
+    ids=set()
+    for event in events:
+        params={"branch":"main","per_page":40 if event else 12}
+        if event:params["event"]=event
+        response=requests.get(url,headers={"Accept":"application/vnd.github+json",
+            "Authorization":"Bearer "+gh,"X-GitHub-Api-Version":"2022-11-28"},
+            params=params,timeout=35)
+        response.raise_for_status()
+        data=response.json()
+        rows=data.get("workflow_runs")
+        if not isinstance(rows,list):raise RuntimeError("GITHUB_WORKFLOW_RUNS_MISSING")
+        for row in rows:
+            if not isinstance(row,dict):raise RuntimeError("GITHUB_WORKFLOW_RUN_INVALID")
+            if event and (row.get("event")!=event or row.get("head_branch")!="main"):
+                raise RuntimeError("GITHUB_PRODUCTION_RUN_SCOPE_INVALID")
+            rid=row.get("id")
+            if type(rid) is not int or rid<=0 or rid in ids:
+                raise RuntimeError("GITHUB_WORKFLOW_RUN_ID_INVALID")
+            ids.add(rid)
+            result.append(row)
+    return result
 
 
 def google_client():
