@@ -14,7 +14,10 @@ import os
 from pathlib import Path
 import re
 
-from ops_readiness import api, parse_first_seal_check, safe_job_log
+from ops_readiness import (
+    DRIVE_READBACK, api, parse_first_seal_check, readback_session,
+    safe_job_log,
+)
 
 VERSION = "daily20-scheduled-two-slot-heartbeat-v1"
 ROOT = "https://api.github.com/repos/kimtk94/Codex"
@@ -61,10 +64,10 @@ def job_evidence(run, jobs, research_log, publisher_log):
     by_name = {j["name"]: j for j in jobs}
     missing_jobs = [name for name in REQUIRED_JOBS if
                     by_name.get(name, {}).get("conclusion") != "success"]
-    remote_readback = (
-        "\"DAILY20_DRIVE_READBACK\"" in publisher_log and
-        "\"status\": \"READBACK_VERIFIED\"" in publisher_log and
-        "\"session\": \"" + (ready["session"] if ready else "INVALID") + "\"" in publisher_log
+    remote_readback = bool(
+        ready is not None and
+        DRIVE_READBACK.search(publisher_log.replace("\n", " ")) and
+        readback_session(publisher_log) == ready["session"]
     )
     # The report keeps only whitelisted, research-safe summary fields.
     return {
