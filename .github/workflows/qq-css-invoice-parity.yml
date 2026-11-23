@@ -229,7 +229,6 @@ jobs:
                    "internaldate_date_format_not_standard",
                    "internaldate_date_nil",
                    "internaldate_date_unquoted",
-                   "internaldate_date_single_digit_day",
                    "internaldate_date_colon_timezone",
                    "internaldate_date_imap_literal",
                    "internaldate_date_format_other",
@@ -242,6 +241,7 @@ jobs:
                    "scan_at","verified_at")
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a",encoding="utf-8") as output:
               output.write("### Targeted QQ prior-cursor/blank-month original proof (READ-ONLY)\n")
+              output.write("Legal single-digit IMAP arrival day is accepted as arrival metadata only. It never proves an Invoice issue month or authorizes a financial write.\n")
               for field in allowed:
                   if field in summary:output.write(f"- {field}: {summary[field]}\n")
           PY
