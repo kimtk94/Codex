@@ -1,0 +1,519 @@
+# Windows 16 GB Local AI (Ollama)
+
+## GitHub Actions-only next phase (Drive Desktop not required)
+
+Because the Windows laptop has no approved Google Drive for desktop installation
+and the local 3B model repeatedly produced **fake tool-call text**, we use
+GitHub-hosted Actions for deterministic code checks. No self-hosted runner,
+Google API credentials or local Ollama inference is needed for this stage.
+
+New workflow: \`.github/workflows/local-ai-daily-evidence.yml\`
+- PR changes to \`local_ai/**\` trigger safe, hosted tests.
+- \`workflow_dispatch\` is defined for on-demand checks.
+- A daily schedule (00:40 UTC / 09:40 Asia/Seoul) is defined, but **GitHub
+  schedules and manual dispatch from the workflow require the workflow to
+  exist on the repository's default branch**. It is NOT active while PR #903
+  remains Draft.
+- The workflow runs \`python -m local_ai.ci.health_report\` in a GitHub-hosted
+  Ubuntu environment, using only the repository's synthetic tests and Python
+  parser. It does not download model weights, interact with Google Drive,
+  send external messages, edit Salesforce or execute a local coding agent.
+- It uploads a **sanitized JSON audit artifact** with source SHA, timestamp,
+  test count and test PASS/FAIL, retained 7 days. Customer source files,
+  secrets, token values, email bodies, local drive contents and raw test
+  output are NOT included. The artifact explicitly records
+  \`windows_google_drive_desktop_sync=PENDING\` and
+  \`local_3b_codex_tool_use=HOLD\`.
+- If offline unit tests or Python syntax fail, the workflow fails while
+  still uploading the evidence artifact, making the failure inspectable.
+- The existing Windows launcher workflow continues validating PowerShell,
+  Git file reading, Drive setup diagnostics and launcher safety.
+
+**Client configuration fix:** \`local_ai/ollama_client.py\` now uses the
+measured \`qwen25coder3b-16k:latest\` model and Ollama \`num_ctx=16384\`,
+rather than the obsolete Qwen3 4B / 4096-token defaults. It bounds incoming
+text to 6000 characters and rejects truncated or structurally invalid
+response JSON (including fake tool-call shaped results). This may reject
+previously accepted oversized inputs; split into small, approved sections
+instead. A model response still needs human review.
+
+**Human review gate:** PR #903 stays Draft. Do not merge solely on CI SUCCESS:
+these tests do NOT verify GitHub Actions auto-development or real Ollama
+tool-calling, nor prove cloud Drive sync/freshness. After explicit approval
+and a separate review of unrelated workflow effects, the workflow can be
+merged into \`main\` for daily checks. Autonomous code edits/commits remain
+disabled.
+
+
+## Google Drive Desktop install 1603 + non-administrator account (2026-11-21)
+
+Actual Windows diagnostics: \`Current PowerShell elevated: False\`,
+\`GoogleDriveFS running: False\`, neither of the Program Files install
+locations exists, no registered Google Drive application, no matching
+logs in the current user's TEMP, and no recent readable MsiInstaller
+events. The \`winget\` download succeeded, but the installer exited 1603.
+
+**Do not retry installation repeatedly or disable endpoint security.**
+Google's Workspace administration instructions state that users need
+administrator privileges on their computer to install Drive for desktop.
+Error 1603 by itself is generic, so the underlying cause on this laptop
+is still not proven.
+
+Official organization setup docs:
+https://knowledge.workspace.google.com/admin/drive/set-up-drive-for-desktop-for-your-organization
+
+\`Setup-Drive-Desktop.cmd\` now checks elevation and **does not try to install**
+when run in an unelevated session. Request an authorized Windows administrator
+or corporate IT to install the official Drive for desktop software. After
+installation, sign in to the account holding the existing
+\`LocalAI_Workspace\` folder and run \`Verify-Git-Drive-Local.cmd\`.
+Confirm a non-sensitive file actually appears in both the Drive web UI and
+Windows before accepting sync as PASS.
+
+**Development can continue without Drive Desktop.** This laptop's local
+Git clone and GitHub authentication are already verified, and the existing
+cloud Drive \`LocalAI_Workspace\`, \`inbox\` and \`results\` are accessible from
+the connected ChatGPT Google Drive account. That connection does NOT
+automatically expose files to Codex CLI, GitHub Actions or the Windows
+filesystem. Keep code in GitHub; use authorized cloud Drive actions and
+manually approved file transfers until Desktop installation is permitted.
+An unattended GitHub Actions Drive sync would require a separately
+approved Google OAuth/service-account design and secure secrets handling;
+it is not configured by this PR.
+
+
+## Drive Desktop PENDING after Git/Ollama PASS
+
+If `Verify-Git-Drive-Local.cmd` reports that Git, origin, GitHub authentication,
+Ollama API and the 16K model all PASS, but the following three are PENDING:
+`Drive desktop folder accessible`, `Drive inbox/results accessible`, and
+`Google Drive for desktop running`, then the remaining task is solely
+Windows Drive Desktop install/sign-in/mount. Do not reinstall Git, Node,
+Codex, or Ollama.
+
+Official installation guidance: https://support.google.com/drive/answer/10838124?hl=ko
+
+A guided **Setup-Drive-Desktop.cmd** launcher is available for this purpose
+in the reviewed PR branch (not yet on `main`). It checks for the Google Drive
+desktop executable/process, explicitly attempts the official
+`Google.GoogleDrive` winget package if missing, and searches mounted
+`My Drive` / Korean-language equivalent for **the existing**
+`LocalAI_Workspace` folder. It does not create cloud folders or sign in.
+
+A one-time interactive Google login must be performed in the desktop app.
+Use the account that can access the already verified cloud folder:
+
+https://drive.google.com/drive/folders/1uaLzCm1GpjgbmBoI6wQ1dDMcLeb6JD-b
+
+If Windows Drive is mounted but its path differs from defaults, pass
+`-DriveWorkspace` with the exact path. On successful detection of
+`inbox` and `results`, the script writes only the workspace path to
+`%LOCALAPPDATA%\LocalAI\workspace.json` and preserves other fields.
+The selected path must match the intended Drive account; same-named folders
+in other accounts cannot be distinguished from their filesystem name alone.
+
+A file's mere local presence does NOT verify cloud sync. After login,
+check Drive for desktop's status and confirm a newly written, NON-SENSITIVE
+test file appears in Drive web UI before using it for ongoing workflows.
+Do not put customer data in the test file.
+
+
+## Next validation phase — local Git reader and Google Drive Desktop
+
+GitHub Windows CI now runs real \`repo_reader.py\` tests on a disposable Windows
+Git working tree, in addition to the Ubuntu tests. This validates actual
+Windows file reading independently of an unreliable 3B Codex tool call.
+
+**Google Drive cloud-side check:** connected Google Drive was inspected and
+the existing \`LocalAI_Workspace\` folder contains the \`inbox\` and \`results\`
+subfolders. This confirms Drive structure, NOT the Windows Drive desktop mount.
+
+**Windows configuration check:** run \`Verify-Git-Drive-Local.cmd\` from
+the reviewed latest PR branch's \`local_ai\` folder. It checks the Git origin,
+working tree, GitHub authentication, Drive desktop folder and subfolders,
+DriveFS process, and local Ollama API. It is read-only and does not attempt
+to connect ChatGPT's Drive connector to local Codex.
+
+If Drive for desktop uses a non-default drive letter, run from PowerShell
+with your actual local sync path:
+
+    powershell.exe -NoProfile -File .\local_ai\verify-git-drive-local.ps1 -Repo "C:\Users\KimTaeHoon\Projects\Codex" -DriveWorkspace "G:\My Drive\LocalAI_Workspace"
+
+This checks only presence/accessibility. To prove cloud sync, use a small
+non-sensitive file in \`inbox\`, confirm its appearance in the Drive web UI,
+and inspect Drive for desktop's synchronization status. Do not treat folder
+existence or process status as sufficient proof of cloud sync.
+
+Actual file read, without checking out the draft PR:
+
+    $p = Join-Path $env:TEMP "codex-local-test\test.txt"
+    if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Raw }
+
+After branch checkout or merge, deterministic reader:
+
+    python .\local_ai\repo_reader.py --repo . --list
+    python .\local_ai\repo_reader.py --repo . --file README.md
+
+**No automated commits, GitHub pushes, Drive writes or Salesforce writes are
+enabled.** Local Qwen2.5-Coder 3B autonomous tool-calling is still on HOLD.
+
+
+## Workaround for fake Codex tool calls: deterministic Git file reader
+
+On 2026-11-21 the Qwen2.5-Coder 3B model again returned a *printed* fake tool call
+(\`read_mcp_resource\` with \`server:""\` and \`uri:"test.txt"\`) after ~4m58s.
+This did NOT read the file. Do not continue retrying the same Codex agent tool prompt.
+
+Instead, \`repo_reader.py\` uses **Python + the local Git executable** to read the
+actual UTF-8 file deterministically. It does not ask the model to operate tools,
+has no write methods, and rejects traversal, symlinks, files in ignored/sensitive
+paths, and common credential file names/extensions.
+
+From Windows PowerShell in your repository:
+
+    cd "C:\Users\KimTaeHoon\Projects\Codex"
+    python .\local_ai\repo_reader.py --repo . --list
+    python .\local_ai\repo_reader.py --repo . --file README.md
+
+For the earlier synthetic test file (if it still exists locally):
+
+    python .\local_ai\repo_reader.py --repo "$env:TEMP\codex-local-test" --file test.txt
+
+The output starts with \`ACTUAL_FILE_READ:\` and the real path and prints the
+actual file contents; no AI involvement is needed to prove a file read.
+
+**Optional** controlled local AI summarization of a SHORT APPROVED file:
+
+    python .\local_ai\repo_reader.py --repo . --file README.md --analyze
+
+The selected content (at most 2400 characters; longer files are rejected for
+analysis) goes only to the existing local Ollama endpoint at 127.0.0.1:11434,
+using \`qwen25coder3b-16k:latest\`. Model analysis is explicitly labeled DRAFT
+and REVIEW_REQUIRED. It cannot issue tool calls or modify any file. Confirm
+organization data policy before locally analyzing sensitive information; this
+is designed for non-sensitive text only.
+
+The helper has an independent GitHub Actions unittest suite under
+\`local_ai/tests/test_repo_reader.py\`. A green suite confirms local file read,
+traversal restrictions and CLI behavior; it does NOT imply the 3B model is ready
+for autonomous code editing.
+
+**Important:** This file was introduced in draft PR #903. Until that PR is
+merged, your local \`main\` clone will not contain \`local_ai/repo_reader.py\`.
+You can run the same simple read command *immediately* without checking out
+the draft branch:
+
+    Get-Content -LiteralPath "$env:TEMP\codex-local-test\test.txt"
+
+Do not merge PR #903 or execute third-party code before review. All genuine
+code changes and GitHub Actions should remain independent of the unreliable
+3B tool-calling model.
+
+
+## VS Code PowerShell says "ollama is not recognized" while Codex is running
+
+The Windows terminal may have inherited an outdated PATH even while Ollama's localhost API and Codex TUI are working. The observed Git clone is `C:\Users\KimTaeHoon\Projects\Codex`, origin `https://github.com/kimtk94/Codex.git`, branch `main`, clean worktree, and `gh auth status` succeeds. Do **not** reinstall Ollama on the basis of a single PowerShell `CommandNotFoundException`.
+
+In the **right-hand PowerShell** run:
+
+    Get-Command ollama.exe -ErrorAction SilentlyContinue
+    Test-Path "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+    Invoke-RestMethod http://127.0.0.1:11434/api/tags | Select-Object -ExpandProperty models
+
+If the executable exists at the common official path, use the full path immediately:
+
+    & "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" list
+
+Or run **Repair-Ollama-Command.cmd** from the latest local_ai folder. It locates the existing executable, confirms the local API, and adds its *directory* to the current **user's PATH** (not machine-wide). Open a fresh PowerShell / VS Code terminal afterwards and check `ollama list`. If the executable was installed elsewhere, locate the real path first; do not append untrusted locations to PATH.
+
+The `Start-Local-Codex.cmd` now checks the local Ollama HTTP API even when the CLI executable is missing from the current terminal PATH. To create a missing 16K alias, the CLI must still be discoverable; the launcher will give a repair instruction instead of silently failing.
+
+**Next local development test:** use the synthetic read-only `Preflight-Codex-Tool-Use.cmd`. Git authentication and a clean worktree do not prove that a 3B model can perform actual agent tool calls. Keep automatic edits/pushes on HOLD until a genuine `command_execution` event has been verified.
+
+
+## AGENT TOOL-USE BLOCKED (2026-11-21) — do not trust the TUI screenshot
+
+The user requested a read-only Git repository analysis, but local Codex/Qwen2.5-Coder 3B spent 4m33s and printed a fake tool call:
+
+    {"name":"mcp__codex_tui.read_thread","arguments":{"threadId":"your thread id here"}}
+
+This is **not** evidence of an actual tool invocation, Git checkout, file read, or repository analysis. The model's previous "OK" instruction test establishes only basic text generation, not usable coding-agent tool calling. Local Codex autonomous development is **HOLD**.
+
+1. First verify that you are in the intended Git repository rather than `~`:
+
+       cd $env:USERPROFILE\Projects\Codex
+       git rev-parse --show-toplevel
+       git status --short
+
+   If it doesn't exist, use `Setup-Git-Drive.cmd` to set up Git and clone the repository (browser sign-in required).
+
+2. The optional **Preflight-Codex-Tool-Use.cmd** creates a disposable Git repository under Windows TEMP with a random marker, invokes `codex exec --oss --local-provider ollama ... --sandbox read-only --json`, and requires a **real successful command_execution JSON event** containing the marker AND a corresponding final answer. It cannot be satisfied by a fabricated tool-call JSON printed by the model. It never accesses private customer files or modifies your main repository. **The preflight may be very slow on CPU. Stop with Ctrl+C if it stalls**; it is a diagnostic, not a scheduled task.
+3. PASS proves only one read-only tool use on synthetic content. It does **not** authorize edits, pushes, PRs, SFDC/Feishu writes, or unattended coding. Follow with separately reviewed tests if continuing.
+4. FAIL or no JSON tool events means do not use this 3B model for autonomous agentic coding. Continue with cloud GitHub Actions + human review for actual changes; local 3B remains suitable for short textual assistance subject to quality checks.
+5. GitHub-hosted CI checks only the syntax and safety wiring of the preflight, **not** real model tool-use.
+
+Official Codex CLI reference for `exec`, `--json`, `--local-provider` and `--sandbox read-only`: https://learn.chatgpt.com/docs/cli/reference
+
+
+## Default model decision — 2026-11-21 (measured on the Windows laptop)
+
+**Qwen2.5-Coder 3B 16K is now the default for `Start-Local-Codex.cmd`**. The existing Qwen3 4B models remain installed and available as fallbacks. This is a cautious test promotion based on a simple controlled instruction-following comparison — **NOT** authorization for autonomous commits, pushes, customer data use, SFDC writes or unsupervised PR merges.
+
+| Actual laptop metric | Qwen3 4B 16K | Qwen2.5-Coder 3B 16K |
+|---|---:|---:|
+| Prompt evaluation | 26.50 tok/s | **37.57 tok/s** |
+| Output generation | 7.26 tok/s | **21.39 tok/s** |
+| Exact single-word response | FAIL | **PASS** |
+| Stop reason | `length` | **`stop` |
+
+Measured output throughput improved **2.95×** and prompt throughput improved **1.42×** under this one synthetic prompt. Qwen3 4B did not finish within 128 generated tokens, so it was not accepted for automatic coding work.
+
+One-time setup (if needed): download the official `qwen2.5-coder:3b` base with `ollama pull qwen2.5-coder:3b`; the `Start-Local-Codex.cmd` launcher automatically creates `qwen25coder3b-16k` from the installed base when its 16K alias is missing. If already created, it reuses the alias without redownloading weights.
+
+Run directly in PowerShell from a **non-sensitive test Git repository**:
+
+    codex.cmd --oss -m qwen25coder3b-16k:latest -c 'model_context_window=16384'
+
+Then inspect `/status` and `/permissions`. Validate a small **read-only** repository question before allowing any file changes. Run `ollama ps` separately to verify the model has CONTEXT 16384.
+
+For any real work, use a dedicated Git branch with human approvals, review `git diff`, run tests, and commit only approved changes. Note that Ollama's Codex integration recommends >=64K context; at 16GB RAM with CPU-only inference a 16K test is resource-limited and may not handle extended agent interactions.
+
+
+## 2026-11-21 measured CPU baseline and model comparison
+
+The Windows laptop measured `qwen3-codex16k:latest` at **27.09 prompt tokens/s**, **6.58 output tokens/s**, **16,384 allocated context**, **5.1 GB loaded model**, **100% CPU**, and `done_reason=length` plus failure to comply with `Reply with OK only`. This validates 16K allocation but **does not establish reliable agentic coding**.
+
+To screen another coder-specific model without changing the default launcher:
+
+1. From the latest reviewed `local_ai` folder, double-click **Compare-Local-Coding-Models.cmd**.
+2. This explicitly downloads `qwen2.5-coder:3b` (~1.9 GB official Ollama model) if absent and creates a separate `qwen25coder3b-16k` alias using `PARAMETER num_ctx 16384`. Original models remain available.
+3. Runs two short synthetic tests on **each** local model with 128 output tokens max, captures complete/incomplete response, exact response compliance, prompt tokens/s, output tokens/s, and elapsed time. This is a screening test only.
+4. Compares results; does **not** change which model `Start-Local-Codex.cmd` launches. Only manually switch after comparing speed and correctness, then verify actual Codex tool use on non-sensitive test code.
+5. If both models fail simple exact-response tests, stop attempting autonomous code edits on the 16GB CPU-only machine. Use it for small classification/summaries and retain cloud GitHub Actions with human-reviewed PRs for serious development.
+
+Model details: https://ollama.com/library/qwen2.5-coder:3b (3B / ~1.9GB).
+
+
+## Performance result, 2026-11-21 (user-provided Windows measurement)
+
+- Measured: 4.41 seconds total; 8.71 output tokens/s on `qwen3-codex16k:latest`.
+- The previous synthetic `num_predict=24` request returned text beginning with "Hmm, the user just asked..." instead of obeying "Reply with OK only." This is **incomplete instruction following**, not an accepted agent-quality PASS.
+- It did not measure long prompt processing (`prompt_eval_count / prompt_eval_duration`) nor GPU allocation. Codex's large system prompt and tool use may still be too slow.
+- New **Diagnose-Local-Codex-Speed.cmd** now checks prompt-eval speed, generation speed, final answer exactly `OK`, and thinking-field length, using a 128-token budget and `/no_think` plus `think=false`. It reports a failure if no exact OK is produced, instead of mislabeling mere generation as success.
+- After this test run `ollama ps` and review Codex's F2 warnings. Do not approve autonomous edits or merging until short non-sensitive tasks pass.
+
+
+## Slow Codex response / "Working (4m 48s)" on 16GB Windows
+
+If Codex shows `Working` for several minutes and has not produced an answer:
+- This is **not yet a successful inference**. The selected `qwen3-codex16k:latest` model is being used, but the local AI may be waiting for slow CPU/GPU token processing.
+- Press **F2** inside Codex to view the 2 warnings. Record their text before treating them as harmless.
+- In another PowerShell run `ollama ps` to view the loaded model, actual CONTEXT and PROCESSOR/GPU allocation.
+- If Codex is not responding, press **Esc** to interrupt it before conducting the controlled test (do not kill other Windows apps).
+- In the reviewed local_ai folder, double-click **Diagnose-Local-Codex-Speed.cmd**. It runs a short *synthetic* Ollama request (without Codex's long agent prompt), prints available RAM, GPU name, actual allocated context, response latency, and output tokens/second. No work data, GitHub calls or Google Drive files are used.
+- If synthetic Ollama itself is slow, reduce context/model size or leave repeated builds/tests to GitHub Actions. If synthetic Ollama is fast but Codex is slow, its long agent prompt/tool loop on a 4B model is the likely bottleneck. Do not assume a smaller model will be capable of reliable agentic coding.
+
+The script has a 120-second diagnostic request timeout. On 16GB RAM, 16K may require considerable memory. Results are measured only when actually run on the Windows laptop; a GitHub Actions syntax PASS is **not** a benchmark.
+
+
+### Missing model name: "pull model manifest: file does not exist"
+
+The model `qwen3-codex16k` is a LOCAL custom alias, **not** a registry model.
+Do not call `ollama pull qwen3-codex16k` or try to launch Codex before creating it.
+
+One-time direct PowerShell commands:
+
+    $mf = Join-Path $env:TEMP 'Modelfile.codex16k'
+    "FROM qwen3:4b`nPARAMETER num_ctx 16384`n" | Set-Content -LiteralPath $mf -Encoding ascii
+    ollama create qwen3-codex16k -f $mf
+    ollama list
+    codex.cmd --oss -m qwen3-codex16k:latest -c 'model_context_window=16384'
+
+Alternatively run `Fix-Codex-4096.cmd`, which also checks the actual allocation.
+The **Start-Local-Codex.cmd** launcher now detects a missing `qwen3-codex16k`, calls the local creator automatically, verifies that it was created, then starts Codex. No remote model download for the alias is required.
+
+## Recommended fix when Codex still reports 4096-token context (Nov 21)
+
+If Codex says `request (5875 tokens) exceeds available context (4096 tokens)`, the running Ollama model is still limited to 4K. **Changing only Codex's `model_context_window` does not enlarge Ollama's runtime context.**
+
+**One-time fix:** close Codex, then run **Fix-Codex-4096.cmd**. It creates a NEW local Ollama alias `qwen3-codex16k` from the installed `qwen3:4b`, using this persistent Modelfile:
+
+    FROM qwen3:4b
+    PARAMETER num_ctx 16384
+
+It then checks `ollama show --modelfile`, executes a synthetic no-private-data inference, and verifies the real `context_length` returned by local `/api/ps`. It exits nonzero if the server is still allocating 4096 or if memory is insufficient.
+
+**Next time:** use **Start-Local-Codex.cmd**, which now selects `qwen3-codex16k` by default. Direct PowerShell alternative: `codex.cmd --oss -m qwen3-codex16k -c 'model_context_window=16384'`.
+
+The original `qwen3:4b` model remains untouched. This does not require an Administrator sandbox or Internet model API; it only talks to `http://127.0.0.1:11434`. The official Ollama Modelfile docs confirm the `FROM` and `PARAMETER num_ctx` syntax: https://docs.ollama.com/modelfile.
+
+The older **Set-Ollama-Context-16K.cmd** remains as an optional environment-variable fallback, but it does NOT by itself prove that an already-running Ollama process has picked up the configuration. **Verify-Local-Codex-16K.cmd** now checks the new custom alias.
+
+On 16GB RAM, 16K is only the first feasible test size. Ollama recommends a >=64K context for Codex; high context can be prohibitively slow or fail without enough RAM/VRAM. Neither this setup nor CI claims full agent quality at 16K.
+
+
+## Real Windows context/inference verification (after restarting Ollama)
+
+1. Run **Set-Ollama-Context-16K.cmd** once, if it was not run before.
+2. Fully quit Ollama from the Windows tray and relaunch it; close the previous Codex session.
+3. Run **Verify-Local-Codex-16K.cmd**. This sends **one synthetic prompt** only to `127.0.0.1:11434`, does not set `options.num_ctx`, and then reads the effective `context_length` from `/api/ps`.
+4. Expect **PASS** and `CONTEXT=16384` or greater. If it reports `4096`, check Ollama desktop Settings > Context length and restart Ollama fully, then run again.
+5. After PASS, run **Start-Local-Codex.cmd**, type `/status` and confirm the selected model and workspace. Test a short, read-only question.
+6. This verification does NOT prove that Codex agent's 5,875-token prompt or large tool-calling tasks are guaranteed to work: it validates the local model response and the loaded context allocation separately. Use a real Codex prompt as a separate acceptance test.
+
+The script performs no credential access, GitHub or Google Drive data transfers, and does not create files. Running an inference loads the model temporarily and may consume considerable RAM.
+
+## Fix Codex's "request exceeds available context size (4096)" error
+
+On a 16GB RAM Windows laptop, Codex may send ~5,875 prompt tokens while Ollama allocates only 4,096. This is a **context-window mismatch**, not npm/Codex installation failure.
+
+**One-time change:** double-click **Set-Ollama-Context-16K.cmd** in this folder. It saves OLLAMA_CONTEXT_LENGTH=16384 in the current user's environment (no Administrator rights); it does not modify your GitHub or Drive credentials.
+
+**Critical:** fully Quit both Codex and Ollama (Ollama tray icon > Quit), then reopen Ollama from the Windows Start menu. A new PowerShell session by itself is NOT enough if the old Ollama server remains running. Another officially supported option is to set Ollama's *Settings > Context length* slider to 16K and restart the model if needed. If the UI setting overrides the environment variable, prefer checking actual loaded context rather than assuming the saved value took effect.
+
+Then open Start-Local-Codex.cmd. The launcher now passes model_context_window=16384 so Codex's conversation budget matches the intended Ollama allocation. **This option does not itself enlarge the Ollama server's actual allocation.**
+
+Use a small, no-file-write prompt to test. From a separate PowerShell after model loading, run:
+
+    ollama ps
+
+The **CONTEXT** column must be 16384 (or at least greater than the prompt size). If it still shows 4096, the previous Ollama process or an app/model-specific override is likely still in effect.
+
+Ollama recommends >=64K for coding agents, but 16K is only a **resource-constrained initial test**, not a guarantee for larger repositories. The 32K or 64K settings may exceed practical 16GB laptop memory limits. For large codebases use smaller task scopes or GitHub-hosted CI, not an unverified huge context.
+
+Source: https://docs.ollama.com/context-length and https://docs.ollama.com/integrations/codex
+
+
+## GitHub + Google Drive for desktop (mandatory local connections)
+
+A Google Drive connection in ChatGPT is **not** automatically inherited by local Codex CLI. This configuration uses GitHub CLI authentication and Windows Google Drive for desktop sync.
+
+### One-time setup
+
+1. In the Codex Windows sandbox prompt, choose option 1 (default sandbox) with administrator approval if permitted. Do not bypass sandbox policies.
+2. Exit Codex for setup, then double-click **Setup-Git-Drive.cmd** from the reviewed local_ai folder.
+   - Git for Windows and GitHub CLI are checked; missing tools are installed with winget when available.
+   - GitHub CLI uses browser authentication (gh auth login). OAuth approval belongs to the user.
+   - The repository kimtk94/Codex is cloned to %USERPROFILE%\Projects\Codex, without overwriting an existing non-Git folder.
+   - A Git-ignored local staging folder named .local_ai_data is created in the clone. It is ignored in .git/info/exclude.
+3. Separately install [Google Drive for desktop](https://support.google.com/drive/answer/10838124?hl=ko), sign in, and create a folder called LocalAI_Workspace in your Google My Drive. Provide the Windows folder path when prompted, for example G:\My Drive\LocalAI_Workspace.
+4. Drive for desktop may stream or mirror; if streaming, make required files available offline for offline work. Confirm that the sync status is fully complete. Folder existence alone cannot prove syncing.
+5. The setup saves only local directory paths to %LOCALAPPDATA%\LocalAI\workspace.json (never passwords or tokens).
+6. Run **Check-Git-Drive.cmd**. All three checks (GitHub authentication, Git clone, Drive folder) must succeed. A nonzero code 2 means one is pending.
+7. Run **Start-Local-Codex.cmd** for normal future use: it starts the local model inside the saved GitHub clone. Run /status and verify provider/model; run /permissions to inspect sandbox access.
+
+### Deliberate, per-file Drive transfers
+
+Code and Git history belong in GitHub. Private research/customer data remain in Google Drive and are NOT automatically uploaded to GitHub.
+
+- Place an approved input file under <Drive LocalAI_Workspace>\inbox.
+- Import that single file into Git-ignored local staging (from the cloned repo, after PR merge):
+
+    powershell.exe -NoProfile -File .\local_ai\drive-staging.ps1 -Action Import -FileName "example.csv"
+
+- The approved file becomes available under <repo>\.local_ai_data\inbox.
+- Write a reviewed, non-sensitive output into <repo>\.local_ai_data\outbox and export that named file:
+
+    powershell.exe -NoProfile -File .\local_ai\drive-staging.ps1 -Action Export -FileName "result.csv"
+
+- Exports go into <Drive LocalAI_Workspace>\results. No destination overwrites, remote API writes, Git commits or Git pushes occur.
+- If using the PR ZIP before merge, the scripts are in that ZIP rather than in the main-branch clone. Use the full script path from the ZIP until PR merge completes.
+- Native Google Docs, Sheets and Slides are not automatically editable through a Windows file bridge. Direct edits need a separately authorized Google Workspace MCP/API connection.
+- Never commit client records, tokens, identifiable health data or confidential analysis outputs to the public Codex repo. For sensitive workloads use a private Git repository and organization-approved Google Drive.
+- Files in arbitrary Drive locations are not automatically accessible to Codex's sandbox. The bridge deliberately imports only approved files into the selected local workspace.
+
+### Manual Git verification
+
+    git --version
+    gh --version
+    gh auth status
+    gh repo view kimtk94/Codex
+    git -C "$env:USERPROFILE\Projects\Codex" remote -v
+
+No self-hosted runner is needed for interactive Codex work. Local inference from GitHub Actions requires a separate PRIVATE repository and runner provisioning.
+
+
+## Recommended one-time setup + daily launch (Windows)
+
+The Windows Ollama app is already installed. No need to install Node.js/npm manually if winget is available.
+
+1. Get the reviewed local_ai folder from this branch/PR (or clone the repo).
+2. Double-click **Setup-Local-Codex.cmd** once. This checks Node/npm, installs Node.js LTS through winget only when missing, installs/updates @openai/codex with npm.cmd, checks Ollama localhost, and pulls qwen3:4b if missing. Confirm any installation prompts.
+3. Double-click **Check-Local-Codex.cmd** to verify local dependencies.
+4. For future coding sessions double-click **Start-Local-Codex.cmd**. It starts Codex CLI with the **measured Qwen2.5-Coder 3B local model** in the saved repository root. Drag another project folder onto this .cmd file if you want to work in that project.
+5. Do not use automatic approvals or the "dangerously bypass" flags. Review generated code and diffs before committing.
+
+To use a different local model from PowerShell (after downloading it with ollama pull):
+
+    .\local_ai\local-codex.ps1 -Mode Start -Model qwen3:1.7b -ProjectPath C:\path\to\project
+
+The launcher uses **codex --oss -m qwen3:4b** and disables web search for that session. The Ollama API is on 127.0.0.1 only, but this is not an air-gapped security guarantee: Codex shell tools may access the network unless separately restricted. Avoid feeding private work data before checking company policy.
+
+**Important:** Ollama recommends at least 64k context for Codex. A 16GB RAM machine with qwen3:4b can be slower or fail on large context/tool-calling work. The setup does **not** automatically increase context to 64k. Start with small isolated coding tasks and verify the model and GPU capability in actual Windows testing.
+
+If PowerShell execution policy blocks the script, verify its contents, then use Unblock-File .\local_ai\local-codex.ps1. Do not change machine-wide execution policies.
+
+
+**Status:** staged / read-only. This folder does not change CSS, SFDC, Quote, Feishu or research workflows. Inference is NOT executed on public GitHub runners.
+
+## Suggested setup
+
+- Windows 16 GB RAM; GPU not yet identified.
+- **Current default:** qwen25coder3b-16k (from official qwen2.5-coder:3b, ~1.9 GB download), measured on this user's CPU laptop.
+- Previous benchmark baseline: qwen3-codex16k (from qwen3:4b, 4B). Keep for comparison, not current default.
+- Install Ollama from https://ollama.com/download/windows
+- Keep Ollama bound to localhost 127.0.0.1:11434. Do not expose it with OLLAMA_HOST=0.0.0.0, public forwarding or firewall rules.
+
+## Windows laptop steps (PowerShell at cloned repository root)
+
+1. Install the official Windows Ollama application and start it.
+2. Install Python 3.10+ if Python is absent. No third-party Python packages required.
+3. Inspect hardware, connectivity and model inventory: 
+   
+       .\local_ai\bootstrap.ps1
+
+4. Download local model (about 2.5 GB):
+
+       .\local_ai\bootstrap.ps1 -PullModel
+
+5. Run synthetic-data smoke test:
+
+       python .\local_ai\ollama_client.py --input .\local_ai\demo_inputs\synthetic_lead.txt --task lead_triage
+
+6. Other commands:
+
+       ollama list
+       ollama ps
+       python .\local_ai\ollama_client.py --check
+       python -m unittest discover -s local_ai/tests -v
+
+If local execution policy blocks the script, review the script and run Unblock-File .\local_ai\bootstrap.ps1. Do not disable PowerShell security machine-wide.
+
+Local result files are stored under %USERPROFILE%\LocalAI_Results by default, not in the repository.
+
+## Guarantees and limitations
+
+- Python talks only to http://127.0.0.1:11434 via Ollama's local API; :cloud model names are rejected.
+- No CRM/Feishu write, no mail sending, no Quote pricing, no automatic project updates.
+- Each result is draft-only and marked review_required=true. AI output is not verified truth.
+- Lead description presence is NOT proof that any outgoing contact occurred. A contacted state requires explicit outbound-mail evidence in supplied data.
+- No automatic access to customer emails, Salesforce, files, or private Drive data.
+- Real customer data must not be committed to public GitHub, used as workflow inputs/fixtures or exposed in Actions logs/artifacts. Review employer data-handling policies before processing even locally.
+- The model itself can be mistaken and produce incomplete JSON. Deterministic checks and human approval remain mandatory before any future writes.
+
+## GitHub Actions integration
+
+- The live .github/workflows/local-ai-offline-checks.yml runs Python tests on a GitHub-hosted Ubuntu runner. No customer data or real Ollama model is used. The green workflow does NOT prove the laptop setup is operational.
+- The private runner example is local_ai/templates/private-runner-workflow.yml.example. It is NOT active.
+- GitHub specifically discourages self-hosted runners in public repositories. **Never register the Windows laptop as a self-hosted runner for the public Codex repository.**
+- To execute model inference by GitHub Actions, create a dedicated PRIVATE repo, copy reviewed local_ai sources there, register a Windows self-hosted runner with label local-ai (Settings > Actions > Runners), and move the example to the private repo's .github/workflows/local-ai-smoke.yml.
+- The laptop and Ollama must be online. Restrict who can edit workflows, avoid untrusted pull_request triggers, and grant only contents:read. Sample workflow uses synthetic data and never uploads content.
+- Private repo registration is a separate action, not automatically performed here.
+
+## Troubleshooting
+
+- Ollama missing: install official Windows app, reopen PowerShell.
+- Localhost unavailable: start Ollama from Start menu and rerun diagnostic.
+- Too slow: download smaller model (.\local_ai\bootstrap.ps1 -Model qwen3:1.7b -PullModel), pass --model qwen3:1.7b to client.
+- Models empty: model not yet pulled.
+- GPU acceleration cannot be assumed until diagnostic identifies device.

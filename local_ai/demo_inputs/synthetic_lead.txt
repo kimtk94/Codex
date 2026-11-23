@@ -1,0 +1,4 @@
+SYNTHETIC TEST RECORD — NOT A REAL CUSTOMER
+Lead created: 2026-11-20
+Description: Inquired about RNA sequencing for 8 synthetic samples.
+Outgoing email evidence: none provided.
