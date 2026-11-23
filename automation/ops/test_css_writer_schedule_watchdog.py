@@ -1,8 +1,13 @@
 """No duplicate, unverified, or uncontrolled automated writer dispatch."""
 import datetime as dt
+import io
+import json
 import unittest
+from unittest.mock import patch
 
-from css_writer_schedule_watchdog import inspect, reconcile, FEISHU, QQ
+from css_writer_schedule_watchdog import (
+    inspect, reconcile, applied_dispatch_job_ids, FEISHU, QQ, REPO,
+)
 
 NOW=dt.datetime(2026,11,23,12,0,tzinfo=dt.timezone.utc)
 
@@ -24,6 +29,63 @@ class RecurringWatchdogTests(unittest.TestCase):
         z=reconcile([run(2)],[run(2)],NOW,True,lambda:called.append("dispatch"))
         self.assertEqual(called,[])
         self.assertEqual(z["dispatch_state"],"NOT_REQUESTED")
+
+    def test_verified_recovered_writer_resets_staleness_without_repeating(self):
+        old = dict(run(11),id=100)
+        recovered = dict(run(1,event="workflow_dispatch"),id=200)
+        r = inspect([old,recovered], NOW, 6, verified_applied_ids={200})
+        self.assertEqual(r["state"],"RECENT_VERIFIED_RECOVERY_SUCCESS")
+        self.assertTrue(r["verified_recovered_success"])
+        self.assertFalse(r["eligible"])
+        called = []
+        out = reconcile([old,recovered],[run(2)],NOW,True,
+                        lambda:called.append(FEISHU),
+                        verified_applied_ids={200})
+        self.assertEqual(called,[])
+        self.assertEqual(out["dispatch_state"],"NOT_REQUESTED")
+
+    def test_unverified_green_manual_tests_do_not_certify_recovery(self):
+        old = dict(run(11),id=100)
+        manual = dict(run(1,event="workflow_dispatch"),id=201)
+        self.assertEqual(inspect([old,manual],NOW,6)["state"],"COOLDOWN_WAIT")
+        self.assertEqual(inspect([old,manual],NOW,6,
+                                 verified_applied_ids={999})["state"],"COOLDOWN_WAIT")
+
+    def test_applied_dispatch_requires_all_jobs_and_untruncated_history(self):
+        manual = dict(run(1,event="workflow_dispatch"),id=345)
+        records=[
+            {"name":name,"status":"completed","conclusion":"success"}
+            for name in ("tests","ingest","payment","lifecycle","monthly")
+        ]
+
+        def fake_urlopen_success(request,timeout):
+            self.assertIn("/actions/runs/345/jobs",request.full_url)
+            return io.BytesIO(json.dumps({"total_count":5,"jobs":records}).encode())
+
+        with patch("css_writer_schedule_watchdog.urllib.request.urlopen",
+                   side_effect=fake_urlopen_success):
+            self.assertEqual(applied_dispatch_job_ids(REPO,"PRIVATE_TOKEN",
+                                                      [manual],NOW),{345})
+        incomplete={"total_count":5,"jobs":records[:4]}
+        with patch("css_writer_schedule_watchdog.urllib.request.urlopen",
+                   return_value=io.BytesIO(json.dumps(incomplete).encode())):
+            with self.assertRaisesRegex(RuntimeError,"RECOVERY_JOBS_TRUNCATED"):
+                applied_dispatch_job_ids(REPO,"PRIVATE_TOKEN",[manual],NOW)
+        skipped={"total_count":5,"jobs":[dict(x,conclusion="skipped")
+                             if x["name"]=="ingest" else x for x in records]}
+        with patch("css_writer_schedule_watchdog.urllib.request.urlopen",
+                   return_value=io.BytesIO(json.dumps(skipped).encode())):
+            self.assertEqual(applied_dispatch_job_ids(REPO,"PRIVATE_TOKEN",
+                                                       [manual],NOW),set())
+
+    def test_applied_dispatch_unverifiable_id_or_timestamp_fails_closed(self):
+        manual=dict(run(1,event="workflow_dispatch"),id="345")
+        with self.assertRaisesRegex(RuntimeError,"RECOVERY_RUN_ID_UNVERIFIED"):
+            applied_dispatch_job_ids(REPO,"PRIVATE_TOKEN",[manual],NOW)
+        manual["id"]=345
+        manual["created_at"]="not-a-timestamp"
+        with self.assertRaisesRegex(RuntimeError,"RECOVERY_RUN_TIMESTAMP_UNVERIFIED"):
+            applied_dispatch_job_ids(REPO,"PRIVATE_TOKEN",[manual],NOW)
 
     def test_stale_triggers_one_existing_writer_only(self):
         called=[]
