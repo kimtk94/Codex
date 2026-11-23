@@ -840,9 +840,11 @@ def run(root, goal, *, dry_run=False):
         known = {"MODEL_OUTPUT_SCHEMA", "MODEL_INVALID_JSON",
                  "MODEL_OUTPUT_TRUNCATED"}
         previous_reason = previous.get("reason")
-        if prior.get("state") == "HOLD" and previous_reason in known:
+        if (prior.get("state") == "HOLD"
+                and isinstance(previous_reason, str) and previous_reason in known):
             evidence["last_format_rejection"] = previous_reason
-        elif previous.get("last_format_rejection") in known:
+        elif (isinstance(previous.get("last_format_rejection"), str)
+              and previous["last_format_rejection"] in known):
             evidence["last_format_rejection"] = previous["last_format_rejection"]
     if dry_run:
         evidence["note"] = "No model, git write, checkpoint write, or remote action performed."
