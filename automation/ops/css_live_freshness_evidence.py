@@ -351,8 +351,8 @@ def main():
                       str(snapshot.get("invoice_count_delta_lifecycle_minus_net")) +
                       "**; timestamp ordering: **" +
                       snapshot.get("snapshot_order", "UNVERIFIED") +
-                      "**. Verify original invoice IDs before any recalculation.\\n\\n")
-            out.write("| Domain | Source | Sink | Business status |\\n|---|---|---|---|\\n")
+                      "**. Verify original invoice IDs before any recalculation.\n\n")
+            out.write("| Domain | Source | Sink | Business status |\n|---|---|---|---|\n")
             for item in report["domains"]:
                 out.write("| " + item["name"] + " | BLOCK | BLOCK | BLOCK |\n")
             out.write("\nSee artifact `css-live-freshness-evidence` for snapshot counts/reasons.\n")
