@@ -5,15 +5,17 @@ on:
       - 'research/kalman_daily20/challenger_stat_validation.py'
       - 'research/kalman_daily20/challenger_overfit_validation.py'
       - 'research/kalman_daily20/challenger_prequential.py'
+      - 'research/kalman_daily20/challenger_forward_producer.py'
       - 'research/kalman_daily20/challenger_prequential_protocol.json'
       - '.github/workflows/kalman-challenger-stat-validation.yml'
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   synthetic-contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       OPENBLAS_NUM_THREADS: '1'
       OMP_NUM_THREADS: '1'
@@ -26,7 +28,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install research numerical dependency
-        run: python -m pip install numpy==2.3.5 'pandas>=2.2,<3' 'exchange-calendars>=4.7,<5'
+        run: python -m pip install numpy==2.3.5 'pandas>=2.2,<3' 'exchange-calendars>=4.7,<5' 'pyarrow>=17,<25'
       - name: Validate synthetic statistical contracts only
         run: python research/kalman_daily20/challenger_stat_validation.py --self-test
 
@@ -35,3 +37,30 @@ jobs:
 
       - name: Validate prospective prequential contracts (synthetic only)
         run: python research/kalman_daily20/challenger_prequential.py --self-test
+
+      - name: Validate cash ledger and RR2 contracts (synthetic only)
+        run: python research/kalman_daily20/challenger_forward_producer.py --self-test
+      - name: Fetch pinned historical artifacts (same repository, read only)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/kimtk94/Codex/actions/artifacts/14914498151/zip > "${RUNNER_TEMP}/challenger-data.zip"
+          gh api repos/kimtk94/Codex/actions/artifacts/14915426739/zip > "${RUNNER_TEMP}/challenger-research.zip"
+          printf '%s  %s\n' 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf "${RUNNER_TEMP}/challenger-data.zip" c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f "${RUNNER_TEMP}/challenger-research.zip" | sha256sum -c -
+      - name: Rehearse frozen historical data (never produce prospective events)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          python research/kalman_daily20/challenger_forward_producer.py --mode rehearse \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --source-id 'run-45383657032-artifacts-14914498151-14915426739' --out "${RUNNER_TEMP}/challenger-rehearsal"
+      - name: Upload aggregate rehearsal report only
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-historical-rehearsal-not-forward
+          path: ${{ runner.temp }}/challenger-rehearsal/historical_rehearsal.json
+          if-no-files-found: error
+          retention-days: 21
