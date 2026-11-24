@@ -209,6 +209,56 @@ class ProjectManagementSetupTests(unittest.TestCase):
         self.assertTrue(any(call[1].endswith("/views/" + pm.VIEW_IDS["00 관리 작업대"]) for call in fake.calls))
         self.assertEqual(fake.writes(), [])
 
+    def test_calendar_type_discrepancy_is_reported_only_in_readonly_plan(self):
+        for reported in ("unknown", "grid", "not_support"):
+            with self.subTest(reported=reported):
+                fake = FakeMetadata()
+                calendar = fake.views[-1]
+                calendar["view_type"] = reported
+                old = copy.deepcopy((fake.fields, fake.views, fake.records))
+                result = pm.setup(fake.client(), "plan")
+                self.assertEqual(result["view_presence_status"], "PRESENT")
+                self.assertEqual(result["view_type_status"], "UI_REVIEW_REQUIRED")
+                self.assertEqual(result["view_type_review"], ["03 확인 일정"])
+                self.assertEqual(result["views"]["03 확인 일정"], {
+                    "view_id": pm.VIEW_IDS["03 확인 일정"], "view_type": reported,
+                    "expected_view_type": "calendar", "type_status": "UI_REVIEW_REQUIRED"})
+                self.assertEqual(result["view_layout_status"], "UI_MANAGED_NOT_VERIFIED")
+                self.assertEqual(fake.writes(), [])
+                self.assertEqual((fake.fields, fake.views, fake.records), old)
+
+    def test_calendar_type_discrepancy_still_blocks_apply_before_field_create(self):
+        fake = FakeMetadata(fields=[])
+        fake.views[-1]["view_type"] = "unknown"
+        with self.assertRaisesRegex(pm.SafeError, "VIEW_TYPE_MISMATCH"):
+            pm.setup(fake.client(), "apply")
+        self.assertEqual(fake.writes(), [])
+
+    def test_calendar_identity_drift_still_blocks_plan(self):
+        for change in ({"view_id": "vewReplacement"}, {"view_name": "Renamed calendar"}):
+            with self.subTest(change=change):
+                fake = FakeMetadata()
+                fake.views[-1].update(change)
+                fake.views[-1]["view_type"] = "unknown"
+                with self.assertRaisesRegex(pm.SafeError, "VIEW_ID(_NAME)?_MISMATCH"):
+                    pm.setup(fake.client(), "plan")
+                self.assertEqual(fake.writes(), [])
+
+    def test_non_calendar_type_mismatch_still_blocks_plan(self):
+        fake = FakeMetadata()
+        fake.views[1]["view_type"] = "kanban"
+        with self.assertRaisesRegex(pm.SafeError, "VIEW_TYPE_MISMATCH"):
+            pm.setup(fake.client(), "plan")
+        self.assertEqual(fake.writes(), [])
+
+    def test_unrecognized_calendar_type_is_not_logged_raw(self):
+        fake = FakeMetadata()
+        fake.views[-1]["view_type"] = "unrecognized metadata with spaces"
+        result = pm.setup(fake.client())
+        self.assertEqual(result["views"]["03 확인 일정"]["view_type"], "UNRECOGNIZED")
+        self.assertEqual(result["view_type_status"], "UI_REVIEW_REQUIRED")
+        self.assertEqual(fake.writes(), [])
+
     def test_replaced_or_renamed_reviewed_view_blocks_all_creates(self):
         for change in ({"view_id": "vewReplacement"}, {"view_name": "Renamed workbench"}):
             with self.subTest(change=change):

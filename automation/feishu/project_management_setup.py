@@ -135,7 +135,7 @@ def inspect_fields(items):
     return by_name, missing, notes
 
 
-def inspect_views(client, items):
+def inspect_views(client, items, *, allow_calendar_review=False):
     found = {}
     names_by_id = {identity: name for name, identity in VIEW_IDS.items()}
     for item in items:
@@ -154,9 +154,23 @@ def inspect_views(client, items):
             detail = client.call("GET", TABLE_PATH + "/views/" + item["view_id"]).get("view") or {}
             if detail.get("view_id") != item["view_id"] or detail.get("view_name") != name:
                 raise SafeError("PROJECT_MANAGEMENT_VIEW_READBACK_MISMATCH:" + name)
-        if detail.get("view_type") != VIEW_TYPES[name]:
-            raise SafeError("PROJECT_MANAGEMENT_VIEW_TYPE_MISMATCH:" + name)
-        found[name] = {"view_id": item["view_id"], "view_type": detail["view_type"]}
+        actual_type = detail.get("view_type")
+        if actual_type != VIEW_TYPES[name]:
+            # The UI supports calendar views, but the public metadata API may
+            # not expose a calendar enum. Never assume a mismatching type is
+            # a valid calendar. Only the exact reviewed calendar identity
+            # can be reported as unresolved in the read-only plan.
+            if not (allow_calendar_review and name == "03 확인 일정"):
+                raise SafeError("PROJECT_MANAGEMENT_VIEW_TYPE_MISMATCH:" + name)
+            reported_type = actual_type
+            if not isinstance(actual_type, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", actual_type):
+                reported_type = "UNREPORTED" if actual_type is None or actual_type == "" else "UNRECOGNIZED"
+            found[name] = {"view_id": identity, "view_type": reported_type,
+                           "expected_view_type": VIEW_TYPES[name],
+                           "type_status": "UI_REVIEW_REQUIRED"}
+        else:
+            found[name] = {"view_id": identity, "view_type": actual_type,
+                           "type_status": "MATCH"}
     return found, [name for name in VIEW_TYPES if name not in found]
 
 
@@ -167,7 +181,7 @@ def setup(client, mode="plan"):
     original_fields = client.listing("fields")
     existing, missing, notes = inspect_fields(original_fields)
     original_views = client.listing("views")
-    views, missing_views = inspect_views(client, original_views)
+    views, missing_views = inspect_views(client, original_views, allow_calendar_review=(mode == "plan"))
     planned = list(missing)
     created = []
     if mode == "apply":
@@ -196,6 +210,8 @@ def setup(client, mode="plan"):
         if any(after_view_ids.get(identity) != name for identity, name in before_view_ids.items()):
             raise SafeError("PROJECT_MANAGEMENT_EXISTING_VIEW_IDENTITY_CHANGED")
         views, missing_views = inspect_views(client, after_views)
+    type_review = [name for name, view in views.items()
+                   if view["type_status"] == "UI_REVIEW_REQUIRED"]
     return {
         "mode": mode,
         "table_id": TABLE_ID,
@@ -207,6 +223,8 @@ def setup(client, mode="plan"):
         "views": views,
         "missing_ui_views": missing_views,
         "view_presence_status": "PRESENT" if not missing_views else "UI_SETUP_REQUIRED",
+        "view_type_status": "UI_REVIEW_REQUIRED" if type_review else ("MISSING_VIEWS" if missing_views else "MATCH"),
+        "view_type_review": type_review,
         "view_layout_status": "UI_MANAGED_NOT_VERIFIED",
         "ui_checks": ["01 오늘 확인: date filter", "02 관리 칸반: group by 관리 상태", "03 확인 일정: date field 다음 확인일"],
         "record_reads": 0,
@@ -234,6 +252,8 @@ def main(argv=None):
             stream.write("- Missing fields planned: " + str(len(result["planned_field_creates"])) + "\n")
             stream.write("- Fields created: " + str(len(result["created_fields"])) + "\n")
             stream.write("- View presence: " + result["view_presence_status"] + "\n")
+            stream.write("- View types: " + result["view_type_status"] + "\n")
+            stream.write("- View types requiring UI review: " + str(len(result["view_type_review"])) + "\n")
             stream.write("- Existing field settings requiring UI review: " + str(len(result["field_configuration_review"])) + "\n")
             stream.write("- Kanban grouping, calendar binding and the date filter require UI verification.\n")
             stream.write("- No records, existing field settings, or views were modified.\n")
