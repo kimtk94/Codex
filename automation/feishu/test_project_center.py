@@ -127,6 +127,19 @@ class PageTests(unittest.TestCase):
                 self.assertNotIn("Payment Owner Scope", f)
             self.assertNotEqual(s["type"], "ranking")
 
+    def test_current_and_carryover_are_disjoint_and_archive_is_historical(self):
+        specs = {s["name"]:s for s in page.build_specs()}
+        def filters(name):
+            return specs[name]["data_config"]["filter"]["conditions"]
+        for name in ("보드상 진행 중", "자동 위험 HIGH", "내 담당 결제 확인",
+                     "현재 입력 연결 검토", "현재 입력 상태 근거", "내 담당 미수금 (M KRW)"):
+            self.assertIn(page.cond(page.COVERAGE, page.CURRENT), filters(name))
+        for name in ("진행 이전 원본 보존", "내 담당 결제 이전 원본 보존"):
+            self.assertIn(page.cond(page.COVERAGE, page.CARRYOVER), filters(name))
+        self.assertFalse(any(c["field_name"]==page.COVERAGE
+                             for c in filters("내 담당 입금 검증 보관 기록")))
+        self.assertIn(page.cond(page.COVERAGE, operator="isEmpty"), filters("진행 기록 미분류"))
+
     def test_text_guidance_uses_only_supported_markdown(self):
         note = page.navigation_note()
         self.assertNotIn("](", note)

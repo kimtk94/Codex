@@ -888,6 +888,33 @@ class ProjectPaymentWriteTests(unittest.TestCase):
         self.assertEqual(reads,["project_board_existing"])
         self.assertEqual(again["관리 메모"],stored["관리 메모"])
 
+    def test_current_unknown_progress_clears_previous_number(self):
+        old={**self.previous(),"Progress %":80}
+        desired={**self.row(),"PM Source Coverage":"CURRENT_INPUT"}
+        stored,writes,_,_=self.sync(old,desired=desired)
+        self.assertIsNone(stored["Progress %"])
+        self.assertIsNone(writes[0][0]["fields"]["Progress %"])
+
+    def test_carryover_only_updates_advisory_fields_and_preserves_timestamp(self):
+        current={**self.row(),"PM Source Coverage":"CURRENT_INPUT"}
+        # Existing different canonical project is absent from this input.
+        stale_pid="AMEA2026000002"
+        previous={"Source Key":"PROJECT:"+stale_pid,"AMEA":stale_pid,
+                  "Workflow Lane":"PAID_ARCHIVED","Payment State":"PAID_VERIFIED",
+                  "Last Sync KST":"previous","관리 메모":"keep",
+                  "PM Quote Link":"EXACT_QUOTE_SNAPSHOT","Progress %":100}
+        stored,writes,result,_=self.sync(previous,desired=current)
+        # creates happen before updates. The old row stays first.
+        self.assertEqual(stored["Workflow Lane"],previous["Workflow Lane"])
+        self.assertEqual(stored["Payment State"],previous["Payment State"])
+        self.assertEqual(stored["Last Sync KST"],"previous")
+        self.assertEqual(stored["관리 메모"],"keep")
+        self.assertEqual(stored["Progress %"],100)
+        self.assertEqual(stored["PM Source Coverage"],"CARRYOVER_REVIEW")
+        self.assertEqual(stored["PM Quote Link"],"NOT_RECHECKED")
+        self.assertEqual(set(writes[-1][0]["fields"]),set(m.DATA_FIELDS))
+        self.assertEqual(result[:2],(1,1))
+
     def test_reopened_payment_state_requires_successful_readback(self):
         _,billing=self.current(balance="1100000")
         def stale_readback(records):
@@ -919,8 +946,8 @@ class MetadataTests(unittest.TestCase):
                 "conjunction":"and","conditions":conditions}}}
         return catalog,details
 
-    def test_one_page_steady_state_uses_43_metadata_reads_without_writes(self):
-        """42 prior optimized reads + one new project risk view detail."""
+    def test_one_page_steady_state_uses_46_metadata_reads_without_writes(self):
+        """43 prior optimized reads + three data-check view details."""
         root="/base";catalog=[];responses={};details={};reads=[]
         for i,table in enumerate(m.SCHEMAS):
             tid="tbl"+str(i);path=root+"/tables/"+tid
@@ -947,15 +974,16 @@ class MetadataTests(unittest.TestCase):
             paths=m.ensure_tables("token",root)
             m.setup_views("token",paths)
         self.assertEqual(set(paths),set(m.SCHEMAS))
-        self.assertEqual(len(reads),43)
+        self.assertEqual(len(reads),46)
         self.assertEqual(sum(url.endswith("/views") for _,url in reads),10)
-        self.assertEqual(sum(action=="GET" for action,_ in reads),22)
+        self.assertEqual(sum(action=="GET" for action,_ in reads),25)
 
     def test_quote_scope_does_not_provision_pm_fields_or_risk_view(self):
         table="Project Progress Board"
         fields=[row for row in self.fields(table)
-                if row["field_name"] not in m.SIGNAL_FIELDS]
-        specs=tuple(spec for spec in m.VIEW_SPECS[table] if spec[0]!="04 위험 검토")
+                if row["field_name"] not in (*m.SIGNAL_FIELDS,*m.DATA_FIELDS)]
+        specs=tuple(spec for spec in m.VIEW_SPECS[table] if spec[0] not in {
+            "04 위험 검토","05 연결 충돌","06 연결 확인","07 이전 원본 보존"})
         with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
              mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
              mock.patch.object(m,"list_all",return_value=fields), \

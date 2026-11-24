@@ -84,3 +84,7 @@ PR에서는 offline tests만 실행한다. 신규 owner는 record 쓰기, 기존
 삭제, 권한 변경, 고객 연락 및 알림을 수행하지 않는다. 이후 TAT/납기 연동,
 실제 완료일, 공정 이력은 검증된 AMEA↔하위 프로젝트 관계 및 일정 증거를 확보한
 뒤 확장한다.
+
+## Data connectivity and status checks
+
+The follow-up contract in [PROJECT_DATA_CONTRACT.md](PROJECT_DATA_CONTRACT.md) supersedes the original page's input-coverage assumptions. It separates current-input, retained, and unclassified records, with dedicated connection/status distributions; deploy the latest combined contract, not the earlier page spec alone.

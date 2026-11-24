@@ -14,6 +14,10 @@ on:
       - 'automation/feishu/monthly_revenue_actual_sync.py'
       - 'automation/feishu/sales_metrics_sync.py'
       - 'automation/feishu/project_center_rules.py'
+      - 'automation/feishu/project_data_checks.py'
+      - 'automation/feishu/project_progress_board.py'
+      - 'automation/feishu/test_project_data_checks.py'
+      - 'automation/feishu/test_project_progress_board.py'
       - 'automation/feishu/native_project_center.py'
       - 'automation/feishu/test_project_center.py'
       - '.github/workflows/feishu-sources-unified.yml'
@@ -49,6 +53,8 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_unified_workflow_contracts.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_scope.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_center.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_project_data_checks.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_project_progress_board.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_status_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_latest_source_sync.py' -v
           python3 -m unittest discover -s automation/ops -p 'test_css_feishu_post_sync_verify.py' -v

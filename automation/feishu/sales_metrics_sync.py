@@ -20,6 +20,7 @@ from google.oauth2 import service_account
 from qq_mail_ingest import auth, api, list_all, SafeError
 from project_progress_board import prepare_project_board
 from project_center_rules import SIGNAL_FIELDS, derive_signals
+from project_data_checks import DATA_FIELDS, COVERAGE, CURRENT, carryover_fields, AMEA_RE
 from project_settlement import (
     EVIDENCE_FIELDS, SOURCE_RECEIPT, SOURCE_RECHECK_STATUS,
     manual_receipt, finalize, counts,
@@ -73,7 +74,7 @@ SCHEMAS = {
         ("Receipt Source Snapshot Date", 1),
         ("Outstanding Source Snapshot Date", 1),
         ("Last Sync KST", 1),
-        *((name, 1) for name in SIGNAL_FIELDS),
+        *((name, 1) for name in (*SIGNAL_FIELDS, *DATA_FIELDS)),
     ],
     "Monthly Tax Invoice": [
         ("Source Key", 1), ("Month", 1), ("Invoice Count", 2),
@@ -794,7 +795,7 @@ def ensure_tables(token,root,scope="all"):
     paths={}
     for name,spec in SCHEMAS.items():
         if scope=="quote" and name=="Project Progress Board":
-            spec=[item for item in spec if item[0] not in SIGNAL_FIELDS]
+            spec=[item for item in spec if item[0] not in (*SIGNAL_FIELDS, *DATA_FIELDS)]
         ids=catalog.get(name,[])
         if len(ids)>1:raise SafeError("DUPLICATE_METRIC_TABLE_"+name.replace(" ","_"))
         if not ids:
@@ -811,7 +812,7 @@ def ensure_tables(token,root,scope="all"):
         fields=list_all(p+"/fields",token,"metric_schema")
         names={f.get("field_name"):f.get("type") for f in fields}
         if scope!="quote" and name=="Project Progress Board":
-            for field_name in SIGNAL_FIELDS:
+            for field_name in (*SIGNAL_FIELDS, *DATA_FIELDS):
                 matches=[f for f in fields if f.get("field_name")==field_name]
                 if len(matches)>1 or (matches and matches[0].get("type")!=1):
                     raise SafeError("PROJECT_SIGNAL_SCHEMA_REVIEW_REQUIRED")
@@ -819,7 +820,7 @@ def ensure_tables(token,root,scope="all"):
         allowed={
             "Project Display Name","Completion Evidence",
             "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW","Invoice Gross M KRW",
-            "Outstanding Balance KRW","Outstanding Balance M KRW",*EVIDENCE_FIELDS,*SIGNAL_FIELDS,
+            "Outstanding Balance KRW","Outstanding Balance M KRW",*EVIDENCE_FIELDS,*SIGNAL_FIELDS,*DATA_FIELDS,
         }
         for field_name,field_type in spec:
             if field_name in names:
@@ -906,13 +907,24 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
         indexed[key]=rec
     creates=[];updates=[];unchanged=0
     final_rows=[]
+    carryover_rows=[]
     payment_matches=payment_matches or {}
     billing_context=billing_context or {}
+    desired_keys={r["Source Key"] for r in desired}
+    if len(desired_keys)!=len(desired):
+        raise SafeError("PROJECT_BOARD_DUPLICATE_DESIRED_KEY")
+    coverage_checked=bool(desired) and all(
+        r.get(COVERAGE)==CURRENT and AMEA_RE.fullmatch(str(r.get("AMEA") or ""))
+        and r["Source Key"]=="PROJECT:"+r["AMEA"] for r in desired)
     for raw in desired:
         row=dict(raw)
         key=row["Source Key"]
         old=indexed.get(key)
         original=old.get("fields") or {} if old else {}
+        if row.get(COVERAGE)==CURRENT:
+            # A previous numeric value must not survive an explicit unknown
+            # progress in a new snapshot. Zero is a real value.
+            row.setdefault("Progress %",None)
         if "Completion Evidence" in row:
             pid=raw_value(row.get("AMEA")).upper()
             proof=payment_matches.get(pid)
@@ -967,6 +979,23 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
             updates.append({"record_id":rid,"fields":fields})
         else:
             creates.append({"fields":fields})
+    # Absent from this run's input does not mean absent from the live source.
+    # Preserve all business values, manual notes, and the old sync timestamp.
+    if coverage_checked:
+        for key,old in indexed.items():
+            if key in desired_keys:
+                continue
+            original=old.get("fields") or {}
+            pid=raw_value(original.get("AMEA")).strip().upper()
+            if not AMEA_RE.fullmatch(pid) or key!="PROJECT:"+pid:
+                continue
+            fields=carryover_fields()
+            carryover_rows.append({"Source Key":key,**fields})
+            if not equivalent(original,fields):
+                rid=old.get("record_id")
+                if not rid:raise SafeError("PROJECT_BOARD_MISSING_RECORD_ID")
+                updates.append({"record_id":rid,"fields":fields})
+        print("PROJECT_BOARD_CARRYOVER_REVIEW="+str(len(carryover_rows)))
     for verb,records in (("batch_create",creates),("batch_update",updates)):
         for start in range(0,len(records),25):
             chunk=records[start:start+25]
@@ -992,7 +1021,7 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
         if not key:continue
         if key in got:raise SafeError("PROJECT_BOARD_READBACK_DUPLICATE")
         got[key]=record.get("fields") or {}
-    for item in final_rows:
+    for item in [*final_rows,*carryover_rows]:
         if item["Source Key"] not in got or not equivalent(got[item["Source Key"]],item):
             raise SafeError("PROJECT_BOARD_READBACK_MISMATCH")
     print("PROJECT_BOARD_SYNC_PASS desired="+str(len(desired))+
@@ -1069,6 +1098,9 @@ VIEW_SPECS = {
         ("Prepayment · SIF 면제", "SIF State", "WAIVED_PREPAYMENT"),
         ("Quote 원문 검토", "Quote Match State", "CSS_ORIGINAL_UNVERIFIED"),
         ("04 위험 검토", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Risk", "HIGH"),
+        ("05 연결 충돌", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Data Check", "CONFLICT"),
+        ("06 연결 확인", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Data Check", "REVIEW"),
+        ("07 이전 원본 보존", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Source Coverage", "CARRYOVER_REVIEW"),
     ),
     "Project SIF Monitor": (
         ("프로젝트 진행 · SIF", None, None),
@@ -1116,7 +1148,8 @@ def setup_views(token, paths, scope="all"):
         resolved_views = {}
         for spec in specs:
             name=spec[0]
-            if scope=="quote" and table=="Project Progress Board" and name=="04 위험 검토":
+            if scope=="quote" and table=="Project Progress Board" and name in {
+                    "04 위험 검토","05 연결 충돌","06 연결 확인","07 이전 원본 보존"}:
                 continue
             pairs=list(zip(spec[1::2],spec[2::2]))
             filtered=bool(pairs and pairs[0][0])
