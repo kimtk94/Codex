@@ -724,6 +724,8 @@ class ProjectPaymentWriteTests(unittest.TestCase):
         stored,writes,result,reads=self.sync(previous,matches=matches,billing=billing)
         self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
         self.assertEqual(stored["Payment State"],"SOURCE_RECEIPT_RECHECK_REQUIRED")
+        self.assertEqual(stored["PM Risk"],"HIGH")
+        self.assertEqual(stored["PM Issue"],"PAYMENT_EVIDENCE_CONFLICT")
         self.assertEqual(stored["Receipt Verification Status"],"SOURCE_RECHECK_REQUIRED")
         self.assertEqual(stored["Outstanding Balance KRW"],1100000)
         self.assertEqual(stored["Outstanding Balance M KRW"],1.1)
@@ -917,8 +919,8 @@ class MetadataTests(unittest.TestCase):
                 "conjunction":"and","conditions":conditions}}}
         return catalog,details
 
-    def test_one_page_steady_state_uses_42_metadata_reads_without_writes(self):
-        """One-page lists: 61 prior requests become 42; pagination is extra."""
+    def test_one_page_steady_state_uses_43_metadata_reads_without_writes(self):
+        """42 prior optimized reads + one new project risk view detail."""
         root="/base";catalog=[];responses={};details={};reads=[]
         for i,table in enumerate(m.SCHEMAS):
             tid="tbl"+str(i);path=root+"/tables/"+tid
@@ -945,9 +947,47 @@ class MetadataTests(unittest.TestCase):
             paths=m.ensure_tables("token",root)
             m.setup_views("token",paths)
         self.assertEqual(set(paths),set(m.SCHEMAS))
-        self.assertEqual(len(reads),42)
+        self.assertEqual(len(reads),43)
         self.assertEqual(sum(url.endswith("/views") for _,url in reads),10)
-        self.assertEqual(sum(action=="GET" for action,_ in reads),21)
+        self.assertEqual(sum(action=="GET" for action,_ in reads),22)
+
+    def test_quote_scope_does_not_provision_pm_fields_or_risk_view(self):
+        table="Project Progress Board"
+        fields=[row for row in self.fields(table)
+                if row["field_name"] not in m.SIGNAL_FIELDS]
+        specs=tuple(spec for spec in m.VIEW_SPECS[table] if spec[0]!="04 위험 검토")
+        with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+             mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
+             mock.patch.object(m,"list_all",return_value=fields), \
+             mock.patch.object(m,"api") as mutation:
+            self.assertEqual(m.ensure_tables("token","/base",scope="quote"),
+                             {table:"/base/tables/tbl1"})
+            mutation.assert_not_called()
+        # Keep the risk spec in the real view contract. Build a fixture without
+        # its fields or view, then exercise quote scope against that fixture.
+        with mock.patch.dict(m.VIEW_SPECS,{table:specs},clear=True):
+            catalog,details=self.views(table,fields)
+        with mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",return_value=catalog), \
+             mock.patch.object(web,"api",side_effect=lambda method,url,token,**kw:
+                               {"view":details[url.rsplit("/",1)[-1]]}) as getter, \
+             mock.patch.object(m,"api") as mutation:
+            m.setup_views("token",{table:"/table"},scope="quote")
+            self.assertEqual(getter.call_count,len(specs))
+            mutation.assert_not_called()
+
+    def test_duplicate_project_signal_field_fails_before_mutation(self):
+        table="Project Progress Board"
+        fields=self.fields(table)
+        field=next(row for row in fields if row["field_name"]=="PM Risk")
+        with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+             mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
+             mock.patch.object(m,"list_all",return_value=[*fields,{**field,"field_id":"fldDuplicate"}]), \
+             mock.patch.object(m,"api") as mutation:
+            with self.assertRaisesRegex(SafeError,"PROJECT_SIGNAL_SCHEMA_REVIEW_REQUIRED"):
+                m.ensure_tables("token","/base",scope="operations")
+            mutation.assert_not_called()
 
     def test_field_creation_requires_fresh_schema_readback(self):
         table="Monthly Tax Invoice";complete=self.fields(table)

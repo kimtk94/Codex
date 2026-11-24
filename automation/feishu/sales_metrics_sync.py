@@ -19,6 +19,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from qq_mail_ingest import auth, api, list_all, SafeError
 from project_progress_board import prepare_project_board
+from project_center_rules import SIGNAL_FIELDS, derive_signals
 from project_settlement import (
     EVIDENCE_FIELDS, SOURCE_RECEIPT, SOURCE_RECHECK_STATUS,
     manual_receipt, finalize, counts,
@@ -72,6 +73,7 @@ SCHEMAS = {
         ("Receipt Source Snapshot Date", 1),
         ("Outstanding Source Snapshot Date", 1),
         ("Last Sync KST", 1),
+        *((name, 1) for name in SIGNAL_FIELDS),
     ],
     "Monthly Tax Invoice": [
         ("Source Key", 1), ("Month", 1), ("Invoice Count", 2),
@@ -787,10 +789,12 @@ def ensure_integer_field_display(token,path,table,fields):
         raise SafeError("METRIC_INTEGER_FIELD_FORMAT_READBACK_FAILED")
 
 
-def ensure_tables(token,root):
+def ensure_tables(token,root,scope="all"):
     catalog=table_catalog(token,root)
     paths={}
     for name,spec in SCHEMAS.items():
+        if scope=="quote" and name=="Project Progress Board":
+            spec=[item for item in spec if item[0] not in SIGNAL_FIELDS]
         ids=catalog.get(name,[])
         if len(ids)>1:raise SafeError("DUPLICATE_METRIC_TABLE_"+name.replace(" ","_"))
         if not ids:
@@ -806,11 +810,16 @@ def ensure_tables(token,root):
         p=table_path(root,ids[0])
         fields=list_all(p+"/fields",token,"metric_schema")
         names={f.get("field_name"):f.get("type") for f in fields}
+        if scope!="quote" and name=="Project Progress Board":
+            for field_name in SIGNAL_FIELDS:
+                matches=[f for f in fields if f.get("field_name")==field_name]
+                if len(matches)>1 or (matches and matches[0].get("type")!=1):
+                    raise SafeError("PROJECT_SIGNAL_SCHEMA_REVIEW_REQUIRED")
         schema_changed=False
         allowed={
             "Project Display Name","Completion Evidence",
             "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW","Invoice Gross M KRW",
-            "Outstanding Balance KRW","Outstanding Balance M KRW",*EVIDENCE_FIELDS,
+            "Outstanding Balance KRW","Outstanding Balance M KRW",*EVIDENCE_FIELDS,*SIGNAL_FIELDS,
         }
         for field_name,field_type in spec:
             if field_name in names:
@@ -932,6 +941,7 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
                 # Partial/unverified evidence remains visible for human review.
                 evidence=original
             row=finalize(row,evidence)
+            row.update(derive_signals(row))
             if manual:
                 # Invoice number and snapshot dates also belong to the manual
                 # attestation. Current billing may inform review, not replace it.
@@ -1058,6 +1068,7 @@ VIEW_SPECS = {
         ("결제 완료 · 보관", "Workflow Lane", "PAID_ARCHIVED", "Payment Owner Scope", "MY_VERIFIED"),
         ("Prepayment · SIF 면제", "SIF State", "WAIVED_PREPAYMENT"),
         ("Quote 원문 검토", "Quote Match State", "CSS_ORIGINAL_UNVERIFIED"),
+        ("04 위험 검토", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Risk", "HIGH"),
     ),
     "Project SIF Monitor": (
         ("프로젝트 진행 · SIF", None, None),
@@ -1080,7 +1091,7 @@ VIEW_SPECS = {
 }
 
 
-def setup_views(token, paths):
+def setup_views(token, paths, scope="all"):
     # All URLs are base-local and require Feishu sign-in.
     from setup_sales_web import resolve_view, get_view, field_map, list_views
     def matches(view, expected):
@@ -1105,6 +1116,8 @@ def setup_views(token, paths):
         resolved_views = {}
         for spec in specs:
             name=spec[0]
+            if scope=="quote" and table=="Project Progress Board" and name=="04 위험 검토":
+                continue
             pairs=list(zip(spec[1::2],spec[2::2]))
             filtered=bool(pairs and pairs[0][0])
             pending_name = "설정중_" + name if filtered else name
@@ -1198,14 +1211,14 @@ def main():
         print("METRIC_PLAN_PASS scope="+scope+" writes=0")
         return
     token,root=auth()
-    paths=ensure_tables(token,root)
+    paths=ensure_tables(token,root,scope=scope)
     if scope!="operations":
         existing_review=board_list_with_retry(
             token,paths[QUOTE_REVIEW_TABLE],"weekly_review_existing")
         overrides=quote_manual_overrides(existing_review)
         review=build_quote_review(sources,overrides,now=dt.datetime.now(KST))
         output["Weekly Quote KPI"]=weekly_rows(sources,review=review)
-    setup_views(token,paths)
+    setup_views(token,paths,scope=scope)
     if scope!="operations":
         review_flags=sync_quote_review(
             token,paths[QUOTE_REVIEW_TABLE],review,existing_review,timestamp())
