@@ -1,0 +1,14 @@
+{
+  "version": "kalman-reviewed-recovery-dispatch-v1",
+  "classification": "ACTUAL_TIME_MANUAL_RESEARCH_RECOVERY",
+  "research_only": true,
+  "live_execution": false,
+  "production_writes": false,
+  "scheduled_seal_credit": false,
+  "historical_reseal": false,
+  "requested_role": "FIRST_IF_ABSENT",
+  "incident": 1045,
+  "session": "2026-11-23",
+  "target_utc_day": "2026-11-24",
+  "reason": "Both original Daily20 scheduled deliveries absent after grace; request a separate actual-clock pre-open research capture only if original workflow remains absent and the admission window is open."
+}
