@@ -11,6 +11,9 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import io
 import json
+import subprocess
+import tempfile
+from unittest.mock import patch
 from pathlib import Path
 import zipfile
 
@@ -274,9 +277,10 @@ def make_event(events,kind,session,stamp,h,code,**payload):
     return e
 
 
-def stage(p,h,frames,last_session,events,anchors,evidence_dir,data_sha,research_sha,source_id):
+def stage(p,h,frames,last_session,events,anchors,evidence_dir,data_sha,research_sha,source_id,code_sha):
     now=utc(datetime.now(timezone.utc))
     old=audit(p,h,events,anchors,now)
+    require(code_sha==events[0]["code_sha"],"PRODUCER_ACTIVATED_CODE_SHA_MISMATCH")
     require(not any(old[k] for k in ("missing_signals","missing_marks","missing_settlements",
                                      "missing_data_outcomes","explicit_gaps")),
             "PRODUCER_PRIOR_EPOCH_GAP")
@@ -351,6 +355,17 @@ def stage(p,h,frames,last_session,events,anchors,evidence_dir,data_sha,research_
     return raw,proposed[len(events):]
 
 
+def checkout_sha():
+    cwd=Path(__file__).resolve().parent
+    head=subprocess.check_output(["git","rev-parse","HEAD"],cwd=cwd,text=True).strip()
+    require(digest_ok(head,40),"PRODUCER_CHECKOUT_SHA")
+    paths=["challenger_forward_producer.py","challenger_prequential.py",
+           "challenger_prequential_protocol.json"]
+    require(subprocess.run(["git","diff","--quiet","HEAD","--",*paths],cwd=cwd).returncode==0,
+            "PRODUCER_DIRTY_FROZEN_CODE")
+    return head
+
+
 def self_test():
     p,h=load_protocol()
     names=["2026-11-24","2026-11-25","2026-11-27","2026-11-30","2026-12-01","2026-12-02"]
@@ -372,6 +387,48 @@ def self_test():
     require(not b.slots and abs(b.free-100000-b.pnl)<1e-8,"PRODUCER_LEDGER_TEST")
     require(rr_plan(100,10,30)[0] is None and rr_plan(100,3,100)[0] is None,
             "PRODUCER_RR_VETO_TEST")
+    # Stage and replay with synthetic anchors only; no actual journal publication.
+    _,_,timeline=calendar_names("2025-10-01","2026-12-04")
+    frames={}
+    for symbol in p["universe"]+["^VIX"]:
+        v=24. if symbol=="^VIX" else 100.
+        frames[symbol]=pd.DataFrame({"open":v,"high":v+1,"low":v-1,"close":v},
+                                    index=pd.to_datetime(timeline))
+    events=[]
+    code="a"*40
+    activate=make_event(events,"ACTIVATE",names[0],"2026-11-24T12:00:00Z",h,code,
+                        review_evidence_sha256="b"*64)
+    anchors={activate["hash"]:dict(kind="PROTECTED_ACTIONS_ARTIFACT",
+                    anchor_id="SYNTHETIC_TEST_ONLY",published_at_utc=activate["recorded_at_utc"])}
+    class Clock:
+        stamp="2026-11-24T22:00:00Z"
+        @classmethod
+        def now(cls,tz):
+            return pd.Timestamp(cls.stamp).to_pydatetime()
+    def staged(day,folder):
+        return stage(p,h,frames,day,events,anchors,folder,"c"*64,"d"*64,
+                     "SYNTHETIC_TEST_ONLY",code)
+    with tempfile.TemporaryDirectory() as tmp, patch(__name__+".datetime",Clock):
+        raw,batch=staged(names[0],tmp)
+        require([e["kind"] for e in batch]==["SIGNAL","MARK"] and
+                batch[0]["evidence_sha256"]==sha(raw),"PRODUCER_STAGE_TEST")
+        (Path(tmp)/(names[0]+".json")).write_bytes(raw)
+        for e in batch:
+            events.append(e)
+            anchors[e["hash"]]=dict(kind="PROTECTED_ACTIONS_ARTIFACT",
+                  anchor_id="SYNTHETIC_TEST_ONLY",published_at_utc=e["recorded_at_utc"])
+        Clock.stamp="2026-11-25T22:00:00Z"
+        _,batch=staged(names[1],tmp)
+        require(len(batch)==2 and batch[0]["prev_hash"]==events[-1]["hash"],
+                "PRODUCER_STAGE_REPLAY_TEST")
+        frames[sym].loc[pd.Timestamp(names[0]),"close"]=100.1
+        try:
+            staged(names[1],tmp)
+        except ValueError as exc:
+            require(str(exc).startswith("PREQUENTIAL_PRODUCER_FROZEN_PRICE_REVISION"),
+                    "PRODUCER_REVISION_WRONG_ERROR")
+        else:
+            raise AssertionError("PRODUCER_FROZEN_PRICE_REVISION_NOT_BLOCKED")
     print("CHALLENGER_PRODUCER_SYNTHETIC_SELF_TEST_PASS")
 
 
@@ -408,7 +465,7 @@ def main():
         anchors=pinned(args.anchors,args.anchors_sha256)
         raw,events=stage(p,h,frames,last,[parse(x) for x in journal.splitlines() if x.strip()],
                          parse(anchors),args.evidence_dir,args.data_sha256,args.research_sha256,
-                         args.source_id)
+                         args.source_id,checkout_sha())
         out.mkdir(parents=True)
         (out/(last+".json")).write_bytes(raw)
         (out/"proposed_events.jsonl").write_bytes(b"".join(canonical(e)+b"\n" for e in events))
