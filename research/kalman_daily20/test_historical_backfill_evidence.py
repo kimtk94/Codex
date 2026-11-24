@@ -70,6 +70,13 @@ class HistoricalBackfillContractTests(unittest.TestCase):
             self.assertEqual(out["classification"],
                              "RETROSPECTIVE_BACKFILL_NOT_PROSPECTIVE")
 
+            invalid_refresh = root / "refresh_mode.json"
+            invalid_refresh.write_text('{"mode":"FULL_HISTORY","status":"BLOCKED"}')
+            with self.assertRaisesRegex(ValueError, "REFRESH_REPORT_NOT_READY"):
+                verify_backfill(universe, market, features, "2026-11-23",
+                                asof=date(2026, 11, 24),
+                                refresh_report=invalid_refresh)
+
             # Missing or stale features must fail closed, not pass partial archive.
             feature_file(features, symbols[0]).unlink()
             bad = verify_backfill(universe, market, features,
