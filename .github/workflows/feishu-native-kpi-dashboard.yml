@@ -3,12 +3,16 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/*kpi*.py'
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/test_feishu_api_read_retry.py'
       - 'automation/feishu/test_native_kpi_workflow_refresh.py'
       - '.github/workflows/feishu-native-kpi-dashboard.yml'
   push:
     branches: [main, feat/feishu-native-kpi-dashboard-20261106]
     paths:
       - 'automation/feishu/*kpi*.py'
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/test_feishu_api_read_retry.py'
       - '.github/workflows/feishu-native-kpi-dashboard.yml'
   workflow_run:
     workflows: ['Feishu Canonical Monthly Revenue Actual']
@@ -38,6 +42,8 @@ jobs:
           python-version: '3.11'
       - name: KPI evidence tests
         run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_feishu_api_read_retry.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_ingest.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sales_kpi_dashboard.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_kpi_workflow_refresh.py' -v
           python3 -m py_compile automation/feishu/sales_kpi_dashboard.py
@@ -59,3 +65,4 @@ jobs:
           python-version: '3.11'
       - name: Refresh native Feishu KPI cards
         run: python3 automation/feishu/sales_kpi_dashboard.py
+

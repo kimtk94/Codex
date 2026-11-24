@@ -5,6 +5,7 @@ on:
       - 'automation/feishu/latest_four_schema_audit.py'
       - 'automation/feishu/test_latest_four_schema_header.py'
       - 'automation/feishu/latest_four_mirror_parity.py'
+      - 'automation/feishu/latest_payment_bridge.py'
       - 'automation/feishu/test_latest_four_mirror_parity.py'
       - '.github/workflows/feishu-latest-four-schema.yml'
   workflow_dispatch:
@@ -15,6 +16,7 @@ on:
       - 'automation/feishu/latest_four_schema_audit.py'
       - 'automation/feishu/test_latest_four_schema_header.py'
       - 'automation/feishu/latest_four_mirror_parity.py'
+      - 'automation/feishu/latest_payment_bridge.py'
       - 'automation/feishu/test_latest_four_mirror_parity.py'
       - '.github/workflows/feishu-latest-four-schema.yml'
   schedule:
@@ -51,3 +53,4 @@ jobs:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
         run: python3 automation/feishu/latest_four_mirror_parity.py
+
