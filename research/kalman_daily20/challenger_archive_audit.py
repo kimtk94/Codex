@@ -139,7 +139,8 @@ def verify_receipt(raw,expected):
             and r["forward_signals_created"]==0,"RECEIPT_SCOPE")
     rows=r["files"]
     require(len(rows)==3 and {v["role"] for v in rows}==set(PINS)
-            and len({v["drive_file_id"] for v in rows})==3,"RECEIPT_INVENTORY")
+            and len({v["drive_file_id"] for v in rows})==3
+            and len({v["name"] for v in rows})==3,"RECEIPT_INVENTORY")
     require(isinstance(r["drive_folder_id"],str) and bool(r["drive_folder_id"]),
             "RECEIPT_FOLDER")
     for row in rows:
@@ -195,7 +196,7 @@ def audit(github_dir=None,meta_dir=None,receipt=None,receipt_sha=None,drive_dir=
             "Artifact expiry is not repaired by this verifier. Restore a pinned copy explicitly."])
 
 
-def prepare_handoff(report,meta,expected_run,expected_commit):
+def prepare_handoff(report,meta,artifact_zip,expected_run,expected_commit):
     raw=Path(report).read_bytes()
     r=parse(raw)
     require(r["status"]=="HISTORICAL_REHEARSAL_NOT_FORWARD"
@@ -217,6 +218,11 @@ def prepare_handoff(report,meta,expected_run,expected_commit):
             and run["repository_id"]==run["head_repository_id"]==REPO_ID,
             "HANDOFF_METADATA_MISMATCH")
     require(stamp(meta["created_at"])<stamp(meta["expires_at"]),"HANDOFF_METADATA_TIME")
+    zipped=Path(artifact_zip).read_bytes()
+    names=verify_zip(zipped,dict(size=meta["size_in_bytes"],sha=meta["digest"][7:],members=1))
+    require(names=={"historical_rehearsal.json"},"HANDOFF_ZIP_MEMBER")
+    with zipfile.ZipFile(io.BytesIO(zipped)) as z:
+        require(z.read("historical_rehearsal.json")==raw,"HANDOFF_REPORT_BYTES")
     return dict(version="kalman-challenger-historical-handoff-v1",
                 status="AWAITING_INDEPENDENT_ARCHIVE_COPY_NOT_FORWARD",
                 research_only=True,approved_live=False,source_finality_certified=False,
@@ -280,7 +286,7 @@ def main():
     a=argparse.ArgumentParser(description=__doc__)
     a.add_argument("--self-test",action="store_true")
     for k in ("github-dir","meta-dir","receipt","receipt-sha256","drive-dir","out",
-              "handoff-report","handoff-meta","expected-commit"):
+              "handoff-report","handoff-meta","handoff-zip","expected-commit"):
         a.add_argument("--"+k)
     a.add_argument("--expected-run",type=int)
     x=a.parse_args()
@@ -289,10 +295,10 @@ def main():
         return
     require(x.out,"OUTPUT_REQUIRED")
     if x.handoff_report:
-        require(x.handoff_meta and x.expected_commit and x.expected_run,
+        require(x.handoff_meta and x.handoff_zip and x.expected_commit and x.expected_run,
                 "HANDOFF_INPUTS_REQUIRED")
         result=prepare_handoff(x.handoff_report,parse(Path(x.handoff_meta).read_bytes()),
-                               x.expected_run,x.expected_commit)
+                               x.handoff_zip,x.expected_run,x.expected_commit)
     else:
         result=audit(x.github_dir,x.meta_dir,x.receipt,x.receipt_sha256,x.drive_dir)
     write_new(x.out,result)
