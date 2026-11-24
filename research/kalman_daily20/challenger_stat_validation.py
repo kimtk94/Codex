@@ -208,7 +208,14 @@ def run(path, sha, source_id, out):
     write_csv(out/"monte_carlo.csv", mc)
     write_csv(out/"paired_terminal.csv", pairs)
     write_csv(out/"significance.csv", sig)
-    report = dict(version="daily20-challenger-stat-validation-v1",
+    # Primary 40-strategy family only; broader trial ledger is a separate input.
+    from challenger_overfit_validation import analyze as overfit_analyze
+    overfit = overfit_analyze(list(COLUMNS[2:42]), dates, values[:, 2:42])
+    overfit.update(source_id=source_id, source_sha256=digest)
+    (out/"overfit_report.json").write_text(json.dumps(overfit, indent=2, allow_nan=False)+"\n")
+    report = dict(version="daily20-challenger-stat-validation-v2",
+                  overfit_report="overfit_report.json",
+                  overfit_scope="declared_primary_40_strategies_only",
                   source_id=source_id, source_sha256=digest,
                   first_session=str(dates[0]), last_session=str(dates[-1]),
                   sessions=len(dates), seed=SEED, draws_per_configuration=REPS,
