@@ -2,8 +2,8 @@
 """Project-to-payment handoff. No invoice-only completion or guessed bank receipts.
 
 Feishu Project Progress Board remains the one per-project system of record.
-The optional receipt columns are *not* written by the CRM sync; independent,
-explicitly reviewed evidence must populate them before records are archived.
+Bank/ERP attestations are user-owned. Automated receipt evidence must be
+reconciled against the current source snapshot before records are archived.
 """
 import re
 from decimal import Decimal, InvalidOperation
@@ -11,6 +11,8 @@ from decimal import Decimal, InvalidOperation
 ACTIVE="PRODUCTION_ACTIVE"
 PAYMENT="PAYMENT_FOLLOWUP"
 ARCHIVE="PAID_ARCHIVED"
+SOURCE_RECEIPT="FEISHU_LATEST_PAYMENT_RECEIPT"
+SOURCE_RECHECK_STATUS="SOURCE_RECHECK_REQUIRED"
 
 EVIDENCE_FIELDS=(
     "Payment Invoice No","Bank Receipt Reference","Verified Invoice KRW",
@@ -64,13 +66,17 @@ def parsed_amount(value):
     except (ValueError,InvalidOperation):
         return None
 
+def manual_receipt(evidence):
+    """User-owned bank/ERP evidence, including drafts awaiting verification."""
+    return cell(evidence,"Receipt Source") in {"BANK_RECEIPT","ERP_CASH_RECEIPT"}
+
 def verified_full_payment(evidence):
     """Source-exact receipt or independently signed bank/ERP evidence only."""
     status=cell(evidence,"Receipt Verification Status")
     source=cell(evidence,"Receipt Source")
-    manual=(status=="VERIFIED" and source in {"BANK_RECEIPT","ERP_CASH_RECEIPT"})
+    manual=status=="VERIFIED" and manual_receipt(evidence)
     automatic=(status=="SOURCE_EXACT_VERIFIED" and
-        source=="FEISHU_LATEST_PAYMENT_RECEIPT" and
+        source==SOURCE_RECEIPT and
         cell(evidence,"Receipt Verified By")=="AUTO_FEISHU_EXACT_CMS_AMOUNT" and
         all(re.fullmatch(r"20\d\d-\d\d-\d\d",cell(evidence,k))
             for k in ("Receipt Source Snapshot Date","Outstanding Source Snapshot Date")))
@@ -89,7 +95,20 @@ def finalize(row,receipt_fields=None):
     completion=cell(item,"Completion Evidence")
     ended=completion in {"CSS_EXPLICIT_FINAL_HANDOFF","LIFECYCLE_EXPLICIT_FINAL_HANDOFF",
                          "ALL_SUBPROJECTS_FINAL_REPORT_VERIFIED"}
-    ispaid=ended and verified_full_payment(receipt_fields or {})
+    receipt_fields=receipt_fields or {}
+    verified=verified_full_payment(receipt_fields)
+    manual=manual_receipt(receipt_fields)
+    positive_balance=parsed_amount(cell(item,"Outstanding Balance KRW")) is not None
+    # An attestation for an older invoice set cannot close newly added invoices.
+    # Compare only explicit current CMS/gross context; absence is not a conflict.
+    current_invoices={x.strip() for x in cell(item,"Payment Invoice No").split(";") if x.strip()}
+    receipt_invoices={x.strip() for x in cell(receipt_fields,"Payment Invoice No").split(";") if x.strip()}
+    current_gross=parsed_amount(cell(item,"Invoice Gross KRW"))
+    manual_scope_conflict=manual and verified and (
+        bool(current_invoices and current_invoices!=receipt_invoices) or
+        (current_gross is not None and
+         current_gross!=parsed_amount(cell(receipt_fields,"Verified Invoice KRW"))))
+    ispaid=ended and verified and not positive_balance and not manual_scope_conflict
     if ispaid:
         item["Workflow Lane"]=ARCHIVE
         source_exact=cell(receipt_fields,"Receipt Verification Status")=="SOURCE_EXACT_VERIFIED"
@@ -101,10 +120,23 @@ def finalize(row,receipt_fields=None):
         )
     elif ended:
         item["Workflow Lane"]=PAYMENT
-        item["Payment State"]="PAYMENT_EVIDENCE_REVIEW" if any(
-            cell(receipt_fields,k) for k in EVIDENCE_FIELDS
-        ) else "RECEIPT_NOT_VERIFIED"
-        item["Next Action"]="프로젝트 완료 · Invoice / 입금 증빙 확인"
+        if manual and positive_balance:
+            item["Payment State"]="MANUAL_RECEIPT_OUTSTANDING_REVIEW"
+            item["Next Action"]="수동 입금 증빙 보존 · 최신 미수 잔액과 불일치 확인 (보관 보류)"
+        elif manual_scope_conflict:
+            item["Payment State"]="MANUAL_RECEIPT_INVOICE_REVIEW"
+            item["Next Action"]="수동 입금 증빙 보존 · 최신 Invoice 번호/총액 범위 재확인 (보관 보류)"
+        elif cell(receipt_fields,"Receipt Verification Status")==SOURCE_RECHECK_STATUS:
+            item["Payment State"]="SOURCE_RECEIPT_RECHECK_REQUIRED"
+            item["Next Action"]="최신 Payment Receipt / Outstanding 원본 재대조 필요 · 과거 자동 증빙 보관 보류"
+        elif verified and positive_balance:
+            item["Payment State"]="RECEIPT_OUTSTANDING_REVIEW"
+            item["Next Action"]="입금 증빙과 최신 미수 잔액 불일치 확인 (보관 보류)"
+        else:
+            item["Payment State"]="PAYMENT_EVIDENCE_REVIEW" if any(
+                cell(receipt_fields,k) for k in EVIDENCE_FIELDS
+            ) else "RECEIPT_NOT_VERIFIED"
+            item["Next Action"]="프로젝트 완료 · Invoice / 입금 증빙 확인"
     else:
         item["Workflow Lane"]=ACTIVE
         item["Payment State"]="NOT_YET_DUE_OR_NOT_VERIFIED"

@@ -1,0 +1,57 @@
+name: Feishu Project Management Metadata Setup
+
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/project_management_setup.py'
+      - 'automation/feishu/test_project_management_setup.py'
+      - '.github/workflows/feishu-project-management-setup.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'plan inspects metadata; apply creates missing manual fields only. Views stay UI-managed.'
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'feishu-project-management-setup' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify metadata-only boundaries and preserved manual values
+        run: python3 -m unittest discover -s automation/feishu -p 'test_project_management_setup.py' -v
+  setup:
+    needs: offline
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.offline.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      SETUP_MODE: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect project metadata or add missing manual fields
+        run: python3 automation/feishu/project_management_setup.py --mode "$SETUP_MODE"
