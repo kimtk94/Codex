@@ -76,6 +76,37 @@ unchanged. Compare core counts to the baseline above, then use source-field
 and multiple-parent counts to prioritize gaps. Do not infer certification
 from CI or audit success.
 
+## Phase 2: project-level source reference coverage
+
+Read-only source inspection on 2026-11-25 KST, using the mirror synchronized
+08:01 KST, observed 779 core AMEA identifiers and 869 after Prepayments
+(90 additional). CSS/SIF baseline 405; expanded outside baseline 464.
+Of the 869, 518 had QID references, 457 H, 415 SAM, 111 Lifecycle X,
+452 finance-reported X, 498 either direct X reference, 364 CMS references,
+309 invoice CMS, 59 prepayment CMS, 29 receipt CMS references. 110 AMEA had
+a Lifecycle X literal also observed in current Online; 387 had finance X
+references only and one had Lifecycle X not matching current Online.
+These are AMEA populations, not counts of invoice, sample, paid or completed
+entities. Multiple source membership: 562; single source: 307.
+Observed shared H roots (9), CMS references (4), and finance-reported X
+references (4) require source review; sharing is not necessarily a conflict
+(e.g. cross-quote prepayment). The audit does not auto-merge or remove these.
+
+The added project_relationships function retains each AMEA's direct typed
+references, exact source tables, field observation reviews, and missing
+AMEA source-row counts. H root and X base matches yield candidates only.
+An explicitly suffixed X does not fall back to its siblings. Identical
+Lifecycle and Online X identifiers are literal matches only, not proof of
+complete H/AMEA/SAM lineage. Receipts are CMS reference observations, not
+bank/payment certification; grouped cells remain review evidence.
+Optional --private-project-report /absolute/private/new-file.json is a
+local-only exclusive file outside the repository (refused in CI).
+It contains identifiers and source labels, not customer names, email
+contents or amounts; store only in an authorized private location.
+Default workflow output is aggregate only. No credentials or write
+permissions are added. Canonical mail, full historical invoice sources
+and native Feishu record reconciliation still require separate audits.
+
 ## Remaining phases
 
 1. Run the global source audit and reconcile results to native Feishu

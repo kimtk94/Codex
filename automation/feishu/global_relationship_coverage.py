@@ -5,6 +5,9 @@ Observation of identifiers in a source row is not certification of a business
 relationship, current status, delivery, invoice issue or payment. No writes.
 """
 from collections import Counter, defaultdict
+import argparse
+import os
+from pathlib import Path
 import datetime as dt
 import json
 import re
@@ -250,6 +253,188 @@ def coverage(sources, specs=SOURCES, pairs=PAIRS):
     }
 
 
+# Explicit AMEA anchors; no owner or Board restriction. Keep observed
+# historical/reference and current data without promoting business status.
+PROJECT_INPUTS = {
+    "CSS Project Dashboard": ("project_id", {"H":"h_project_numbers","SAM":"sam_numbers"}),
+    "CSS Project Timeline": ("project_id", {"H":"h_project_numbers","SAM":"sam_numbers"}),
+    "CSS Contract-SIF Tracker": ("project_id", {"H":"Contract No.","SIF":"SIF No."}),
+    "Quote Portfolio": ("Approved AMEA ID", {"QID":"Quote QID","QUOTE_OBJECT":"Salesforce Quote ID (18)"}),
+    "BI Project Lifecycle Overview": ("AMEA", {"LIFECYCLE_X":"Project / Sub-project"}),
+    "Feishu Latest Outstanding": ("Quotation Number", {"FINANCE_X":"Project Number","CMS":"CMS Invoice Number"}),
+    "Feishu Latest eTax": ("Quotation Number", {"FINANCE_X":"Project Number","CMS":"CMS Invoice Num"}),
+    "Feishu Latest Prepayments": ("Quotation Number", {"FINANCE_X":"Project Number","CMS":"CMS Invoice Number"}),
+}
+FINANCE = {"Feishu Latest Outstanding","Feishu Latest eTax"}
+PREPAYMENT = "Feishu Latest Prepayments"
+BASELINE = {"CSS Project Dashboard","CSS Contract-SIF Tracker"}
+RECEIPTS = "Feishu Latest Receipts"
+ONLINE = "Feishu Latest Online"
+
+
+def h_root(h):
+    return re.sub(r"-B\d+$", "", h)
+
+
+def x_base(x):
+    return re.sub(r"-Z\d+$", "", x)
+
+
+def project_relationships(sources):
+    """Return aggregate counts and local-only evidence details.
+
+    Direct reference = explicit valid identifier in an AMEA-anchored row.
+    A shared key or root is not an instruction to merge AMEA entities.
+    The candidate rules below never assign a sample or finance balance to X.
+    """
+    projects = {}
+    reverse = defaultdict(set)
+    without_amea = {}
+    for name,(anchor,cols) in PROJECT_INPUTS.items():
+        schema = SOURCES[name][3]
+        missing = Counter()
+        for row in sources[name]:
+            pid = value(row,anchor).upper()
+            if not re.fullmatch(FORMATS["AMEA"],pid):
+                missing["EMPTY_AMEA" if not pid else "FORMAT_REVIEW_AMEA"] += 1
+                for kind,col in cols.items():
+                    refs,_ = keys(value(row,col),schema[col])
+                    if refs:
+                        missing["WITH_"+kind+"_REFERENCE"] += 1
+                continue
+            d = projects.setdefault(pid, {"sources":set(),"refs":defaultdict(lambda:defaultdict(set)),
+                                          "field_review":Counter()})
+            d["sources"].add(name)
+            for kind,col in cols.items():
+                refs,state = keys(value(row,col),schema[col])
+                if state != "OBSERVED":
+                    d["field_review"][(name,col,state)] += 1
+                # Retain well-formed tokens in a partially malformed list as
+                # observations; the source-cell review stays visible.
+                for _,ident in refs:
+                    d["refs"][kind][ident].add(name)
+                    reverse[(kind,ident)].add(pid)
+                    if kind == "H":
+                        reverse[("H_ROOT",h_root(ident))].add(pid)
+        without_amea[name] = dict(missing)
+    online_h, online_base, online_parents = defaultdict(set), defaultdict(set), defaultdict(set)
+    online_ids = set()
+    for row in sources[ONLINE]:
+        hs,hstate = keys(value(row,"Contract Number"),"H")
+        xs,xstate = keys(value(row,"Sub-Project Number"),"X_PROJECT")
+        for _,x in xs:
+            online_ids.add(x)
+            online_base[x_base(x)].add(x)
+            if hstate == xstate == "OBSERVED" and len(hs) == 1:
+                h = h_root(next(iter(hs))[1])
+                online_h[h].add(x)
+                online_parents[x].add(h)
+    receipt_refs = defaultdict(set)
+    for row in sources[RECEIPTS]:
+        for col in SOURCES[RECEIPTS][3]:
+            refs,state = keys(value(row,col),"CMS*")
+            for _,cms in refs:
+                receipt_refs[cms].add("SINGLE_CMS_CELL_REFERENCE" if state=="OBSERVED" and len(refs)==1
+                                      else "GROUP_OR_PARTIAL_CMS_CELL_REFERENCE")
+    results = []
+    for pid,d in sorted(projects.items()):
+        refs = d["refs"]
+        life = set(refs["LIFECYCLE_X"])
+        exact_online = {x for x in life if x in online_ids and reverse[("LIFECYCLE_X",x)]=={pid}}
+        h_candidates = defaultdict(set)
+        for h in refs["H"]:
+            hr = h_root(h)
+            for x in online_h[hr]:
+                if x in exact_online:
+                    continue
+                code = ("SHARED_H_ROOT_REVIEW" if reverse[("H_ROOT",hr)]!={pid}
+                        else "MULTIPLE_ONLINE_H_REVIEW" if len(online_parents[x])!=1
+                        else "LIFECYCLE_PARENT_REVIEW" if reverse[("LIFECYCLE_X",x)]-{pid}
+                        else "H_ROOT_CANDIDATE_ONLY")
+                h_candidates[x].add(code)
+        finance_x = []
+        for x,names in sorted(refs["FINANCE_X"].items()):
+            candidates = set(online_base.get(x_base(x),()))
+            # An explicit suffixed reference must not fall back to a sibling.
+            if re.search(r"-Z\d+$",x):
+                candidates &= {x}
+            finance_x.append({"reported_x":x,"sources":sorted(names),
+                              "current_x_candidates":sorted(candidates),
+                              "reference_state":("NO_CURRENT_CANDIDATE_OBSERVED" if not candidates
+                                                 else "ONE_CURRENT_CANDIDATE_ONLY" if len(candidates)==1
+                                                 else "MULTIPLE_CURRENT_CANDIDATES_ONLY")})
+        receipt_cms = {c:sorted(receipt_refs[c]) for c in refs["CMS"] if c in receipt_refs}
+        reviews = []
+        for kind in ("QID","H_ROOT","LIFECYCLE_X","CMS","FINANCE_X","SAM"):
+            identifiers = {h_root(h) for h in refs["H"]} if kind=="H_ROOT" else set(refs[kind])
+            reviews.extend({"kind":kind,"identifier":ident,"observed_amea_count":len(reverse[(kind,ident)])}
+                           for ident in sorted(identifiers) if len(reverse[(kind,ident)])>1)
+        cms_finance = {c for c,names in refs["CMS"].items() if names & FINANCE}
+        cms_prepay = {c for c,names in refs["CMS"].items() if PREPAYMENT in names}
+        x_state = ("EXACT_CURRENT_LIFECYCLE_LITERAL" if exact_online
+                   else "LIFECYCLE_X_NOT_EXACT_CURRENT" if life
+                   else "FINANCE_X_REFERENCE_ONLY" if refs["FINANCE_X"]
+                   else "H_CURRENT_CANDIDATE_ONLY" if h_candidates
+                   else "NO_X_REFERENCE_OBSERVED")
+        results.append({"amea":pid,"source_tables":sorted(d["sources"]),
+                        "refs":{kind:{ident:sorted(names) for ident,names in sorted(ids.items())}
+                                for kind,ids in sorted(refs.items()) if ids},
+                        "baseline_member":bool(d["sources"] & BASELINE),
+                        "current_online_exact_lifecycle_x":sorted(exact_online),
+                        "current_h_candidates":{x:sorted(codes) for x,codes in sorted(h_candidates.items())},
+                        "finance_x_candidates":finance_x,
+                        "receipt_cms_references":receipt_cms,
+                        "invoice_cms":sorted(cms_finance),"prepayment_cms":sorted(cms_prepay),
+                        "shared_reference_review":reviews,"x_observation_state":x_state,
+                        "field_review":[{"source":name,"field":col,"state":state,"rows":n}
+                                        for (name,col,state),n in sorted(d["field_review"].items())]})
+    def summarize(rows):
+        def has(kind):
+            return sum(bool(r["refs"].get(kind)) for r in rows)
+        return {"amea":len(rows),"quote_qid":has("QID"),"h_contract":has("H"),"sam":has("SAM"),
+                "sif":has("SIF"),"lifecycle_x":has("LIFECYCLE_X"),"finance_x":has("FINANCE_X"),
+                "any_direct_x":sum(bool(r["refs"].get("LIFECYCLE_X") or r["refs"].get("FINANCE_X")) for r in rows),
+                "cms":has("CMS"),"invoice_cms":sum(bool(r["invoice_cms"]) for r in rows),
+                "prepayment_cms":sum(bool(r["prepayment_cms"]) for r in rows),
+                "receipt_cms_reference":sum(bool(r["receipt_cms_references"]) for r in rows),
+                "multiple_source":sum(len(r["source_tables"])>1 for r in rows),
+                "single_source":sum(len(r["source_tables"])==1 for r in rows),
+                "exact_current_lifecycle_literal":sum(bool(r["current_online_exact_lifecycle_x"]) for r in rows),
+                "x_observation_states":dict(Counter(r["x_observation_state"] for r in rows)),
+                "no_observed_q_h_x_sam_cms":sum(not any(r["refs"].get(k) for k in
+                    ("QID","H","LIFECYCLE_X","FINANCE_X","SAM","CMS")) for r in rows)}
+    core = [r for r in results if set(r["source_tables"])-{PREPAYMENT}]
+    summary = {"core":summarize(core),"expanded":summarize(results),
+               "baseline":summarize([r for r in results if r["baseline_member"]]),
+               "outside_baseline":summarize([r for r in results if not r["baseline_member"]]),
+               "source_amea_counts":{name:sum(name in r["source_tables"] for r in results) for name in PROJECT_INPUTS},
+               "shared_reference_counts":dict(Counter(kind for (kind,_),owners in reverse.items()
+                                                     if len(owners)>1)),
+               "rows_without_valid_amea":without_amea,
+               "receipt_distinct_cms_observed":len(receipt_refs),
+               "online_distinct_x_observed":len(online_ids),
+               "payment_status":"NOT_ATTESTED_BY_REFERENCE_OBSERVATION",
+               "relationship_status":"OBSERVED_REFERENCES_AND_CANDIDATES_ONLY",
+               "owner_filter_applied":False}
+    return summary,results
+
+
+def private_project_report(path,summary,details):
+    # Optional explicit local output. Never write identifiers to repo or CI.
+    if os.environ.get("GITHUB_ACTIONS"):
+        raise CoverageError("GLOBAL_PRIVATE_REPORT_FORBIDDEN_IN_CI")
+    target=Path(path)
+    if not target.is_absolute():
+        raise CoverageError("GLOBAL_PRIVATE_REPORT_ABSOLUTE_PATH_REQUIRED")
+    target=target.resolve()
+    repo=Path(__file__).resolve().parents[2]
+    if target==repo or repo in target.parents:
+        raise CoverageError("GLOBAL_PRIVATE_REPORT_OUTSIDE_REPO_REQUIRED")
+    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    with os.fdopen(fd,"w",encoding="utf-8") as stream:
+        json.dump({"summary":summary,"projects":details},stream,ensure_ascii=False,indent=2)
+
+
 def read_sources(session):
     # Reuse existing authorized GET-only reader. Prove bounds against actual
     # grid metadata first; a sparse tab cannot silently exceed a fixed limit.
@@ -302,10 +487,19 @@ def read_sources(session):
 
 def main():
     from sales_metrics_sync import sheets_session
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--private-project-report", default="")
+    args = parser.parse_args()
+    if args.private_project_report and os.environ.get("GITHUB_ACTIONS"):
+        raise CoverageError("GLOBAL_PRIVATE_REPORT_FORBIDDEN_IN_CI")
     started = dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
-    summary = coverage(read_sources(sheets_session()))
+    sources = read_sources(sheets_session())
+    summary = coverage(sources)
+    summary["project_reference_coverage"], details = project_relationships(sources)
     summary["read_started_kst"] = started
     summary["read_finished_kst"] = dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+    if args.private_project_report:
+        private_project_report(args.private_project_report,summary,details)
     print("GLOBAL_RELATIONSHIP_COVERAGE " + json.dumps(summary,sort_keys=True))
     print("GLOBAL_RELATIONSHIP_READ_COMPLETED business_writes=0 owner_filter_applied=0")
 

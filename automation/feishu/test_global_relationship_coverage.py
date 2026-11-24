@@ -116,5 +116,78 @@ class CoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(g.CoverageError,"SOURCE_FIELDS_INCOMPLETE"):
             g.coverage(s)
 
+class ProjectRelationshipTests(unittest.TestCase):
+    def test_prepayment_expands_population_without_board_or_owner_filter(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":S}]
+        s["Feishu Latest Prepayments"]=[{"Quotation Number":Q,"Project Number":"X209SC26000999",
+                                          "CMS Invoice Number":CMS,"Sales":"OTHER_SALES"}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(out["core"]["amea"],1)
+        self.assertEqual(out["expanded"]["amea"],2)
+        self.assertEqual(out["outside_baseline"]["amea"],1)
+        self.assertEqual(out["expanded"]["finance_x"],1)
+        self.assertEqual(details[1]["x_observation_state"],"FINANCE_X_REFERENCE_ONLY")
+        self.assertFalse(out["owner_filter_applied"])
+        self.assertNotIn(CMS,json.dumps(out))
+
+    def test_h_root_candidate_and_exact_lifecycle_separate(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H+"-B01","sam_numbers":S}]
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X},
+                                    {"Contract Number":H,"Sub-Project Number":X2}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(details[0]["current_h_candidates"],{X:["H_ROOT_CANDIDATE_ONLY"],X2:["H_ROOT_CANDIDATE_ONLY"]})
+        self.assertEqual(out["expanded"]["any_direct_x"],0)
+        s["BI Project Lifecycle Overview"]=[{"AMEA":P,"Project / Sub-project":X}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(details[0]["current_online_exact_lifecycle_x"],[X])
+        self.assertEqual(details[0]["current_h_candidates"],{X2:["H_ROOT_CANDIDATE_ONLY"]})
+
+    def test_finance_base_and_suffixed_reference_not_inferred(self):
+        s=rows()
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X},
+                                    {"Contract Number":H,"Sub-Project Number":X2}]
+        s["Feishu Latest Outstanding"]=[{"Quotation Number":P,"Project Number":"X209SC26000001",
+                                          "CMS Invoice Number":CMS}]
+        s["Feishu Latest eTax"]=[{"Quotation Number":P,"Project Number":"X209SC26000001-Z03",
+                                  "CMS Invoice Num":CMS}]
+        out,details=g.project_relationships(s)
+        candidates=details[0]["finance_x_candidates"]
+        self.assertEqual(candidates[0]["current_x_candidates"],[X,X2])
+        self.assertEqual(candidates[1]["current_x_candidates"],[])
+        self.assertEqual(details[0]["current_online_exact_lifecycle_x"],[])
+        self.assertEqual(details[0]["invoice_cms"],[CMS])
+
+    def test_shared_reference_kept_and_receipt_not_payment(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":p,"h_project_numbers":H,"sam_numbers":S} for p in (P,Q)]
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X}]
+        s["Feishu Latest Outstanding"]=[{"Quotation Number":p,"Project Number":"X209SC26000001",
+                                          "CMS Invoice Number":CMS} for p in (P,Q)]
+        s["Feishu Latest Receipts"]=[{"CMS No.":CMS+";209126000002","CMS No. [2]":"","CMS No. [3]":""}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(out["shared_reference_counts"]["CMS"],1)
+        self.assertEqual(out["shared_reference_counts"]["H_ROOT"],1)
+        self.assertEqual(out["expanded"]["receipt_cms_reference"],2)
+        self.assertEqual(details[0]["current_h_candidates"],{X:["SHARED_H_ROOT_REVIEW"]})
+        self.assertEqual(details[0]["receipt_cms_references"],{CMS:["GROUP_OR_PARTIAL_CMS_CELL_REFERENCE"]})
+        self.assertEqual(out["payment_status"],"NOT_ATTESTED_BY_REFERENCE_OBSERVATION")
+
+    def test_invalid_anchor_not_silently_dropped_and_partial_reference_review(self):
+        s=rows()
+        s["CSS Project Timeline"]=[{"project_id":P,"h_project_numbers":H+";bad","sam_numbers":S},
+                                     {"project_id":"","h_project_numbers":H,"sam_numbers":S}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(out["rows_without_valid_amea"]["CSS Project Timeline"],
+                         {"EMPTY_AMEA":1,"WITH_H_REFERENCE":1,"WITH_SAM_REFERENCE":1})
+        self.assertEqual(details[0]["refs"]["H"],{H:["CSS Project Timeline"]})
+        self.assertTrue(any(r["state"]=="PARTIAL_FORMAT_REVIEW" for r in details[0]["field_review"]))
+
+    def test_private_report_disabled_in_ci(self):
+        with patch.dict("os.environ",{"GITHUB_ACTIONS":"true"}):
+            with self.assertRaisesRegex(g.CoverageError,"FORBIDDEN_IN_CI"):
+                g.private_project_report("/not-created.json",{},[])
+
 if __name__=="__main__":
     unittest.main()
