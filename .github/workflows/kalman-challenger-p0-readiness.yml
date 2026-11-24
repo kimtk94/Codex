@@ -1,0 +1,66 @@
+name: Kalman challenger P0 readiness evidence (Read Only)
+on:
+  pull_request:
+    paths:
+      - 'research/kalman_daily20/challenger_p0_readiness.py'
+      - '.github/workflows/kalman-challenger-p0-readiness.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate missing and not-yet-due schedule distinction (synthetic)
+        run: python research/kalman_daily20/challenger_p0_readiness.py --self-test
+      - name: Read pinned archival inputs and native schedule metadata
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/p0-schedule"
+          gh api repos/kimtk94/Codex/actions/artifacts/14914498151/zip > "${RUNNER_TEMP}/p0-data.zip"
+          gh api repos/kimtk94/Codex/actions/artifacts/14915426739/zip > "${RUNNER_TEMP}/p0-research.zip"
+          while read -r role workflow; do
+            base="repos/kimtk94/Codex/actions/workflows/$workflow"
+            target="${RUNNER_TEMP}/p0-schedule/${role}_meta.json"
+            if gh api "$base" > "$target.tmp"; then
+              mv "$target.tmp" "$target"
+            else
+              rm -f "$target.tmp"
+              echo "P0_WORKFLOW_METADATA_UNAVAILABLE $role"
+            fi
+            for day in 2026-11-24 2026-11-25; do
+              target="${RUNNER_TEMP}/p0-schedule/${role}_${day}.json"
+              if gh api --paginate --slurp "$base/runs?branch=main&event=schedule&created=$day&per_page=100" > "$target.tmp"; then
+                mv "$target.tmp" "$target"
+              else
+                rm -f "$target.tmp"
+                echo "P0_SCHEDULE_LIST_UNAVAILABLE $role $day"
+              fi
+            done
+          done <<'WORKFLOWS'
+          daily20 kalman-daily20.yml
+          watchdog kalman-daily20-slot-watchdog.yml
+          WORKFLOWS
+          python research/kalman_daily20/challenger_p0_readiness.py \
+            --data "${RUNNER_TEMP}/p0-data.zip" --research "${RUNNER_TEMP}/p0-research.zip" \
+            --schedule-dir "${RUNNER_TEMP}/p0-schedule" \
+            --out "${RUNNER_TEMP}/p0-report/readiness.json"
+      - name: Publish aggregate P0 evidence only (never an approval)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-p0-readiness-hold
+          path: ${{ runner.temp }}/p0-report/readiness.json
+          if-no-files-found: error
+          retention-days: 90
