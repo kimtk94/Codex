@@ -1,0 +1,65 @@
+{
+  "source_repository": "kimtk94/Codex",
+  "source_workflow_run_id": 43708796790,
+  "source_artifact_name": "regime-countertrend-results",
+  "source_artifact_id": 14159488405,
+  "dataset_vintage_note": "2026-11-15 V6 synthetic daily KRW cash snapshot, 24-stock price re-fetch; known historic Yahoo adjusted-price/FX drift relative to 2026-11-11",
+  "baseline_vintage_status": "HOLD_REVISED_RETROSPECTIVE_DATA",
+  "frozen_training_window": "2022-01-05 to 2026-11-04 account marks (models repeatedly researched)",
+  "risk_model": "CFM-V7 joint stationary block bootstrap of V6 historical 10bp equity curves, not V7 prospective outcomes",
+  "sha256": {
+    "V4_ETF_MARKET__USD_RETAIN__10bps_equity.csv": "bd5686f862ee9ac55c8e9eb219717f151edd94de15151eb568cef9f05ac285a0",
+    "V4_ETF_MARKET__EACH_SALE_CONVERT_TO_KRW__10bps_equity.csv": "7812dbd6eb36dca7ce2c81d6d7ad06d4940a275162282d0ff139ebfd33eb45cd",
+    "V5_KRW_REGIME_BASE__USD_RETAIN__10bps_equity.csv": "53942b1abf599606c7f46a56885e35ffe46b70a683332087cc6e2b7abeb01c97",
+    "V5_KRW_REGIME_BASE__EACH_SALE_CONVERT_TO_KRW__10bps_equity.csv": "bd111958cd7b6d54d37b1085aa3431b5126f5de9d50895a4b7f84e952a5ed1f9",
+    "passive_SPY_equity_krw.csv": "8836caf68c4431241ff77a442e2ba1fcd2708aa694cf13c18a79814745523aac",
+    "passive_QQQ_equity_krw.csv": "fa47c7cf37c1ca1ab9817a8c5478a1891bc453de405cb6701d578b227541a92d",
+    "passive_IWM_equity_krw.csv": "c671d67c0c453891b134eb54090739c85840c65ed8879cdb3d75e0334cc03695",
+    "passive_SMH_equity_krw.csv": "2786725af50f71df6593f96a887e71326559b60ee3b09cf196a661d0998dc73d",
+    "passive_GLD_equity_krw.csv": "213554b513333a14ca8c6c8c4b48af3d49947c0c009ed97c1abcb28956bcf818",
+    "policy_comparison.csv": "856fabac32692598ef1ec1b48b1588a526349347658bfcf7ce8bb0eae16a798f"
+  },
+  "baseline_mc_252d_20block": {
+    "simulations": 2000,
+    "seed": 20261115,
+    "V4_ETF_MARKET__USD_RETAIN": {
+      "p_terminal_loss": 0.374,
+      "p_max_drawdown_below_minus_20pct": 0.0475,
+      "p_underperform_QQQ": 0.708
+    },
+    "V5_KRW_REGIME_BASE__USD_RETAIN": {
+      "p_terminal_loss": 0.383,
+      "p_max_drawdown_below_minus_20pct": 0.05,
+      "p_underperform_QQQ": 0.7065
+    }
+  },
+  "promotion_allowed": false,
+  "qqq_daily_price_sha256": "e733e2ac3c1d6388573333cc51ea5003e1cd45e1609db1d1e47d9af5ad0c31f6",
+  "conditional_regime_monte_carlo_v8": {
+    "regime_from": "QQQ lagged 60-session close return >=+8% UP, <=-8% DOWN, otherwise SIDE",
+    "high_vol": "previous close 20-session daily realized volatility above 75th percentile fitted on source through 2021-12-31",
+    "days": "portfolio daily return dates 2022-01-06 through 2026-11-04",
+    "conditioned_scenarios": [
+      "UP",
+      "DOWN",
+      "SIDE",
+      "HIGH_VOL",
+      "LOW_VOL",
+      "DOWN_HIGH_VOL"
+    ],
+    "mean_blocks": [
+      3,
+      5,
+      10
+    ],
+    "simulations_each": 2000,
+    "hold_rules": "<80 historical days, <8 independent runs, or single-year concentration >75%: disclose HOLD and never claim validated forward probability",
+    "resampling": "one shared index for all 11 KRW strategy/ETF/USD-KRW paths; truncate at regime boundaries",
+    "live_promotion_allowed": false,
+    "horizons_days": [
+      5,
+      20
+    ],
+    "horizon_safety": "Reject 252-day perpetual Regime extrapolation; conditional paths 5 and 20 sessions; annual risk remains the unconditional historical joint block bootstrap"
+  }
+}

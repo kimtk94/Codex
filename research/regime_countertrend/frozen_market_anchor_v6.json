@@ -1,0 +1,40 @@
+{
+  "snapshot_date": "2026-11-10",
+  "exploratory_forward_window_start": "2026-11-11",
+  "formal_prospective_window_start": "2026-11-13",
+  "anchored_adjusted_close_usd": {
+    "AAPL": 348.510009765625,
+    "AMAT": 372.5299987792969,
+    "AMD": 515.2100219726562,
+    "AMZN": 270.8699951171875,
+    "CRM": 213.47999572753906,
+    "GLD": 369.3599853515625,
+    "HYG": 77.18000030517578,
+    "INTC": 58.130001068115234,
+    "IONQ": 34.9900016784668,
+    "IWM": 280.5799865722656,
+    "META": 641.3900146484375,
+    "MSFT": 533.1599731445312,
+    "MU": 725.1099853515625,
+    "NVDA": 168.88999938964844,
+    "ORCL": 117.9800033569336,
+    "PLTR": 168.82000732421875,
+    "QLD": 78.19999694824219,
+    "QQQ": 674.760009765625,
+    "SMH": 483.6300048828125,
+    "SPY": 749.9199829101562,
+    "SQQQ": 43.560001373291016,
+    "TLT": 80.87999725341797,
+    "TQQQ": 56.560001373291016,
+    "TSLA": 379.7799987792969
+  },
+  "anchor_source": {
+    "github_run": 43016951545,
+    "artifact_id": 13853700605,
+    "price_basis": "Yahoo retrospectively adjusted close; may be revised after initial recording"
+  },
+  "max_allowed_anchor_revision_bps": 5,
+  "no_live_promotion": true,
+  "frozen_fx_usdkrw_2026_11_10": 1334,
+  "fx_anchor_max_allowed_revision_bps": 5
+}

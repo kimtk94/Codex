@@ -1,0 +1,61 @@
+{
+  "analysis_date": "2026-11-02",
+  "audit_scope": "Neon mirrored US managed positions, read-only",
+  "neon_project": "investment-hub-data",
+  "view": "public.v_live_trade_ledger",
+  "position_source": "public.managed_position_mirror",
+  "source_snapshot_mirror_last_updated": "2026-10-16T18:45:11.493Z",
+  "root_cause": "INCOMPLETE_ENTRY_OR_EXIT_LEG_TELEMETRY_WITH_MISMATCHED_NOTIONAL_BASIS",
+  "evidence_status": "CONFIRMED_BY_MIRROR_SQL_AND_MAIN_GITHUB_SOURCE_NOT_BROKER",
+  "closed_positions": 51,
+  "reported_net_returns": 47,
+  "no_stored_net_returns": 4,
+  "incomplete_quantity_coverage": 6,
+  "stored_net_exceeds_gross_1bp": 6,
+  "overlap_incomplete_and_excess_net": 6,
+  "incomplete_without_excess_net": 0,
+  "excess_net_without_incomplete": 0,
+  "quantity_covered_with_net": 41,
+  "source_code": {
+    "main_path": "kalman-toss-gateway/engine/trade_mirror.py",
+    "main_blob_sha": "31a2d12fff4818895dffa1a4c63b692fea641c47",
+    "main_formula": "_round_trip_quality uses entry_quality exact_notional from only first entry and exit_quality exact_notional from full exit",
+    "audit_branch": "audit/kalman-control-20261014",
+    "audit_branch_blob_sha": "86dd0293b810860f10d5768160797c2879e2a455",
+    "audit_guard": "position-level leg quantity coverage, independently broker-verified fill and fee evidence"
+  },
+  "prior_evidence": {
+    "report": "audits/2026-10-14/NET_RETURN_OVERSTATEMENT_P1.md",
+    "original_mismatch_positions": 5,
+    "prior_audit_notes": "Five affected positions were proven using source & quantity; now six latest records fit same quantity-incompleteness root-cause category"
+  },
+  "automatic_consequences": {
+    "exclude_from_net_return_performance": 6,
+    "remaining_41_not_broker_verified": true,
+    "do_not_backfill_net_zeros": true,
+    "do_not_modify_neon": true,
+    "release_hard_hold": true,
+    "live_strategy_changed": false
+  },
+  "outstanding": [
+    "Verify live deployed server SHA; GitHub main is unsafe but deployment source could differ",
+    "Independently reconstruct all multi-entry/add-on broker fills with correct fee currency and verified timestamps",
+    "After source fix, validate private historical rows and UI null rendering without deleting old evidence",
+    "Connect actual fills to 15-minute price paths for MFE/MAE and exit timing"
+  ],
+  "incomplete_leg_breakdown_by_exit_reason": {
+    "PROFIT_TO_LOSS_FLIP": 4,
+    "FRIDAY_FLAT": 1,
+    "MAX_HOLD_4_BUCKETS": 1
+  },
+  "interpretation": "Six current abnormal stored net return values are exactly the six incomplete telemetry-leg records; fee correctness of remaining 41 not established.",
+  "return_recalculation_read_only": {
+    "original_metadata_net_mean_47_pct": 14.524,
+    "quantity_covered_record_count": 41,
+    "quantity_covered_metadata_net_mean_pct": -0.58,
+    "same_41_gross_price_mean_pct": -0.375,
+    "quantity_covered_net_above_gross_count": 0,
+    "quantity_covered_metadata_negative_count": 26,
+    "interpretation": "Different samples (47 vs 41); 41 records are quantity-covered, not broker-certified. No estimate of 51-position net portfolio return."
+  }
+}

@@ -1,0 +1,88 @@
+name: Kalman Monte Carlo KRW Frozen V7
+on:
+  push:
+    branches:
+      - research/regime-countertrend-ci-20261102
+    paths:
+      - 'research/regime_countertrend/krw_monte_carlo_v7.py'
+      - 'research/regime_countertrend/test_krw_monte_carlo_v7.py'
+      - 'research/regime_countertrend/monte_carlo_pinned_vintage_v7.json'
+      - '.github/workflows/kalman-krw-monte-carlo-v7.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  risk-from-frozen-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install numerical risk-model dependencies
+        run: python -m pip install numpy pandas scipy scikit-learn
+      - name: Validate stationary blocks and FX/account risk contract
+        run: python -m unittest research.regime_countertrend.test_krw_monte_carlo_v7 -v
+      - name: Download exact preexisting synthetic KRW cash source (no fresh Yahoo re-fetch)
+        uses: actions/download-artifact@v4
+        with:
+          name: regime-countertrend-results
+          repository: kimtk94/Codex
+          run-id: 43708796790
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: results/regime_countertrend
+      - name: Verify every frozen source file SHA256 before evaluating risks
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          manifest=json.loads(Path('research/regime_countertrend/monte_carlo_pinned_vintage_v7.json').read_text())
+          folder=Path('results/regime_countertrend/krw_cash_v6')
+          if manifest['source_workflow_run_id']!=43708796790:
+              raise SystemExit('PINNED_MONTE_CARLO_RUN_MISMATCH')
+          for name,expected in manifest['sha256'].items():
+              path=folder/name
+              if not path.is_file():
+                  raise SystemExit('MISSING_MONTE_CARLO_SOURCE:'+name)
+              observed=hashlib.sha256(path.read_bytes()).hexdigest()
+              if observed!=expected:
+                  raise SystemExit('DATA_VINTAGE_MISMATCH:'+name)
+          print('PINNED_MONTE_CARLO_10_INPUT_CHECKSUMS_PASS')
+          PY
+      - name: Simulate same-day correlated market and FX blocks over 1y and full period
+        env:
+          KALMAN_MONTE_CARLO_SOURCE_RUN_ID: '43708796790'
+        run: python -m research.regime_countertrend.krw_monte_carlo_v7 --simulations 2000 --seed 20261115 --out results/regime_countertrend/monte_carlo_v7
+      - name: Require exact distribution reproducibility and research-only HOLD
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          root=Path('results/regime_countertrend/monte_carlo_v7')
+          frozen=json.loads(Path('research/regime_countertrend/monte_carlo_pinned_vintage_v7.json').read_text())
+          data=json.loads((root/'decision.json').read_text())
+          table=pd.read_csv(root/'block_monte_carlo_krw_risk.csv')
+          if (len(table)!=66 or data.get('input_sha256')!=frozen['sha256'] or
+              data.get('source_immutable_artifact_run')!='43708796790' or
+              data.get('promotion_allowed') is not False):
+              raise SystemExit('MONTE_CARLO_DISTRIBUTION_SOURCE_BLOCK')
+          d=table[(table.horizon_trading_days==252)&(table.mean_block_trading_days==20)]
+          for asset,target in [('V4_ETF_MARKET__USD_RETAIN',frozen['baseline_mc_252d_20block']['V4_ETF_MARKET__USD_RETAIN']),
+                                ('V5_KRW_REGIME_BASE__USD_RETAIN',frozen['baseline_mc_252d_20block']['V5_KRW_REGIME_BASE__USD_RETAIN'])]:
+              r=d[d.asset==asset]
+              if len(r)!=1:
+                  raise SystemExit('MISSING_MCARLO_BASELINE:'+asset)
+              for field,value in target.items():
+                  if abs(float(r.iloc[0][field])-float(value))>1e-12:
+                      raise SystemExit('MONTE_CARLO_NOT_REPRODUCIBLE:'+asset+':'+field)
+          print('PINNED_MC_RISK_REPLAY_PASS_12000_RUNS_STILL_HOLD')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kalman-v7-monte-carlo-krw-risk-pinned
+          path: results/regime_countertrend/monte_carlo_v7/
+          retention-days: 90
