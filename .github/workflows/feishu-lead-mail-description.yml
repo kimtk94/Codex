@@ -1,0 +1,69 @@
+name: Feishu Lead Mail and Description Mirror
+# Legacy on-demand mirror. The ordered Lead Outreach Source-to-Feishu Chain now owns weekday refreshes.
+# Isolated consumer: does not trigger or modify CSS, QQ, SFDC, Revenue or project workflows.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Apply verified Lead snapshot and Feishu mirror (false = read-only)'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/lead_mail_description_sync.py'
+      - 'automation/feishu/test_lead_mail_description_sync.py'
+      - '.github/workflows/feishu-lead-mail-description.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/lead_mail_description_sync.py'
+      - 'automation/feishu/test_lead_mail_description_sync.py'
+      - '.github/workflows/feishu-lead-mail-description.yml'
+permissions:
+  contents: read
+concurrency:
+  group: isolated-lead-feishu-mail-description
+  cancel-in-progress: false
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 25
+    env:
+      NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install minimal dependencies
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Offline independent policy regression
+        run: |
+          python -m py_compile automation/css/lead_my_sent_refresh.py automation/feishu/lead_mail_description_sync.py
+          python -m unittest discover -s automation/css -p 'test_lead_my_sent_refresh.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_lead_mail_description_sync.py' -v
+      - name: Validate SFDC Lead and QQ source, recompute personal mail evidence
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
+        env:
+          LEAD_PERSONAL_APPLY: 'true'
+        run: python automation/css/lead_my_sent_refresh.py
+      - name: Read-only preview of Feishu Lead changes
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-leads-apply-verified-mirror') }}
+        run: python automation/feishu/lead_mail_description_sync.py
+      - name: Apply isolated Feishu Lead mirror and readback
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-leads-apply-verified-mirror') || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
+        run: python automation/feishu/lead_mail_description_sync.py --apply
+      - name: Write job summary
+        if: always()
+        env:
+          STATUS: ${{ job.status }}
+        run: |
+          echo "## Isolated Lead mail/Description sync" >> "$GITHUB_STEP_SUMMARY"
+          echo "Result: $STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "Scope: Lead My Sent Audit A:T and dedicated Feishu Lead table only" >> "$GITHUB_STEP_SUMMARY"
+          echo "Never sends mail, writes SFDC, deletes records, or changes other CSS/Feishu tables." >> "$GITHUB_STEP_SUMMARY"

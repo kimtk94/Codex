@@ -33,7 +33,11 @@ WORKFLOWS=(
  ("Verified Net Revenue VAT","Revenue","css-revenue-net-vat.yml",12,"Source invoice filename + monthly gross parity; VAT-exclusive; not cash receipt"),
  ("Feishu Schema Audit","Payment","feishu-latest-four-schema.yml",4,"Raw table schema QA; failures block payment certification"),
  ("Feishu Payment/eTax Base Proof","Payment","feishu-payment-audit.yml",24,"Payment schema separate from eTax monthly proof; failed eTax Base must remain visible"),
- ("Feishu Project Sync","Projects","feishu-project-sync.yml",24,"Feishu source projection only"),
+ ("Feishu Project Sync","Projects","feishu-project-sync.yml",24,"Legacy workflow; replaced by Feishu Unified; not current project source proof"),
+ ("Feishu Unified Writer","Payment","feishu-sources-unified.yml",6,"ACTIVE schedule 8/day. Exact source-to-mirror postcheck required; successful CI-only dispatch is NOT a writer materialization, no bank proof"),
+ ("Feishu Recovery Watchdog","Automation","css-recurring-sources-watchdog.yml",6,"ACTIVE 3h check plus independent workflow_run; completed tests alone do not prove monitor/dispatch or source parity"),
+ ("CSS Original/Mirror Audit","Audit","css-live-freshness-evidence.yml",8,"ACTIVE scheduled 4/day; snapshot mismatches remain HOLD, green job is not business acceptance"),
+ ("QQ 2026 Historical Backfill","Mail","qq-mail-2026-backfill.yml",12,"ACTIVE 6h guarded backfill; skipped writer means no ingestion; historical UID missing is NOT customer leads"),
  ("Web Body Sync","Web","css-web-body-sync.yml",24,"Source-body caching/availability, not browser E2E"),
  ("CSS API Source Contract","Web","css-source-backed-api-contract.yml",36,"Real Sheets + local handler contract; NOT Vercel OAuth/Preview E2E"),
  ("Web Console CI","Web","css-central-operations-console-tests.yml",72,"Mock/static tests only; authenticated E2E pending"),
@@ -125,6 +129,53 @@ def latest_recent_success_evidence(runs, now, max_hours=12):
     return "RECENT_SUCCESS_RUN_ID="+str(rid)+"; AGE_H="+str(age)+"; CANCELLED_OR_SKIPPED_NOT_CERTIFIED"
 
 
+def feishu_writer_job_result(jobs):
+    """Return fixed-label proof of executed jobs, never actual finance acceptance.
+
+    GitHub marks a manual no-apply run green when only tests executed.
+    Only all-four writer jobs completed successfully can be labeled as a
+    successful materialization *execution*. Original source parity is still
+    independently checked inside the ingest stage.
+    """
+    if not isinstance(jobs,list):
+        return "JOB_DETAILS_UNAVAILABLE"
+    required={"ingest","payment","lifecycle","monthly"}
+    observed={}
+    for job in jobs:
+        if not isinstance(job,dict):return "JOB_DETAILS_UNAVAILABLE"
+        name=job.get("name")
+        if name in required:
+            if name in observed:return "AMBIGUOUS_JOB_DETAILS_REVIEW"
+            observed[name]=job.get("conclusion") if job.get("status")=="completed" else "in_progress"
+    if observed.keys() != required:
+        return "INCOMPLETE_WRITER_JOB_EVIDENCE"
+    if all(status=="success" for status in observed.values()):
+        return "ALL_FOUR_WRITER_JOBS_SUCCESS"
+    if all(status=="skipped" for status in observed.values()):
+        return "CI_ONLY_NO_APPLY"
+    if "failure" in observed.values() or "timed_out" in observed.values():
+        return "WRITER_JOB_FAILED"
+    if "in_progress" in observed.values():return "WRITER_IN_PROGRESS"
+    return "PARTIAL_WRITER_SCOPE_HOLD"
+
+
+def watchdog_monitor_job_result(jobs):
+    """A green tests-only watchdog run has not performed scheduled monitoring."""
+    if not isinstance(jobs,list):
+        return "JOB_DETAILS_UNAVAILABLE"
+    matches=[j for j in jobs if isinstance(j,dict) and j.get("name")=="monitor"]
+    if len(matches)!=1:
+        return "MONITOR_JOB_AMBIGUOUS_OR_MISSING"
+    job=matches[0]
+    if job.get("status")!="completed":
+        return "MONITOR_IN_PROGRESS"
+    return {"success":"MONITOR_EXECUTED",
+            "skipped":"MONITOR_SKIPPED",
+            "failure":"MONITOR_FAILED",
+            "cancelled":"MONITOR_CANCELLED"}.get(job.get("conclusion"),
+                                                   "MONITOR_UNVERIFIED")
+
+
 def make_rows(fetch, now, job_fetch=None):
     rows=[]
     seen=set()
@@ -148,27 +199,80 @@ def make_rows(fetch, now, job_fetch=None):
                 try:
                     detail=boundary+"; "+bi_job_result(job_fetch(run["id"]))
                 except (requests.RequestException,RuntimeError,ValueError):
-                    # Keep run-level FAILED/STALE unchanged even if GitHub jobs
-                    # are temporarily unavailable. Missing detail is not success.
+                    # Keep run-level FAILED/STALE unchanged if job API unavailable.
                     detail=boundary+"; BI_JOB_DETAILS_UNAVAILABLE"
+        if filename=="feishu-sources-unified.yml" and run is not None:
+            if job_fetch is None:
+                detail=boundary+"; MATERIALIZATION_JOB_SCOPE_UNVERIFIED"
+            else:
+                try:
+                    proof=feishu_writer_job_result(job_fetch(run["id"]))
+                except (requests.RequestException,RuntimeError,ValueError):
+                    proof="JOB_DETAILS_UNAVAILABLE"
+                detail=boundary+"; "+proof
+                if state in ("PASS_EXECUTION_ONLY","STALE"):
+                    if proof=="CI_ONLY_NO_APPLY":
+                        state="NO_APPLY"
+                    elif proof!="ALL_FOUR_WRITER_JOBS_SUCCESS":
+                        state="UNVERIFIED_WRITER_SCOPE"
+        if filename=="css-recurring-sources-watchdog.yml" and run is not None:
+            if job_fetch is None:
+                detail=boundary+"; MONITOR_JOB_SCOPE_UNVERIFIED"
+            else:
+                try:
+                    proof=watchdog_monitor_job_result(job_fetch(run["id"]))
+                except (requests.RequestException,RuntimeError,ValueError):
+                    proof="JOB_DETAILS_UNAVAILABLE"
+                detail=boundary+"; "+proof
+                if state in ("PASS_EXECUTION_ONLY","STALE"):
+                    if proof=="MONITOR_SKIPPED":
+                        state="NO_MONITOR"
+                    elif proof!="MONITOR_EXECUTED":
+                        state="UNVERIFIED_MONITOR_SCOPE"
         rows.append([label,group,state,time,str(age) if age is not None else "",
                      url,event,now.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST"),
                      detail,filename])
     return [HEADERS]+rows
 
 
+# Fetch active recurring production events separately so PR/push CI traffic
+# cannot hide the last *scheduled* materialization or monitoring execution.
+# Legacy workflows keep the original behavior for backward compatibility.
+RECURRING_EVENTS={
+    "feishu-sources-unified.yml": ("schedule","workflow_dispatch"),
+    "css-recurring-sources-watchdog.yml": ("schedule","workflow_dispatch","workflow_run"),
+    "css-live-freshness-evidence.yml": ("schedule","workflow_dispatch"),
+    "qq-mail-2026-backfill.yml": ("schedule","workflow_dispatch"),
+}
+
+
 def github_fetch(filename):
     gh=os.environ.get("GITHUB_TOKEN")
     if not gh:raise RuntimeError("GITHUB_READ_TOKEN_MISSING")
     url="https://api.github.com/repos/"+REPO+"/actions/workflows/"+quote(filename)+"/runs"
-    response=requests.get(url,headers={"Accept":"application/vnd.github+json",
-        "Authorization":"Bearer "+gh,"X-GitHub-Api-Version":"2022-11-28"},
-        params={"branch":"main","per_page":12},timeout=35)
-    response.raise_for_status()
-    data=response.json()
-    rows=data.get("workflow_runs")
-    if not isinstance(rows,list):raise RuntimeError("GITHUB_WORKFLOW_RUNS_MISSING")
-    return rows
+    events=RECURRING_EVENTS.get(filename, (None,))
+    result=[]
+    ids=set()
+    for event in events:
+        params={"branch":"main","per_page":40 if event else 12}
+        if event:params["event"]=event
+        response=requests.get(url,headers={"Accept":"application/vnd.github+json",
+            "Authorization":"Bearer "+gh,"X-GitHub-Api-Version":"2022-11-28"},
+            params=params,timeout=35)
+        response.raise_for_status()
+        data=response.json()
+        rows=data.get("workflow_runs")
+        if not isinstance(rows,list):raise RuntimeError("GITHUB_WORKFLOW_RUNS_MISSING")
+        for row in rows:
+            if not isinstance(row,dict):raise RuntimeError("GITHUB_WORKFLOW_RUN_INVALID")
+            if event and (row.get("event")!=event or row.get("head_branch")!="main"):
+                raise RuntimeError("GITHUB_PRODUCTION_RUN_SCOPE_INVALID")
+            rid=row.get("id")
+            if type(rid) is not int or rid<=0 or rid in ids:
+                raise RuntimeError("GITHUB_WORKFLOW_RUN_ID_INVALID")
+            ids.add(rid)
+            result.append(row)
+    return result
 
 
 def google_client():

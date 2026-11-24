@@ -3,10 +3,51 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '20 2 * * *'
+  pull_request:
+    paths:
+      - 'automation/css_mail/qq_invoice_parity_audit.py'
+      - 'automation/css_mail/test_qq_invoice_parity_audit.py'
+      - 'automation/css_mail/invoice_source_freshness_monitor.py'
+      - 'automation/css_mail/test_invoice_source_freshness_monitor.py'
+      - 'automation/css_mail/invoice_provenance_triage.py'
+      - 'automation/css_mail/test_invoice_provenance_triage.py'
+      - 'automation/css_mail/qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/test_qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/qq_precursor_replay_readiness.py'
+      - 'automation/css_mail/test_qq_precursor_replay_readiness.py'
+      - 'automation/css_mail/qq_precursor_prewrite_gate.py'
+      - 'automation/css_mail/test_qq_precursor_prewrite_gate.py'
+      - 'automation/css_mail/qq_precursor_replay_protocol.py'
+      - 'automation/css_mail/test_qq_precursor_replay_protocol.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
+      - '.github/workflows/qq-css-invoice-parity.yml'
   push:
     branches: [main]
     paths:
       - 'automation/css_mail/qq_invoice_parity_audit.py'
+      - 'automation/css_mail/invoice_source_freshness_monitor.py'
+      - 'automation/css_mail/test_invoice_source_freshness_monitor.py'
+      - 'automation/css_mail/invoice_provenance_triage.py'
+      - 'automation/css_mail/test_invoice_provenance_triage.py'
+      - 'automation/css_mail/qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/test_qq_targeted_backfill_proof.py'
+      - 'automation/css_mail/qq_precursor_replay_readiness.py'
+      - 'automation/css_mail/test_qq_precursor_replay_readiness.py'
+      - 'automation/css_mail/qq_precursor_prewrite_gate.py'
+      - 'automation/css_mail/test_qq_precursor_prewrite_gate.py'
+      - 'automation/css_mail/qq_precursor_replay_protocol.py'
+      - 'automation/css_mail/test_qq_precursor_replay_protocol.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
       - '.github/workflows/qq-css-invoice-parity.yml'
 permissions:
   contents: read
@@ -14,7 +55,27 @@ concurrency:
   group: qq-css-invoice-parity
   cancel-in-progress: false
 jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run synthetic invoice gap regression tests
+        run: |
+          python3 -m unittest automation.css_mail.test_qq_invoice_parity_audit -v
+          python3 -m unittest automation.css_mail.test_invoice_source_freshness_monitor -v
+          python3 -m unittest automation.css_mail.test_invoice_provenance_triage -v
+          python3 -m unittest automation.css_mail.test_qq_targeted_backfill_proof -v
+          python3 -m unittest automation.css_mail.test_qq_precursor_replay_readiness -v
+          python3 -m unittest automation.css_mail.test_qq_precursor_prewrite_gate -v
+          python3 -m unittest automation.css_mail.test_qq_precursor_replay_protocol -v
+          python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
+          python3 -m unittest automation.css_mail.test_qq_safe_backfill_ingest -v
   audit:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 12
@@ -32,3 +93,184 @@ jobs:
         run: python3 -m py_compile automation/css_mail/qq_invoice_parity_audit.py
       - name: Compare historical QQ invoice keys and CSS canonical invoice keys
         run: python3 automation/css_mail/qq_invoice_parity_audit.py
+
+  source-freshness-monitor:
+    # No secrets in PR; this job is independent of the known parity HOLD.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      BACKFILL_YEAR: '2026'
+      INVOICE_FRESHNESS_SUMMARY_PATH: qq-css-source-freshness.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Sheets dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Audit Extract vs QQ Backfill vs CSS ledger timing (read-only)
+        run: python3 automation/css_mail/invoice_source_freshness_monitor.py
+      - name: Summarize aggregate stage counts without exposing invoice identifiers
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ["INVOICE_FRESHNESS_SUMMARY_PATH"])
+          data = json.loads(p.read_text()) if p.exists() else {"status":"SOURCE_UNAVAILABLE"}
+          fields = ("status", "qq_to_css_gap_count", "qq_gap_in_extract_count",
+                    "extract_not_in_any_qq_or_css_count",
+                    "extract_unlinked_before_last_scan",
+                    "extract_unlinked_after_last_scan",
+                    "qq_blank_month_with_extract", "source_event_at",
+                    "collected_at", "backfill_scan_at",
+                    "sink_updated_at", "verified_at", "business_writes")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as out:
+              out.write("### Invoice source-to-sink freshness (read-only)\n")
+              for field in fields:
+                  if field in data:
+                      out.write(f"- {field}: {data[field]}\n")
+          PY
+      - name: Retain aggregate-only freshness evidence (30 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qq-css-source-freshness-aggregate
+          path: qq-css-source-freshness.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  qq-targeted-readonly-proof:
+    # Reuses the existing 02:20 UTC schedule; never runs private IMAP on PR.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 15
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      QQ_TARGETED_PROOF_SUMMARY_PATH: qq-targeted-original-proof.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only mail and Sheets dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Test import and syntax
+        run: python3 -m py_compile automation/css_mail/qq_targeted_backfill_proof.py
+      - name: Diagnose prior-cursor original invoices and blank issue-month metadata (no writes)
+        run: python3 automation/css_mail/qq_targeted_backfill_proof.py
+      - name: Summarize aggregate original proof only
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["QQ_TARGETED_PROOF_SUMMARY_PATH"])
+          summary=json.loads(p.read_text()) if p.exists() else {"status":"SOURCE_UNAVAILABLE"}
+          allowed=("status","target_count","PRE_CURSOR_MISSING",
+                   "POST_CURSOR_PENDING","BLANK_ISSUED_MONTH",
+                   "original_mime_verified","fragmented_mime_legacy_parser_gap",
+                   "replay_precursor_target_count","replay_source_proved_hold",
+                   "replay_stage_writes_approved","replay_canonical_writes_approved",
+                   "replay_official_issue_date_proved","replay_persisted_receipts",
+                   "replay_current_sink_readback_proved",
+                   "replay_protocol_cases","replay_protocol_holds",
+                   "replay_protocol_approval_required",
+                   "replay_protocol_authenticated_approvals",
+                   "replay_protocol_writer_exclusion_verified",
+                   "replay_protocol_atomic_cas_verified",
+                   "replay_protocol_stage_writes","replay_protocol_cursor_writes",
+                   "replay_protocol_canonical_writes",
+                   "replay_protocol_status",
+                   "replay_protocol_approval_absent",
+                   "replay_protocol_source_unverified",
+                   "replay_prewrite_target_count",
+                   "replay_prewrite_stable_readback_count",
+                   "replay_prewrite_snapshot_changed",
+                   "replay_prewrite_approval_required",
+                   "replay_prewrite_atomic_cas_verified",
+                   "replay_prewrite_write_authorized",
+                   "replay_postwrite_verified",
+                   "replay_prewrite_status",
+                   "replay_prewrite_qq_staging_drift",
+                   "replay_prewrite_canonical_drift",
+                   "replay_prewrite_extract_drift",
+                   "replay_prewrite_cursor_drift",
+                   "replay_prewrite_audit_drift",
+                   "replay_prewrite_existing_sink_record",
+                   "replay_prewrite_extract_missing",
+                   "replay_prewrite_extract_target_mismatch",
+                   "historical_single_chunk_parser_would_match",
+                   "imap_arrival_metadata_available",
+                   "imap_arrival_metadata_unavailable",
+                   "original_invoice_issue_date_proved",
+                   "historical_search_verified",
+                   "search_matched_pre_cursor_missing",
+                   "search_absent_pre_cursor_missing",
+                   "search_matched_blank_issued_month",
+                   "search_absent_blank_issued_month",
+                   "search_matched_post_cursor_pending",
+                   "search_absent_post_cursor_pending",
+                   "internaldate_valid_arrival_date",
+                   "internaldate_fetch_status_error",
+                   "internaldate_empty_response",
+                   "internaldate_no_byte_payload",
+                   "internaldate_date_token_absent",
+                   "internaldate_date_format_not_standard",
+                   "internaldate_date_nil",
+                   "internaldate_date_unquoted",
+                   "internaldate_date_colon_timezone",
+                   "internaldate_date_imap_literal",
+                   "internaldate_date_format_other",
+                   "internaldate_date_invalid",
+                   "early_cursor_advance_detected",
+                   "cursor_safety_review_required",
+                   "blank_month_qq_extract_uid_conflict",
+                   "non_official_or_missing_header","mime_filename_or_identity_mismatch",
+                   "cursor_inconsistent","business_writes","qq_cursor_writes",
+                   "scan_at","verified_at")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a",encoding="utf-8") as output:
+              output.write("### Targeted QQ prior-cursor/blank-month original proof (READ-ONLY)\n")
+              output.write("Legal single-digit IMAP arrival day is accepted as arrival metadata only. It never proves an Invoice issue month or authorizes a financial write.\n")
+              # Actionable fixed-category summary: counts only; NULL != zero.
+              # These categories overlap and must never be added as invoice totals.
+              review=(("Source-proved prior-cursor evidence (case approval required)",
+                       "replay_source_proved_hold"),
+                      ("Prior-cursor case approvals absent",
+                       "replay_protocol_approval_absent"),
+                      ("Blank issued-month records (official issue date required)",
+                       "BLANK_ISSUED_MONTH"),
+                      ("QQ/Extract UID conflicts to rebind from original",
+                       "blank_month_qq_extract_uid_conflict"),
+                      ("Post-cursor pending for subsequent ingestion",
+                       "POST_CURSOR_PENDING"),
+                      ("Valid IMAP arrival dates (NOT issue dates)",
+                       "imap_arrival_metadata_available"),
+                      ("Official issued-date evidence verified",
+                       "original_invoice_issue_date_proved"))
+              output.write("\n**Next operator actions (counts, not additive):**\\n")
+              for label,field in review:
+                  value=summary[field] if field in summary else "UNVERIFIED"
+                  output.write(f"- {label}: {value}\n")
+              output.write("\n**No canonical Invoice or cursor writes permitted by this audit.**\\n")
+              for field in allowed:
+                  if field in summary:output.write(f"- {field}: {summary[field]}\n")
+          PY
+      - name: Retain identifier-free proof counters (30 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qq-targeted-proof-aggregate
+          path: qq-targeted-original-proof.json
+          if-no-files-found: warn
+          retention-days: 30

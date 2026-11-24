@@ -1,0 +1,78 @@
+name: Feishu Lead Priority Views and Parity
+# Legacy on-demand 2-view checker. The verified outreach chain owns weekday refreshes.
+# Independent consumer: only four dedicated Lead views may be created/updated.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Apply only four Lead mail-evidence views after read-only verification'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/lead_mail_views_sync.py'
+      - 'automation/feishu/lead_eligibility.py'
+      - 'automation/feishu/test_lead_mail_views_sync.py'
+      - '.github/workflows/feishu-lead-priority-views.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/lead_mail_views_sync.py'
+      - 'automation/feishu/lead_eligibility.py'
+      - 'automation/feishu/test_lead_mail_views_sync.py'
+      - '.github/workflows/feishu-lead-priority-views.yml'
+permissions:
+  contents: read
+concurrency:
+  group: isolated-lead-feishu-mail-description
+  cancel-in-progress: false
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install offline test requirements
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Verify isolated Lead view policy
+        run: |
+          python -m py_compile automation/feishu/lead_mail_views_sync.py
+          python -m unittest discover -s automation/feishu -p 'test_lead_mail_views_sync.py' -v
+  live:
+    needs: regression
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-views') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install API clients
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Check Lead source/sink parity in read-only mode
+        run: python automation/feishu/lead_mail_views_sync.py
+      - name: Create or repair four managed age-filtered Lead views and verify record IDs
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-views') }}
+        run: python automation/feishu/lead_mail_views_sync.py --apply
+      - name: Report evidence
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+        run: |
+          echo "## Feishu Lead Priority Views" >> "$GITHUB_STEP_SUMMARY"
+          echo "Status: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Scope: exactly four managed views in dedicated Lead table" >> "$GITHUB_STEP_SUMMARY"
+          echo "No mail, SFDC, Account, Contact, Revenue, Project or existing default view writes." >> "$GITHUB_STEP_SUMMARY"

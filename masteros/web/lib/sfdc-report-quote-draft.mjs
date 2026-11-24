@@ -5,6 +5,7 @@
  */
 import {inferAmpliconReference,ampliconRegionUnits} from "./sfdc-amplicon-regions.mjs";
 import {closeDateOneMonthFromKst} from "./css-close-date.mjs";
+import {quoteFeeBreakdown} from "./sfdc-quote-fees.mjs";
 const s=v=>String(v??"").trim();
 const numeric=v=>/^\d+(?:\.\d+)?$/.test(s(v))?Number(v):null;
 const integer=v=>/^\d+$/.test(s(v))?Number(v):null;
@@ -64,7 +65,7 @@ export function fromFeishuQuote(detail,now=new Date()){
       projectKey:signature(group.processes,referenceGb),
       // New quote inputs always come from operator, not previous process qty.
       productionGb:referenceGb===null?"":String(referenceGb),
-      samples:"",sampleUnitKrw:""
+      samples:"",sampleUnitKrw:"",cloudUnitKrw:"",priceEvidenceStatus:"NOT_VERIFIED"
     };
   });
   const ref=detail.reference||null;
@@ -129,6 +130,7 @@ export function fromFeishuQuote(detail,now=new Date()){
     // Users edit only differences, while the new object has NO source ID reuse.
     name:sourceProject,date:kstDate(now),closeDate:closeDateOneMonthFromKst(now),products:labeled,
     descriptionStatus:"Quote Draft",
+    feeMode:"EXCLUDE",sourceFeeLines:[],feeEvidenceStatus:"NOT_READ",
     source:"FEISHU_REPORT_USD_CONVERTED_ONLY",
     sourceReceivedKst:s(detail.source_mail_received_kst),
     quoteRecordUnmapped:!s(detail.sfdc_record_id),
@@ -139,10 +141,10 @@ export function fromFeishuQuote(detail,now=new Date()){
     referenceAccount:account,referenceContact:contact,
     accountMode:"KEEP",account,contact,identitySelectedFromReference:Boolean(ref),
     referenceDefaults:{
-      name:sourceProject,account:{...account},contact:{...contact},
+      name:sourceProject,account:{...account},contact:{...contact},feeMode:"EXCLUDE",
       products:labeled.map(p=>({
         id:p.id,serviceLabel:p.serviceLabel,productionGb:p.productionGb,
-        samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,
+        samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,cloudUnitKrw:p.cloudUnitKrw,
         ampliconEnabled:p.amplicon.enabled,
         regions:p.amplicon.regions.map(r=>({code:r.code,label:r.label,unitKrw:r.unitKrw||""}))
       }))
@@ -166,37 +168,100 @@ export function calculateDraft(draft){
         quantity:qtyOk?qty:null,unitKrw:good?rPrice:null,netKrw:amount,
         originalQuoteProductId:p.id,referenceOnly:true};
     }):[];
-    const net=amp?(
+    const gb=s(p.productionGb)===""?null:gbValue(p.productionGb);
+    const gbOk=s(p.productionGb)===""||gb!==null;
+    // Business rule: AliCloud is one billed unit per started 100 Gb of
+    // total output (biological samples × Gb/sample), regardless of whether
+    // the source unit price has finished loading. Never represent a missing
+    // Cloud KRW rate as a free (zero-unit) Cloud service.
+    const cloudRequested=s(p.cloudUnitKrw)!=="";
+    const cloudRate=cloudRequested?integer(p.cloudUnitKrw):null;
+    const calculatedCloudUnits=qtyOk&&gb!==null?Math.ceil(qty*gb/100):0;
+    // A verified historical Data release 1x fixed Process is NOT an
+    // AliCloud service. If the exact source process matrix contains that
+    // separate charge but no AliCloud Process, never double-bill it.
+    // Unverified quotes without either source indication still HOLD until
+    // their Cloud unit rate is checked against live Salesforce.
+    const hasCloudProcess=(p.processes||[]).some(x=>
+      /ali.?cloud|cloud storage|cloud service/i.test(x.name||""));
+    // Billing applies only if the source has an actual Cloud Process,
+    // its verified Cloud price is present, or the service explicitly
+    // requires Cloud. Other services must not be charged speculatively.
+    const cloudBillable=cloudRequested||hasCloudProcess||p.cloudRequired===true;
+    const releaseOnlyCloudExcluded=!cloudBillable;
+    const cloudQty=cloudBillable?calculatedCloudUnits:0;
+    const cloudAmount=cloudQty===0?0:
+      cloudRate!==null&&Number.isSafeInteger(cloudRate*cloudQty)?
+      cloudRate*cloudQty:null;
+    const baseNet=amp?(
       serviceQty!==null&&regionLines.every(x=>x.netKrw!==null)?
         regionLines.reduce((n,x)=>n+x.netKrw,0):null
     ):(qtyOk&&priceOk&&Number.isSafeInteger(qty*rate)?qty*rate:null);
+    // These are Quote Product processes (e.g. Data release 1 × 30,000),
+    // not recurring biological samples and not separate Quotation Fees.
+    const fixedInput=Array.isArray(p.fixedProcessLines)?p.fixedProcessLines:[];
+    const fixedProcessOk=fixedInput.length<=8&&fixedInput.every(x=>
+      x&&typeof x.processId==="string"&&/^Process-[A-Za-z0-9-]{8,70}$/.test(x.processId)&&
+      typeof x.processName==="string"&&x.processName.length>0&&x.processName.length<=100&&
+      Number.isSafeInteger(x.quantity)&&x.quantity>=1&&x.quantity<=10000&&
+      Number.isSafeInteger(x.unitPriceKrw)&&x.unitPriceKrw>=0&&x.unitPriceKrw<=1000000000&&
+      Number.isSafeInteger(x.netKrw)&&x.netKrw===x.quantity*x.unitPriceKrw);
+    const fixedProcessNetKrw=fixedProcessOk?
+      fixedInput.reduce((sum,x)=>sum+x.netKrw,0):null;
+    const fixedProcessBasisChanged=fixedInput.length>0&&
+      (!Number.isSafeInteger(p.fixedProcessSourceSamples)||
+       qty!==p.fixedProcessSourceSamples);
+    const net=baseNet!==null&&fixedProcessNetKrw!==null&&
+      (cloudQty===0||cloudAmount!==null)?
+      baseNet+(cloudAmount||0)+fixedProcessNetKrw:null;
     const safeNet=net!==null&&Number.isSafeInteger(net)?net:null;
-    const gb=s(p.productionGb)===""?null:gbValue(p.productionGb);
-    const gbOk=s(p.productionGb)===""||gb!==null;
     return {...p,quantity:qtyOk?qty:null,unitKrw:priceOk?rate:null,
       productionGbValue:gb,serviceQuantity:serviceQty,
       regionCount:amp?selected.length:0,regionLines,
+      cloudUnits:cloudQty,calculatedCloudUnits,cloudSourceExcluded:releaseOnlyCloudExcluded,
+      cloudUnitKrw:cloudRate,cloudNetKrw:cloudAmount,
+      fixedProcessLines:fixedInput,fixedProcessNetKrw,fixedProcessBasisChanged,
       netKrw:safeNet,ready:safeNet!==null&&gbOk,gbValid:gbOk,
       projectKey:signature(p.processes,gb,selected.map(x=>x.code))};
   });
-  const allPriced=items.length>0&&items.every(x=>x.ready);
-  const total=allPriced?items.reduce((n,x)=>n+x.netKrw,0):null;
+  const fees=quoteFeeBreakdown(draft);
+  const allPriced=items.length>0&&items.every(x=>x.ready)&&fees.ok;
+  const processNet=items.length>0&&items.every(x=>x.ready)?
+    items.reduce((n,x)=>n+x.netKrw,0):null;
+  const total=allPriced?processNet+fees.feeNetKrw:null;
   if(total!==null&&!Number.isSafeInteger(total))
     return {ok:false,code:"DRAFT_TOTAL_OVERFLOW",items};
   const vat=total===null?null:Math.round(total*.1);
-  const quoteLineItems=items.flatMap(item=>item.amplicon?.enabled?item.regionLines.map(x=>({
-    kind:"AMPLICON_REGION",originalQuoteProductId:item.id,
-    regionCode:x.code,regionName:x.label,sampleQuantity:x.quantity,
-    unitPriceKrw:x.unitKrw,netKrw:x.netKrw,
-    originalProcessIds:item.processes.map(y=>y.processId)
-  })):[{
-    kind:"PRODUCT",originalQuoteProductId:item.id,
-    sampleQuantity:item.quantity,unitPriceKrw:item.unitKrw,netKrw:item.netKrw,
-    originalProcessIds:item.processes.map(y=>y.processId)
-  }]);
-  return {ok:allPriced,quoteLineItems,
-    code:allPriced?"DRAFT_ESTIMATE_ONLY":"INPUT_SAMPLE_PRICE_OR_GB",
-    items,netKrw:total,vatKrw:vat,grossKrw:total===null?null:total+vat,
+  const quoteLineItems=items.flatMap(item=>{
+    const base=item.amplicon?.enabled?item.regionLines.map(x=>({
+      kind:"AMPLICON_REGION",originalQuoteProductId:item.id,
+      regionCode:x.code,regionName:x.label,sampleQuantity:x.quantity,
+      unitPriceKrw:x.unitKrw,netKrw:x.netKrw,
+      originalProcessIds:item.processes.map(y=>y.processId)
+    })):[{
+      kind:"PRODUCT",originalQuoteProductId:item.id,
+      sampleQuantity:item.quantity,unitPriceKrw:item.unitKrw,
+      netKrw:item.quantity!==null&&item.unitKrw!==null?
+        item.quantity*item.unitKrw:null,
+      originalProcessIds:item.processes.map(y=>y.processId)
+    }];
+    if(item.cloudUnits>0&&item.cloudUnitKrw!==null)
+      base.push({kind:"ALICLOUD",originalQuoteProductId:item.id,
+        unitsPer100Gb:1,quantity:item.cloudUnits,unitPriceKrw:item.cloudUnitKrw,
+        netKrw:item.cloudNetKrw});
+    for(const fixed of item.fixedProcessLines||[])
+      base.push({kind:"FIXED_PRODUCT_PROCESS",originalQuoteProductId:item.id,
+        processId:fixed.processId,processName:fixed.processName,
+        quantity:fixed.quantity,unitPriceKrw:fixed.unitPriceKrw,
+        netKrw:fixed.netKrw,
+        sourceReferenceOnly:true});
+    return base;
+  });
+  return {ok:allPriced,quoteLineItems:[...quoteLineItems,...fees.quoteFeeItems],
+    code:allPriced?"DRAFT_ESTIMATE_ONLY":fees.ok?"INPUT_SAMPLE_PRICE_OR_GB":fees.code,
+    items,processNetKrw:processNet,feeNetKrw:fees.feeNetKrw,
+    feeIncluded:fees.included,feeSourceStatus:fees.code,
+    netKrw:total,vatKrw:vat,grossKrw:total===null?null:total+vat,
     sourceRateVerified:false,crmSavePermitted:false,feishuWrite:false};
 }
 /** Product-scoped sample unit prices for Opportunity review, without
@@ -206,12 +271,20 @@ export function opportunityUnitPriceSummary(calculation){
     return {ok:false,code:"OPPO_PRICE_NOT_VERIFIED",products:[]};
   const products=calculation.items.map((item,i)=>{
     if(!Number.isSafeInteger(item.netKrw)||!Number.isInteger(item.quantity)||
-       item.quantity<=0||item.netKrw%item.quantity!==0)
+       item.quantity<=0)return null;
+    // Stepwise AliCloud cannot always be divided into a per-sample price.
+    // Report the biological sample rate separately from billed Cloud blocks.
+    const biologicalNet=item.netKrw-(item.cloudNetKrw||0)-
+      (item.fixedProcessNetKrw||0);
+    if(!Number.isSafeInteger(biologicalNet)||biologicalNet%item.quantity!==0)
       return null;
     return {
       id:item.id||String(i),samples:item.quantity,
-      unitPriceNetKrw:item.netKrw/item.quantity,
-      netKrw:item.netKrw,regionCount:item.regionCount||0,
+      unitPriceNetKrw:biologicalNet/item.quantity,
+      netKrw:item.netKrw,cloudNetKrw:item.cloudNetKrw||0,
+      fixedProcessNetKrw:item.fixedProcessNetKrw||0,
+      effectiveUnitNetKrw:item.netKrw/item.quantity,
+      cloudUnits:item.cloudUnits||0,regionCount:item.regionCount||0,
       perRegion:item.amplicon?.enabled===true,
       serviceQuantity:item.serviceQuantity
     };
@@ -231,9 +304,18 @@ export function descriptionBasis(draft){
   return JSON.stringify({
     template:DESCRIPTION_TEMPLATE_VERSION,
     date:s(draft.date),status:s(draft.descriptionStatus)||"Quote Draft",
+    feeMode:draft.feeMode||"EXCLUDE",
+    feeLines:draft.feeMode==="KEEP"?(draft.sourceFeeLines||[]).map(f=>({
+      feeType:f.feeType,feeKrw:f.feeKrw,productName:f.productName,
+      sourceQuoteProductId:f.sourceQuoteProductId})):[],
     products:(draft.products||[]).map(p=>({
       service:s(p.serviceLabel),
       gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw),
+      cloudUnitKrw:s(p.cloudUnitKrw),
+      fixedProcessLines:(p.fixedProcessLines||[]).map(x=>({
+        processId:x.processId,quantity:x.quantity,
+        unitPriceKrw:x.unitPriceKrw,netKrw:x.netKrw})),
+      fixedProcessSourceSamples:p.fixedProcessSourceSamples??null,
       regionMode:Boolean(p.amplicon?.enabled),
       regions:(p.amplicon?.regions||[]).map(r=>({
         code:s(r.code),label:s(r.label),unitKrw:s(r.unitKrw)
@@ -267,7 +349,15 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
     const rate=p.unitKrw===null?"단가 확인":money(p.unitKrw)+"KRW";
     return [service,gb,count,"* "+rate].filter(Boolean).join(" ");
   });
-  return [mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
+  const fees=quoteFeeBreakdown(draft);
+  const feeSummary=fees.included&&fees.ok?
+    fees.quoteFeeItems.map(f=>f.feeType+" "+money(f.netKrw)+"KRW").join(" + "):"";
+  const fixedSummary=calc.items.flatMap(p=>
+    (p.fixedProcessLines||[]).map(x=>x.processName+
+      " "+x.quantity+" × "+money(x.unitPriceKrw)+"KRW")).join(" + ");
+  // Preserve the established one-line Salesforce Description convention.
+  const base=[mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
+  return [base,fixedSummary,feeSummary].filter(Boolean).join(" / ");
 }
 export function descriptionReview(draft,text,manualBasis=null){
   const basis=descriptionBasis(draft);
@@ -290,6 +380,17 @@ export function descriptionReview(draft,text,manualBasis=null){
         if(r.unitKrw!==null)required.push(money(r.unitKrw)+"KRW");
       }
     }else if(p.unitKrw!==null)required.push(money(p.unitKrw)+"KRW");
+    for(const fixed of p.fixedProcessLines||[]){
+      required.push(fixed.processName);
+      required.push(fixed.quantity+" × "+money(fixed.unitPriceKrw)+"KRW");
+    }
+  }
+  if(draft?.feeMode==="KEEP"){
+    const fees=quoteFeeBreakdown(draft);
+    if(fees.ok)for(const fee of fees.quoteFeeItems){
+      required.push(fee.feeType);
+      required.push(money(fee.netKrw)+"KRW");
+    }
   }
   const missing=required.filter(fragment=>!s(text).includes(fragment));
   return {stale,complete:missing.length===0,missing};
@@ -303,6 +404,12 @@ export function draftPreflight(draft){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+"T00:00:00Z")))
     errors.push("QUOTE_DATE_INVALID");
   if(!calc.ok)errors.push(calc.code);
+  if(calc.items?.some(item=>item.fixedProcessBasisChanged))
+    errors.push("HISTORICAL_FIXED_PROCESS_REVALIDATION_REQUIRED");
+  if(draft?.feeMode==="KEEP")
+    errors.push("QUOTE_FEE_SOURCE_REVALIDATION_REQUIRED");
+  else if(draft?.feeMode&&draft.feeMode!=="EXCLUDE")
+    errors.push("QUOTE_FEE_MODE_INVALID");
   if(typeof description!=="string"||description.length<10||description.length>3000)
     errors.push("DESCRIPTION_REQUIRED");
   if(s(draft?.descriptionStatus)==="Quote Issued"&&!draft?.quoteIssuedEvidenceVerified)
@@ -357,11 +464,12 @@ export function draftChanges(draft){
   changed("opportunityQuoteName",ref.name,draft.name);
   changed("account",ref.account,draft.account);
   changed("contact",ref.contact,draft.contact);
+  changed("quoteFeeMode",ref.feeMode||"EXCLUDE",draft.feeMode||"EXCLUDE");
   (draft.products||[]).forEach((p,i)=>{
     const prev=ref.products?.[i];
     if(!prev){changes.push({field:"product["+i+"]",before:null,after:p.id});return;}
     const lead="product["+i+"].";
-    for(const key of ["serviceLabel","productionGb","samples","sampleUnitKrw"])
+    for(const key of ["serviceLabel","productionGb","samples","sampleUnitKrw","cloudUnitKrw","fixedProcessLines"])
       changed(lead+key,prev[key],p[key]);
     changed(lead+"regionMode",prev.ampliconEnabled,Boolean(p.amplicon?.enabled));
     changed(lead+"regions",prev.regions,

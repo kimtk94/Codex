@@ -1,0 +1,74 @@
+name: Daily20 Full-History Price Revision Root-Cause Audit (Read Only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - research/kalman_daily20/audit_price_revision_patterns.py
+      - research/kalman_daily20/test_audit_price_revision_patterns.py
+      - .github/workflows/kalman-daily20-price-revision-audit.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  decompose-archived-repricing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Parquet dependencies only (no Drive or broker)
+        run: |
+          python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<3' 'pyarrow>=17,<28'
+      - name: Pattern classification tests
+        run: |
+          python -m unittest discover -s research/kalman_daily20 -p 'test_audit_price_revision_patterns.py' -v
+      - name: Download four verified immutable historical price snapshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p evidence
+          while read -r run kind id; do
+            echo "Fetching source archive ${run} / ${kind} / ${id}"
+            curl -fLSs --retry 3 --connect-timeout 20 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/${id}/zip" \
+              -o "evidence/run${run}_${kind}.zip" || exit 1
+          done <<'SOURCES'
+          44853890794 data 14686667025
+          44853890794 research 14686642101
+          44856445903 data 14687797645
+          44856445903 research 14687533170
+          44858008175 data 14688159383
+          44858008175 research 14688298968
+          44871574162 data 14694207115
+          44871574162 research 14694311587
+          SOURCES
+      - name: Quantify OHLCV restatement for 26 assets and 4 source pairs
+        run: |
+          python research/kalman_daily20/audit_price_revision_patterns.py \
+            --input-dir evidence --out output/daily20/price_revision_cause
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("output/daily20/price_revision_cause/price_revision_root_cause.json").read_text())
+          assert report["verified_asset_pair_comparisons"]==104
+          assert report["original_archive_sha256_pinned"] is True
+          assert report["no_live_changes"] is True
+          assert report["no_drive_writes"] is True
+          assert report["external_validation"]["attributed_cause"]=="UNPROVEN_PATTERN_EVIDENCE_ONLY"
+          print("DAILY20_PRICE_REVISION_AUDIT_PASS",len(report["full_vs_full"]))
+          PY
+      - name: Upload evidence, never overwrite production market files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily20-26asset-price-revision-decomposition
+          path: output/daily20/price_revision_cause/
+          if-no-files-found: warn
+          retention-days: 90

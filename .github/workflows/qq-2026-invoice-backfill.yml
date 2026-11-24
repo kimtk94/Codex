@@ -1,23 +1,58 @@
 name: QQ Historical Tax Invoice Backfill 2026
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/qq-2026-invoice-backfill.yml'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
+      - 'automation/css_mail/qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/test_qq_writer_integration.py'
+      - 'automation/css_mail/qq_preview_diagnostic.py'
+      - 'automation/css_mail/test_qq_preview_diagnostic.py'
   schedule:
     - cron: '31 1 * * *'
   push:
     branches: [main]
     paths:
       - '.github/workflows/qq-2026-invoice-backfill.yml'
-      - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - 'automation/css_mail/qq_historical_invoice_backfill_2026_safe.py'
+      - 'automation/css_mail/qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/qq_cursor_checkpoint_policy.py'
+      - 'automation/css_mail/test_qq_safe_backfill_ingest.py'
+      - 'automation/css_mail/qq_preview_diagnostic.py'
+      - 'automation/css_mail/test_qq_preview_diagnostic.py'
 permissions:
   contents: read
 concurrency:
   group: qq-historical-invoice-backfill-shared-2026
   cancel-in-progress: false
 jobs:
-  backfill:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated fake-client test requirements
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Prove safe cursor and no writes in synthetic PREVIEW
+        run: |
+          python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
+          python3 -m unittest automation.css_mail.test_qq_safe_backfill_ingest -v
+          python3 automation/css_mail/test_qq_writer_integration.py
+          python3 -m unittest automation.css_mail.test_qq_preview_diagnostic -v
+
+  safe-preview:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 45
+    timeout-minutes: 35
     env:
       CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
@@ -25,15 +60,35 @@ jobs:
       BACKFILL_YEAR: '2026'
       BACKFILL_TAB: 'QQ 2026 Invoice Backfill'
       BACKFILL_MAX_MATCHES: '4500'
-      BACKFILL_DIAGNOSTIC_VERSION: '2026-10-23-v4-full-ledger'
+      BACKFILL_WRITE_MODE: 'PREVIEW'
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install Google Sheets API dependencies
+      - name: Install read-only preflight dependencies
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - name: Preflight Python syntax
-        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py
-      - name: Backfill 2026 QQ invoice evidence (read-only IMAP)
-        run: python3 automation/css_mail/qq_historical_invoice_backfill.py
+      - name: Validate source gate with synthetic tests
+        run: |
+          python3 -m unittest automation.css_mail.test_qq_cursor_checkpoint_policy -v
+          python3 -m unittest automation.css_mail.test_qq_safe_backfill_ingest -v
+          python3 automation/css_mail/test_qq_writer_integration.py
+          python3 -m unittest automation.css_mail.test_qq_preview_diagnostic -v
+      - name: Check actual QQ source and fail closed before stage writes
+        run: |
+          python3 - <<'PY'
+          import json,subprocess,sys
+          from automation.css_mail.qq_preview_diagnostic import classify_preview
+
+          cmd=[sys.executable,"automation/css_mail/qq_historical_invoice_backfill_2026_safe.py"]
+          completed=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+          safe=classify_preview(completed.returncode,completed.stdout,completed.stderr)
+          # Never print captured stdout/stderr: both can contain private data.
+          print("QQ_SAFE_PREVIEW_DIAGNOSTIC="+json.dumps(safe,sort_keys=True))
+          if safe["status"] != "PASS":
+              print("QQ_SAFE_PREVIEW_HOLD: source or cursor requires review")
+              sys.exit(1)
+          print("QQ_SAFE_PREVIEW_PASS: source reviewed; staged writer remains separately gated")
+          PY

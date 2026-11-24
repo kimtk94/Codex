@@ -1,0 +1,49 @@
+{
+  "schema": "daily20-historical-listing-source-v1",
+  "research_only": true,
+  "notice": "Historical exchange evidence is date-bounded and document-referenced; file URLs are not stored page-byte hashes. This does not certify any auction closing price or future listing.",
+  "sources": [
+    {
+      "id": "PLTR_SEC_2024_10K",
+      "url": "https://www.sec.gov/Archives/edgar/data/1321655/000132165525000022/pltr-20241231.htm",
+      "source_type": "issuer_file_sec_10k",
+      "report_period_end": "2024-12-31",
+      "claim": "NYSE 2020-09-30 through 2024-11-25; Nasdaq from 2024-11-26; issuer's FY2024 disclosure",
+      "retrieved_page_sha256": null,
+      "actual_page_bytes_verified": false
+    },
+    {
+      "id": "PLTR_NASDAQ_2024_NOTICE",
+      "url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=DTN2024-30",
+      "source_type": "official_exchange_technical_notice",
+      "report_period_end": "2024-11-26",
+      "claim": "Transfer at open on 2024-11-26, preserve history before that date",
+      "retrieved_page_sha256": null,
+      "actual_page_bytes_verified": false
+    }
+  ],
+  "intervals": [
+    {
+      "symbol": "PLTR",
+      "from": "2020-09-30",
+      "to_exclusive": "2024-11-26",
+      "listing_venue": "NYSE",
+      "official_sip_code": "N",
+      "source_ids": [
+        "PLTR_SEC_2024_10K",
+        "PLTR_NASDAQ_2024_NOTICE"
+      ]
+    },
+    {
+      "symbol": "PLTR",
+      "from": "2024-11-26",
+      "to_exclusive": "2025-01-01",
+      "listing_venue": "NASDAQ",
+      "official_sip_code": "Q",
+      "source_ids": [
+        "PLTR_SEC_2024_10K",
+        "PLTR_NASDAQ_2024_NOTICE"
+      ]
+    }
+  ]
+}

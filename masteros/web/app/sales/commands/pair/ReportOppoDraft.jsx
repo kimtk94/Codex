@@ -1,13 +1,18 @@
 "use client";
 
-import {useMemo,useState} from "react";
+import {useEffect,useMemo,useState} from "react";
 import {fromFeishuQuote,calculateDraft,opportunityUnitPriceSummary,draftDescription,draftPreflight,descriptionBasis,descriptionReview,draftChanges}
   from "../../../../lib/sfdc-report-quote-draft.mjs";
 import styles from "./page.module.css";
 import SourceSalesforceEvidence from "./SourceSalesforceEvidence";
 import {applyVerifiedSource} from "../../../../lib/sfdc-source-identity.mjs";
+import {prefillHistoricalKrw,listKrwOriginalProcessGroups} from "../../../../lib/sfdc-pair-index-krw.mjs";
+import {parseKrwEvidence} from "../../../../lib/sfdc-2026-krw-price-preview.mjs";
+import HistoricalKrwProcessBreakdown from "../../../../components/HistoricalKrwProcessBreakdown";
+import {attachVerifiedSourceFees} from "../../../../lib/sfdc-quote-fees.mjs";
 import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
 import IdentityPicker from "../IdentityPicker";
+import PairedSaveApproval from "./approvals/PairedSaveApproval";
 
 const money=value=>Number.isSafeInteger(value)?value.toLocaleString("ko-KR")+" KRW":"입력 필요";
 export default function ReportOppoDraft({quote,enabled=true}){
@@ -19,6 +24,60 @@ export default function ReportOppoDraft({quote,enabled=true}){
   const [descriptionEditBasis,setDescriptionEditBasis]=useState(null);
   const [preflight,setPreflight]=useState(null);
   const [notice,setNotice]=useState("");
+  const [requestBusy,setRequestBusy]=useState(false);
+  const [creationRequest,setCreationRequest]=useState(null);
+  const [historyStatus,setHistoryStatus]=useState("CHECKING");
+  const [originalSourceGroups,setOriginalSourceGroups]=useState([]);
+  const [feeReadStatus,setFeeReadStatus]=useState("NOT_READ");
+  // Native Quote Fee is read independently of Feishu/Account identity matching.
+  // Both are read-only evidence, and neither permits a CRM Save.
+  useEffect(()=>{
+    const sourceQuoteId=quote?.sfdc_record_id||"";
+    if(!/^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(sourceQuoteId)){
+      setFeeReadStatus("SOURCE_QUOTE_ID_MISSING");return;
+    }
+    let mounted=true;
+    setFeeReadStatus("READING");
+    (async()=>{
+      try{
+        const response=await fetch("/api/sfdc/quote-fees-local",{
+          method:"POST",cache:"no-store",credentials:"omit",
+          headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+          body:JSON.stringify({mode:"READ_SOURCE_QUOTE_FEES",sourceQuoteId})
+        });
+        const data=await response.json();
+        if(!response.ok||data.status!=="PASS")throw Error(data.code||"FEE_READ_HOLD");
+        if(!mounted)return;
+        setDraft(current=>current?.sourceQuoteId===sourceQuoteId?
+          attachVerifiedSourceFees(current,data):current);
+        setFeeReadStatus("PASS");
+      }catch{if(mounted)setFeeReadStatus("HOLD")}
+    })();
+    return ()=>{mounted=false};
+  },[quote?.sfdc_record_id]);
+  useEffect(()=>{
+    let mounted=true;
+    (async()=>{
+      try{
+        const response=await fetch("/api/sfdc/krw-price-local",{
+          method:"POST",cache:"no-store",credentials:"omit",
+          headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+          body:JSON.stringify({mode:"READ_LOCAL_PRIVATE_2026_KRW"})
+        });
+        const data=await response.json();
+        if(!response.ok||data.status!=="PASS"||!data.evidence)
+          throw Error("KRW_INDEX_HOLD");
+        if(!mounted)return;
+        const checked=parseKrwEvidence(JSON.stringify(data.evidence));
+        const groups=listKrwOriginalProcessGroups(checked);
+        setOriginalSourceGroups(groups.groups.filter(g=>g.quote_id===quote?.qid));
+        setDraft(current=>current?prefillHistoricalKrw(current,data.evidence):current);
+        setHistoryStatus("2026_KRW_REFERENCE_LOADED");
+      }catch{if(mounted){setHistoryStatus("2026_KRW_INDEX_UNAVAILABLE");
+        setOriginalSourceGroups([]);}}
+    })();
+    return ()=>{mounted=false};
+  },[quote?.qid]);
   const [regionToAdd,setRegionToAdd]=useState({});
   const amounts=useMemo(()=>draft?calculateDraft(draft):null,[draft]);
   const oppUnits=useMemo(()=>opportunityUnitPriceSummary(amounts),[amounts]);
@@ -33,18 +92,24 @@ export default function ReportOppoDraft({quote,enabled=true}){
     descriptionManualBasis:isManualDescription?descriptionEditBasis:null});
 
   const onSourceVerified=(result)=>{
-    setDraft(current=>applyVerifiedSource(current,result));
-    setPreflight(null);
-    setNotice("Salesforce 원본 고객 ID 대조 완료 · 가격과 저장은 별도 검증 필요");
+    setDraft(current=>attachVerifiedSourceFees(applyVerifiedSource(current,result),result.feeEvidence));
+    setPreflight(null);setCreationRequest(null);
+    setNotice(result.priceEvidence?.ok?
+      "기존 Salesforce Quote의 KRW 샘플 단가·AliCloud 단가를 자동 적용했습니다.":
+      "Salesforce 고객 ID 확인 완료 · KRW 공정 단가는 원본 확인 필요");
   };
 
   const edit=(key,value)=>{
     setDraft(old=>old?{...old,[key]:value}:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
   };
   const editProduct=(i,key,value)=>{
-    setDraft(old=>old?{...old,products:old.products.map((p,n)=>n===i?{...p,[key]:value}:p)}:old);
-    setPreflight(null);
+    setDraft(old=>old?{...old,products:old.products.map((p,n)=>{
+      if(n!==i)return p;
+      const rateChanged=key==="sampleUnitKrw"||key==="cloudUnitKrw";
+      return {...p,[key]:value,...(rateChanged?{priceEvidenceStatus:"USER_RATE_EDITED"}:{})};
+    })}:old);
+    setPreflight(null);setCreationRequest(null);
   };
 
   function updateAmplicon(i,fn){
@@ -54,7 +119,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
           enabled:false,regions:[],referenceStatus:"USER_SELECTED"
         })}:p)
     }:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
   }
   function addRegion(i,code){
     const candidate=regionByCode(code);
@@ -79,7 +144,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       account:mode==="KEEP"?{...old.referenceAccount}:{id:"",name:""},
       contact:mode==="KEEP"?{...old.referenceContact}:{id:"",externalId:"",name:"",email:""}
     }:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
   }
   function chooseAccount(account){
     if(!account)return;
@@ -87,7 +152,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       account:{id:account.id||"",name:account.name||""},
       contact:{id:"",externalId:"",name:"",email:""}
     }:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
     setNotice("기관 선택 완료 · 같은 기관의 고객을 검색해 선택하세요.");
   }
   function chooseContact(pair){
@@ -98,13 +163,35 @@ export default function ReportOppoDraft({quote,enabled=true}){
     setDraft(old=>old?{...old,
       account:pair.account,contact:pair.contact
     }:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
     setNotice("고객 및 소속 기관을 함께 선택했습니다. Salesforce 현재 연결 상태는 저장 전 재검증이 필요합니다.");
   }
   function check(){
     if(!draft)return;
     setPreflight(draftPreflight(descriptionPayload()));
   }
+  async function requestCreation(){
+    if(!draft||requestBusy)return;
+    const payload=descriptionPayload();
+    setRequestBusy(true);setCreationRequest(null);setNotice("");
+    try{
+      const response=await fetch("/api/sfdc/pair-request-local",{
+        method:"POST",cache:"no-store",credentials:"omit",
+        headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        body:JSON.stringify({mode:"SUBMIT_FOR_APPROVAL",draft:payload})
+      });
+      const result=await response.json();
+      if(!response.ok||!["PENDING_APPROVAL","NEEDS_REVIEW"].includes(result.status))
+        throw Error(result.code||"PAIR_REQUEST_FAILED");
+      setCreationRequest(result);
+      setPreflight(draftPreflight(payload));
+      setNotice(result.status==="PENDING_APPROVAL"?
+        "기존 Oppo·Quote 검증 요청 완료. 최종 금액을 자동 재검증한 뒤 이 화면에서 저장을 승인하세요.":
+        "원본 정보가 완전히 검증되지 않아 저장을 차단했습니다. 확인 항목을 보완하세요.");
+    }catch(e){setNotice(e.message||"CREATION_REQUEST_FAILED")}
+    finally{setRequestBusy(false)}
+  }
+
   async function copy(which){
     if(!draft)return;
     const data=which==="json"?
@@ -132,7 +219,27 @@ export default function ReportOppoDraft({quote,enabled=true}){
     사전 분류된 Feishu Quote 참조가 완전하지 않아 초안을 생성할 수 없습니다.
   </p>;
   return <div aria-label="Oppo Quote 참고 초안 편집">
-    <SourceSalesforceEvidence quote={quote} onVerified={onSourceVerified}/>
+    <details className={styles.subsection} data-testid="reference-source-check">
+      <summary>기존 Salesforce 원본 자동 조회 결과 · 자세히 보기</summary>
+      <SourceSalesforceEvidence quote={quote} onVerified={onSourceVerified}/>
+    </details>
+    <details className={styles.subsection}>
+      <summary>가격 근거 및 원본 검증 상태</summary>
+    <p className={styles.hint} role="status">
+      2026년 KRW 원본 공정 단가: {historyStatus} · 정확히 일치하는
+      QID·공정·Gb에 한해 참고 가격을 자동 불러옵니다.
+      실제 Salesforce 단가로 다시 확인하기 전에는 저장이 불가합니다.
+    </p>
+    {originalSourceGroups.length>0&&<details className={styles.subsection}
+      data-testid="pair-original-process-breakdown">
+      <summary>원본 Quote 공정별 KRW 단가·수량 상세 · {originalSourceGroups.length}개 Product
+        {" · "}HOLD {originalSourceGroups.filter(g=>g.review_status==="HOLD").length}개</summary>
+      <p className={styles.hint}>원본 Product별 Process 수량×Unit Price를 그대로 확인할 수 있습니다.
+        홀딩된 가격은 신규 견적 샘플당 금액으로 자동 입력되지 않습니다.
+        별도 Quotation Fee는 제외된 공정 합계입니다.</p>
+      {originalSourceGroups.map(group=><HistoricalKrwProcessBreakdown
+        key={group.key} group={group}/>)}
+    </details>}
     <div className={styles.sourceGrid}>
       <div><span>참고 Quote</span><strong>{draft.qid}</strong></div>
       <div><span>참고 Opportunity</span><strong>{draft.originalOpportunityName||"기존 프로젝트명 미확인"}</strong></div>
@@ -140,10 +247,12 @@ export default function ReportOppoDraft({quote,enabled=true}){
       <div><span>사전 분류</span><strong>{draft.referenceIndexStatus}</strong></div>
       <div><span>원본 대비 변경</span><strong>{changes.length}개 항목</strong></div>
     </div>
+    </details>
     <p className={styles.hint}>기존 Opportunity/Quote의 가능한 값을 먼저 채웁니다. 바꾸는 필드만 수정하세요.
-      계정·Contact·Region·공정은 원본을 참고하며, 검증된 KRW 단가가 없는 경우에만 금액 확인이 필요합니다.</p>
-    <div className={styles.subsection}>
-      <h3>02 · Account / Contact 처리 방식</h3>
+      계정·Contact·Region·공정은 원본을 참고하며, 인증된 Salesforce 원본에 KRW 공정별 단가가 있으면 자동 채워집니다.</p>
+    <details className={styles.subsection} data-testid="account-contact-advanced">
+      <summary>Account·Contact 변경 (선택사항 · 기본은 기존 Oppo 고객 유지)</summary>
+      <h3>Account / Contact 관리</h3>
       <p className={styles.hint}>두 모드 모두 참조만 불러옵니다. 기존 Salesforce 레코드 변경·생성은 하지 않습니다.</p>
       <fieldset className={styles.accountOptions} aria-label="Account Contact 처리 방식">
         <legend>고객 연결 선택</legend>
@@ -169,9 +278,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
         </div>
 
       </fieldset>
-    </div>
+    </details>
     <div className={styles.subsection}>
-      <h3>03 · 신규 견적 구성 및 단가</h3>
+      <h3>수정할 정보만 변경</h3>
       <div className={styles.grid}>
         <label>Opportunity · Quote 공통 이름
           <input aria-label="새 Oppo Quote 이름" value={draft.name}
@@ -189,7 +298,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       </div>
       <p className={styles.hint}>Opportunity와 Quote를 동일한 이름·기관·고객·Product 구성으로 한 번에 준비합니다.
         현재 단계는 Sample Expected(곧 샘플 입고 예정)이며, 실제 Sample Received·QC·PO는 확인되지 않았습니다.
-        원본 Quote Report의 USD 환산 공정 단가는 KRW 확정 단가가 아닙니다. Pack 번호와 실제 SFDC 가격을 검증하기 전에는 저장하지 않습니다.</p>
+        2026년 실제 Salesforce KRW 공정별 단가가 우선입니다. Pack과 AliCloud를 원본 검증하기 전에는 저장하지 않습니다.</p>
       <p className={styles.hint}>기존 서비스·Product·Region 값이 확인되면 그대로 가져옵니다.
         변경된 부분만 수정하고, 기존 공정별 수량을 생물학적 샘플 수로 오해하지 않습니다.</p>
       {draft.products.map((p,i)=>{
@@ -197,7 +306,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
         return <div className={styles.draftProduct} key={p.id}>
           <div className={styles.inlineHead}>
             <b>Product {i+1} · {p.processes.map(x=>x.name).slice(0,3).join(" + ")}</b>
-            <small>기존 총액 {p.referenceTotalUsd||"—"} USD (참고)</small>
+            <small>{p.priceEvidenceStatus==="LIVE_SFDC_KRW_VERIFIED"?
+              "원본 KRW 단가 자동 적용":p.priceEvidenceStatus==="INDEX_2026_KRW_COMPARISON_ONLY"?
+              "기존 공정 수량으로 계산한 KRW 참고 단가 · 원본 재확인 필요":"원본 KRW 단가 확인 중"}</small>
           </div>
           <p className={styles.hint}>공정+Gb 유형:
             {" "}{p.preclassified?"사전 색인됨":"참조 미확인"}
@@ -218,10 +329,15 @@ export default function ReportOppoDraft({quote,enabled=true}){
                 value={p.samples} placeholder="예: 12"
                 onChange={e=>editProduct(i,"samples",e.target.value)}/>
             </label>
-            <label>{p.amplicon?.enabled?"공통 Region당 단가 (KRW/샘플/Region)":"샘플당 단가 (KRW)"}
+            <label>{p.amplicon?.enabled?"공통 Region당 단가 (KRW/샘플/Region)":"샘플당 단가 (KRW · 원본 자동)"}
               <input aria-label={"Product "+(i+1)+" 샘플당 KRW 단가"} inputMode="numeric"
-                value={p.sampleUnitKrw} placeholder="예: 90000"
+                value={p.sampleUnitKrw} placeholder="Salesforce KRW 자동 조회"
                 onChange={e=>editProduct(i,"sampleUnitKrw",e.target.value)}/>
+            </label>
+            <label>AliCloud 단가 (KRW / 100Gb · 원본 자동)
+              <input aria-label={"Product "+(i+1)+" AliCloud KRW 단가"} inputMode="numeric"
+                value={p.cloudUnitKrw||""} placeholder="원본 AliCloud 단가 자동 조회"
+                onChange={e=>editProduct(i,"cloudUnitKrw",e.target.value)}/>
             </label>
           </div>
           {(p.amplicon?.enabled||/amplicon|16s|18s|archaeal|its[12]/i.test(
@@ -269,15 +385,46 @@ export default function ReportOppoDraft({quote,enabled=true}){
                 </div>)}
               </>}
             </fieldset>}
-          <p className={styles.hint}>기존 공정 단가(환산 USD):
-            {" "}{p.processes.map(x=>x.name+" "+(x.sourceUnitUsd||"—")+
-              " USD/"+(x.dataUnit||"단위 미확인")).join(" · ")}
+          <p className={styles.hint}>KRW 단가 근거: {p.priceEvidenceStatus||"SOURCE_KRW_UNVERIFIED"} ·
+            {" "}AliCloud 자동 수량 {item?.cloudUnits??"확인 필요"}개 (샘플 수 × Gb ÷ 100 올림) ·
+            {" "}AliCloud 단가 {money(item?.cloudUnitKrw)} / 100Gb ·
+            {" "}AliCloud 합계 {money(item?.cloudNetKrw)}
           </p>
+          {item?.cloudUnits>0&&item?.cloudUnitKrw===null&&
+            <p className={styles.warning} role="status">
+              AliCloud 원본 KRW 단가 미확인 · 무료로 처리하지 않고 저장을 차단합니다.
+            </p>}
+          {(item?.fixedProcessLines?.length||0)>0&&
+            <div className={styles.totals} data-testid="source-fixed-product-process">
+              <div><span>샘플당 반복 공정 단가 (고정 공정 제외)</span>
+                <strong>{money(item?.unitKrw)}</strong></div>
+              {item.fixedProcessLines.map((fixed,j)=>
+                <div key={fixed.processId||j}>
+                  <span>{fixed.processName} · 원본 Product 고정 공정
+                    {" "}({fixed.quantity} × {money(fixed.unitPriceKrw)})</span>
+                  <strong>{money(fixed.netKrw)}</strong>
+                </div>)}
+              <div><span>기존 Quote 실효 단가 · 샘플 수로 나눈 참고값</span>
+                <strong>{Number.isInteger(item?.quantity)&&item.quantity>0&&
+                  Number.isSafeInteger(item.netKrw/item.quantity)?
+                  money(item.netKrw/item.quantity):"별도 표시 필요"}</strong></div>
+              {item.fixedProcessBasisChanged&&<p className={styles.warning}>
+                신규 샘플 수가 원본과 달라 고정 공정 재검증 필요 · 승인 보류
+              </p>}
+              <p className={styles.hint}>고정 Data release는 AliCloud나 별도 배송 Quotation Fee가
+                아닙니다. 샘플당 단가에 반복 합산하지 않고 원본 수량을 별도로 유지합니다.</p>
+            </div>}
           <div className={styles.totals}>
             <div><span>Oppo 샘플당 단가 · VAT 제외</span>
               <strong>{money(oppUnits.ok?oppUnits.products[i]?.unitPriceNetKrw:null)}</strong></div>
             {p.amplicon?.enabled&&<p className={styles.hint}>위 단가는 Region별 서비스를 모두 합친 생물학적 샘플 1개 기준 금액입니다. Region별 개별 단가와 구분합니다.</p>}
             <div><span>신규 Product 공급가액 · VAT 제외</span><strong>{money(item?.netKrw)}</strong></div>
+            {(item?.fixedProcessLines?.length||0)>0&&<div>
+              <span>Product 고정 공정 합계 · VAT 제외</span>
+              <strong>{money(item?.fixedProcessNetKrw)}</strong>
+            </div>}
+          <div><span>AliCloud · 100Gb당 1개</span>
+            <strong>{item?.cloudUnits??0}개 · {money(item?.cloudNetKrw)}</strong></div>
             {p.amplicon?.enabled&&<div>
               <span>Region 서비스 횟수 · 생물학적 샘플과 별도</span>
               <strong>{item?.serviceQuantity??"확인 필요"}건</strong>
@@ -285,23 +432,61 @@ export default function ReportOppoDraft({quote,enabled=true}){
           </div>
         </div>;
       })}
+      <details className={styles.subsection} data-testid="source-quote-fees">
+        <summary>기존 배송·반송 Fee (별도 관리 · 기본 제외)</summary>
+        <h3>별도 배송·반송 Fee · Quotation Fee</h3>
+        <p className={styles.hint}>원본 Quotation Fee가 연결된 Product와 금액을 표시합니다.
+          샘플당 시퀀싱·라이브러리·QC 단가에는 합산하지 않습니다.
+          기존 견적의 Fee는 기본적으로 새 견적에 복제하지 않습니다.</p>
+        <p className={styles.hint} role="status">원본 조회:
+          {" "}{feeReadStatus}
+          {" · "}{draft.feeEvidenceStatus||"NOT_READ"}
+          {" · "}{draft.sourceFeeLines?.length||0}개 Fee</p>
+        {(draft.sourceFeeLines||[]).map((fee,i)=>
+          <div className={styles.totals} key={fee.key||i}>
+            <div><span>{fee.feeType} · {fee.productName}</span>
+              <strong>{money(fee.feeKrw)} · VAT 제외</strong></div>
+          </div>)}
+        <fieldset className={styles.accountOptions} aria-label="Quotation Fee 유지 선택">
+          <legend>기존 Quote Fee 신규 견적 반영</legend>
+          <label className={styles.modeOption}>
+            <input type="radio" name="quote-fee-mode" checked={draft.feeMode!=="KEEP"}
+              onChange={()=>edit("feeMode","EXCLUDE")}/>
+            제외 (기본 · 샘플당 단가에 영향 없음)
+          </label>
+          <label className={styles.modeOption}>
+            <input type="radio" name="quote-fee-mode" checked={draft.feeMode==="KEEP"}
+              disabled={!(draft.sourceFeeLines?.length>0)}
+              onChange={()=>edit("feeMode","KEEP")}/>
+            기존 배송·반송 Fee 별도 유지 (건별 승인·원본 재확인 필요)
+          </label>
+        </fieldset>
+        {draft.feeMode==="KEEP"&&<p className={styles.warning} role="status">
+          원본 Fee를 별도 Quote Fee로 참고 포함합니다. 새로운 고객·수량·배송 조건에서
+          비용이 유지되는지는 미확인 상태이므로 생성 요청은 NEEDS_REVIEW로 등록됩니다.
+        </p>}
+      </details>
       <div className={styles.totals} data-testid="oppo-price-summary">
         <div><span>Opportunity 샘플당 단가 · VAT 제외</span>
           <strong>{oppUnits.ok&&oppUnits.singleProduct?
             money(oppUnits.overallPerSampleNetKrw):
             oppUnits.ok?"제품별 단가 별도 표시":"단가 확인 필요"}</strong></div>
+        <div><span>공정·AliCloud 공급가액 · VAT 제외</span>
+          <strong>{money(amounts?.processNetKrw)}</strong></div>
+        <div><span>별도 Quotation Fee · VAT 제외</span>
+          <strong>{money(amounts?.feeNetKrw)} · {draft.feeMode==="KEEP"?"유지 선택":"제외"}</strong></div>
         <div><span>공급가액 합계 · VAT 제외</span><strong>{money(amounts?.netKrw)}</strong></div>
         <div><span>VAT 10%</span><strong>{money(amounts?.vatKrw)}</strong></div>
         <div className={styles.grand}><span>VAT 포함 예상액</span><strong>{money(amounts?.grossKrw)}</strong></div>
       </div>
     </div>
     <div className={styles.subsection}>
-      <h3>04 · Progress Description 및 저장 전 검증</h3>
+      <h3>Progress Description (자동 작성 · 수정 가능)</h3>
       {changes.length>0&&<p className={styles.hint}>원본 대비 변경 항목 {changes.length}개:
         {" "}{changes.slice(0,12).map(x=>x.field).join(", ")}
         {changes.length>12?" 외 "+(changes.length-12)+"개":""}</p>}
-      <p className={styles.hint}>실제 Opportunity에서 쓰던 짧은 양식: 0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW. 새 초안은 발송 전이므로 Quote Draft로 표시합니다.</p>
-      <p className={styles.hint}>MMDD · 상태 · 서비스 · Gb(해당 시) · 수량 · 단가만 표시합니다. 직접 수정하면 문구를 잠그며, 이후 값이 바뀌면 재검증이 필요합니다.</p>
+
+
       <div className={styles.inlineHead}>
         <b>현재 편집 상태</b>
         <span className={styles.state} data-ok={!descriptionCheck?.stale&&descriptionCheck?.complete}>
@@ -310,11 +495,11 @@ export default function ReportOppoDraft({quote,enabled=true}){
         </span>
       </div>
       <label className={styles.draftTextLabel}>Opportunity Progress Description (직접 수정 가능)
-        <textarea aria-label="새 Oppo Quote Description 편집" rows={7}
+        <textarea aria-label="새 Oppo Quote Description 편집" rows={3}
           value={description} onChange={e=>{
             setDescriptionEdit(e.target.value);
             setDescriptionEditBasis(descriptionBasis(draft));
-            setPreflight(null);
+            setPreflight(null);setCreationRequest(null);
           }}/>
       </label>
       {descriptionCheck?.stale&&<p className={styles.warning} role="alert">
@@ -323,10 +508,13 @@ export default function ReportOppoDraft({quote,enabled=true}){
       {!descriptionCheck?.complete&&<p className={styles.warning} role="status">
         현재 Description에 필수 값이 부족합니다. 날짜·Gb·샘플 수·단가 표기를 확인하세요.
       </p>}
+      <details className={styles.subsection}><summary>추가 도구 · 사전 검증 및 복사</summary>
       <div className={styles.actions}>
         <button type="button" onClick={check}>초안 검증 (저장 없음)</button>
+
         <button type="button" className={styles.secondary} onClick={()=>{
           setDescriptionEdit(null);setDescriptionEditBasis(null);setPreflight(null);
+          setCreationRequest(null);
         }}>현재 입력값으로 Description 재생성 (잠금 해제)</button>
         <button type="button" className={styles.secondary} onClick={()=>copy("desc")}>Description 복사</button>
         <button type="button" className={styles.secondary} onClick={()=>copy("json")}>초안 JSON 복사</button>
@@ -343,11 +531,46 @@ export default function ReportOppoDraft({quote,enabled=true}){
         </p>}
         <p className={styles.hint}>
           이름: Opportunity = Quote · Account/Contact {draft.accountMode==="KEEP"?"기존 유지":"변경"}
-          {" · "}기존 단가는 USD 참고값 · 실제 Salesforce Account/Contact 상태·KRW 가격 미검증
+          {" · "}KRW 가격 근거: {draft.sourceKrwRateStatus||"SOURCE_UNVERIFIED"} ·
+          실제 Salesforce 저장은 별도 건별 승인 필요
           {" · "}CRM 저장 금지
         </p>
       </div>}
+      </details>
       {notice&&<p className={styles.hint} role="status">{notice}</p>}
     </div>
+    <section className={styles.subsection} data-testid="oppo-quote-quick-create">
+      <h3>Oppo + Quote 생성</h3>
+      <p className={styles.hint}>기존 Oppo와 연결된 Quote에서 채워진 내용을 그대로 사용합니다. 수정한 항목만 반영하고 Salesforce 원본과 자동 대조합니다.</p>
+      <div className={styles.totals} data-testid="oppo-quote-compact-summary">
+        <div><span>Oppo = Quote 이름</span><strong>{draft.name||"확인 필요"}</strong></div>
+        <div><span>기관 · Contact</span><strong>{draft.account?.name||"미확인"} · {draft.contact?.name||"미확인"}</strong></div>
+        <div><span>샘플 · 생산량</span><strong>{draft.products.map(p=>(p.samples||"?")+"개 × "+(p.productionGb||"?")+"Gb").join(" / ")}</strong></div>
+        <div><span>샘플당 KRW</span><strong>{draft.products.map(p=>money(
+          p.sampleUnitKrw!==""&&Number.isSafeInteger(Number(p.sampleUnitKrw))?
+          Number(p.sampleUnitKrw):null)).join(" / ")}</strong></div>
+        <div><span>공급가액 (VAT 제외)</span><strong>{money(amounts?.netKrw)}</strong></div>
+        <div className={styles.grand}><span>VAT 포함 합계</span><strong>{money(amounts?.grossKrw)}</strong></div>
+      </div>
+            <button type="button" data-testid="oppo-quote-creation-request"
+        disabled={requestBusy} onClick={requestCreation}>
+        {requestBusy?"신규 견적 검증 중…":"검증 후 Oppo + Quote 저장"}
+      </button>
+      {creationRequest&&<div data-testid="oppo-quote-request-confirmation" role="status">
+        {creationRequest.status==="PENDING_APPROVAL"?
+          <PairedSaveApproval compact key={creationRequest.requestId}
+            review={{requestId:creationRequest.requestId,
+              queueStatus:creationRequest.status,name:draft.name,
+              accountName:draft.account?.name||""}}/>:
+          <div className={styles.warning}>
+            <strong>현재 견적은 실제 저장 대상이 아닙니다.</strong>
+            <p>{creationRequest.missing?.length?
+              creationRequest.missing.join(" · "):
+              "기존 Salesforce의 고객·2026 KRW 공정 단가를 재검증해야 합니다."}</p>
+            <p>정보를 수정한 후 ‘검증 후 Oppo + Quote 저장’을 다시 누르세요.</p>
+          </div>}
+      </div>}
+
+    </section>
   </div>;
 }

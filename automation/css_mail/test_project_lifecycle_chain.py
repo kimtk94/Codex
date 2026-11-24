@@ -1,7 +1,7 @@
 """Offline regression tests: stages, J billings, forecasts and source provenance."""
 import unittest
 
-from project_lifecycle_refresh import build
+from project_lifecycle_refresh import build, lifecycle_content_equal, lifecycle_unformatted_readback
 from statement_amount_extract import candidates
 
 X = "X209SC260910566-Z01"
@@ -42,7 +42,89 @@ def fixtures(status="Waiting for Settlement"):
     amounts=[["statement_key"]]
     return [css,fe,invoice,ctrl,mail,amounts]
 
+def prior_source_only(x=X, billing="STATEMENT READY - INVOICE PENDING [QQ_ONLY]"):
+    previous=[""]*24
+    previous[0]=x
+    previous[5]="NOT_IN_FEISHU_SOURCE"
+    previous[16]=billing
+    previous[20]="J001" if "PENDING" in billing else ""
+    previous[23]="AMOUNT_VERIFIED 1/1" if previous[20] else "NO_OPEN_STATEMENT"
+    return [["Project / Sub-project"]]+[previous]
+
+
 class LifecycleTests(unittest.TestCase):
+    def test_lifecycle_complete_readback_allows_only_trimmed_blank_cells(self):
+        from project_lifecycle_refresh import HEAD
+        expected=[list(HEAD),["X0001"]+[""]*23]
+        observed=[list(HEAD),["X0001"]]
+        self.assertTrue(lifecycle_content_equal(expected,observed))
+        observed=[list(HEAD),["X0001"]+[""]*22+[123]]
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+
+    def test_lifecycle_same_row_count_changed_stage_or_amount_blocks(self):
+        from project_lifecycle_refresh import HEAD
+        expected=[list(HEAD),["X0001"]+[""]*14+[632500]+[""]*8]
+        same=[list(HEAD),["X0001"]+[""]*14+[632500]+[""]*8]
+        self.assertTrue(lifecycle_content_equal(expected,same))
+        same[1][15]=632400
+        self.assertFalse(lifecycle_content_equal(expected,same))
+        same[1][15]=632500
+        same[1][5]="NEW_STATUS"
+        self.assertFalse(lifecycle_content_equal(expected,same))
+        same[1][5]=""
+        same[1][0]="X0002"
+        self.assertFalse(lifecycle_content_equal(expected,same))
+        self.assertFalse(lifecycle_content_equal(expected,same[:1]))
+
+    def test_progress_only_numeric_sheet_roundtrip_does_not_false_fail(self):
+        from project_lifecycle_refresh import HEAD
+        expected=[list(HEAD),["X0001"]+[""]*23]
+        expected[1][7]=97.0
+        observed=[list(HEAD),list(expected[1])]
+        observed[1][7]=97
+        self.assertTrue(lifecycle_content_equal(expected,observed))
+        observed[1][7]="97.000"
+        self.assertTrue(lifecycle_content_equal(expected,observed))
+        observed[1][7]="96.0"
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+        observed[1][7]=""
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+        observed[1][7]="NaN"
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+
+    def test_other_23_fields_retain_exact_value_check(self):
+        from project_lifecycle_refresh import HEAD
+        expected=[list(HEAD),["X0001"]+[""]*23]
+        expected[1][7]=97.0
+        expected[1][15]=1000000
+        expected[1][11]="2026-11-18"
+        observed=[list(HEAD),list(expected[1])]
+        observed[1][7]=97
+        observed[1][15]=1000001
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+        observed[1][15]=1000000
+        observed[1][11]="2026-11-19"
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+        observed[1][11]="2026-11-18"
+        self.assertTrue(lifecycle_content_equal(expected,observed))
+
+    def test_lifecycle_readback_uses_unformatted_values_and_does_not_log_customers(self):
+        from unittest.mock import patch
+        def fake_req(session,method,url):
+            self.assertEqual("GET",method)
+            self.assertIn("valueRenderOption=UNFORMATTED_VALUE",url)
+            self.assertIn("A1%3AX2",url)
+            return {"values":[["header"],["PRIVATE_CLIENT"]]}
+        with patch("project_lifecycle_refresh.req",side_effect=fake_req):
+            got=lifecycle_unformatted_readback(object(),"SYNTHETIC_BOOK",
+                                               "BI Project Lifecycle Overview","A1:X2")
+        self.assertEqual("PRIVATE_CLIENT",got[1][0])
+        with patch("project_lifecycle_refresh.req",return_value={}):
+            with self.assertRaisesRegex(RuntimeError,"LIFECYCLE_READBACK_UNAVAILABLE") as ctx:
+                lifecycle_unformatted_readback(object(),"SYNTHETIC_BOOK",
+                                              "BI Project Lifecycle Overview","A1:X2")
+        self.assertNotIn("PRIVATE_CLIENT",str(ctx.exception))
+
     def test_partial_billing_j001_issued_j002_pending(self):
         data=fixtures()
         data[2].append(inv(J1,"209126000989",1320000))
@@ -90,6 +172,134 @@ class LifecycleTests(unittest.TestCase):
                                      data[2],rows,monthly)
         self.assertEqual(reconciled,(1,1881000))
 
+
+    def test_qq_only_pending_to_verified_issued_invoice_keeps_project(self):
+        # Regression for actual Nov 16 blocker: 111 previous vs 110 Feishu.
+        # The source-only J001 is now exactly issued; never delete its X row.
+        data=fixtures()
+        data[1]=[data[1][0]]  # Feishu did not provide this subproject
+        data[4].append(notice(J1))
+        data[5].append([J1,X,"J001",632500,"KRW",
+                        "2026-10-28T10:00:00+08:00","40005","1776302013",
+                        "AMOUNT_VERIFIED","2026-10-28",notice(J1)[4]])
+        data[2].append(inv(J1,"209126000989",632500))
+        rows=build(*data,previous_rows=prior_source_only())
+        self.assertEqual(2,len(rows))
+        row=rows[1]
+        self.assertEqual(X,row[0])
+        self.assertEqual("NOT_IN_FEISHU_SOURCE",row[5])
+        self.assertEqual(1,row[14])
+        self.assertEqual(632500,row[15])
+        self.assertEqual("ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]",row[16])
+        self.assertEqual("",row[20])  # Original J001 is no longer Pending.
+        self.assertIn(row[22],("",0))  # Do not double count issued as Pending.
+        self.assertEqual("NO_OPEN_STATEMENT",row[23])
+        self.assertFalse(row[3])  # Never invent a customer from email.
+        from revenue_lifecycle_monthly import compute,reconcile_pending
+        import datetime as dt
+        revenue=compute(data[2],rows,dt.datetime(2026,10,30,tzinfo=dt.timezone.utc))
+        month=next(r for r in revenue[1:] if r[0]=="2026-10")
+        self.assertEqual(632500,month[1])
+        self.assertEqual(0,month[2])
+        self.assertEqual(1,month[5])
+        headers=["statement_key","project_x","statement_no","amount_krw",
+                 "currency","notice_at","imap_uid","uidvalidity",
+                 "validation_status","verified_at_utc","subject"]
+        self.assertEqual((0,0),reconcile_pending([headers]+data[5][1:],
+                                                    data[2],rows,revenue))
+
+    def test_qq_only_issued_invoice_without_open_notice_is_still_retained(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        data[2].append(inv(J1,"209126000990",632500))
+        rows=build(*data,previous_rows=prior_source_only(
+            billing="ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]"))
+        self.assertEqual(2,len(rows))
+        row=rows[1]
+        self.assertEqual("NOT_IN_FEISHU_SOURCE",row[5])
+        self.assertEqual(1,row[14])
+        self.assertEqual(632500,row[15])
+        self.assertEqual("",row[20])
+        self.assertEqual("NO_OPEN_STATEMENT",row[23])
+
+    def test_qq_only_partially_invoiced_does_not_erase_other_pending_j(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        data[2].append(inv(J1,"209126000991",632500))
+        data[4].extend([notice(J1),notice(J2)])
+        data[5].append([J2,X,"J002",220000,"KRW",
+                        "2026-10-28T10:00:00+08:00","40006","1776302013",
+                        "AMOUNT_VERIFIED","2026-10-28",notice(J2)[4]])
+        row=build(*data)[1]
+        self.assertEqual("ISSUED + STATEMENT PENDING [QQ_ONLY]",row[16])
+        self.assertEqual(632500,row[15])
+        self.assertEqual("J002",row[20])
+        self.assertEqual(220000,row[22])
+        self.assertEqual("AMOUNT_VERIFIED 1/1",row[23])
+
+    def test_new_invoiced_only_X_must_not_bulk_expand_lifecycle(self):
+        data=fixtures()
+        # 84 synthetic historical invoice-only X records are absent from
+        # both Feishu and the previous source-only lifecycle. Reject all
+        # rather than silently converting every Invoice into a project row.
+        for n in range(84):
+            x=f"X209SC2609{n:04d}-Z01"
+            data[2].append(inv("J001-"+x,f"209126{n:06d}",500000+n))
+        current=build(*data,previous_rows=[["Project / Sub-project"]])
+        self.assertEqual(2,len(current))  # header + one Feishu project
+        self.assertEqual(X,current[1][0])
+
+    def test_real_scale_110_feishu_plus_85_invoice_x_keeps_111_project_rows(self):
+        data=fixtures()
+        feishu_header=data[1][0]
+        row_template=data[1][1]
+        data[1]=[feishu_header]
+        for n in range(110):
+            row=list(row_template)
+            row[1]=f"X209SC2608{n:04d}-Z01"
+            row[2]=f"H209SC2608{n:04d}"
+            data[1].append(row)
+        for n in range(85):
+            x=f"X209SC2609{n:04d}-Z01"
+            data[2].append(inv("J001-"+x,f"209126{n:06d}",100000+n))
+        prior_x="X209SC26090000-Z01"
+        rows=build(*data,previous_rows=prior_source_only(x=prior_x))
+        self.assertEqual(111,len(rows)-1)
+        qq_only=[r for r in rows[1:] if r[5]=="NOT_IN_FEISHU_SOURCE"]
+        self.assertEqual(1,len(qq_only))
+        self.assertEqual(prior_x,qq_only[0][0])
+        self.assertEqual(1,qq_only[0][14])
+        self.assertEqual(100000,qq_only[0][15])
+        self.assertEqual("",qq_only[0][20])
+        self.assertEqual("NO_OPEN_STATEMENT",qq_only[0][23])
+        self.assertEqual(111,len({r[0] for r in rows[1:]}))
+        self.assertEqual(110,len([r for r in rows[1:]
+                                  if r[5]!="NOT_IN_FEISHU_SOURCE"]))
+
+    def test_prior_qq_only_without_verified_invoice_remains_source_hold(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        data[2].append(inv(J1,"209126000991",632500))
+        # A previous row with a different, non-Qq-only state is not authority
+        # for manufacturing a source-only project.
+        invalid=prior_source_only()
+        invalid[1][5]="COMPLETED"
+        with self.assertRaisesRegex(RuntimeError,"Empty lifecycle"):
+            build(*data,previous_rows=invalid)
+        # Without any earlier lifecycle lineage, no new invoice-only X.
+        with self.assertRaisesRegex(RuntimeError,"Empty lifecycle"):
+            build(*data)
+
+    def test_still_retains_qq_only_issued_on_next_refresh(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        data[2].append(inv(J1,"209126000994",632500))
+        previous=prior_source_only()
+        first=build(*data,previous_rows=previous)
+        second=build(*data,previous_rows=first)
+        self.assertEqual(first[1][:18],second[1][:18])
+        self.assertEqual("ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]",second[1][16])
+        self.assertEqual("",second[1][20])
 
     def test_unverified_orphan_does_not_generate_pending_amount(self):
         data=fixtures()

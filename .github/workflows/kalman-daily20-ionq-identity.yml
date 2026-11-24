@@ -1,0 +1,72 @@
+name: Daily20 IONQ SPAC / Ticker-Inception Sensitivity (Read Only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - research/kalman_daily20/ionq_identity_sensitivity.py
+      - research/kalman_daily20/test_ionq_identity_sensitivity.py
+      - .github/workflows/kalman-daily20-ionq-identity.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  ionq-inception-sensitivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the same feature generation and modeling dependencies as Daily20
+        run: |
+          python -m pip install --disable-pip-version-check -r kalman-toss-gateway/engine/market_data/requirements.txt
+          python -m pip install --disable-pip-version-check 'scikit-learn>=1.6,<2' 'exchange-calendars>=4.7'
+      - name: Independent ticker-inception contracts
+        run: |
+          python -m unittest discover -s research/kalman_daily20 -p 'test_ionq_identity_sensitivity.py' -v
+      - name: Download two independently frozen November 20 price/TA snapshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p evidence
+          curl -fLSs --retry 3 --connect-timeout 20 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/14686667025/zip" \
+            -o evidence/first.zip
+          curl -fLSs --retry 3 --connect-timeout 20 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/14694207115/zip" \
+            -o evidence/latest.zip
+      - name: Recompute all prelisting-sensitive IONQ features/models and OOS
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/ionq_identity_sensitivity.py \
+            --left evidence/first.zip \
+            --right evidence/latest.zip \
+            --out output/daily20/ionq_identity
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x = json.loads(Path('output/daily20/ionq_identity/ionq_sensitivity_overview.json').read_text())
+          assert x['research_only'] is True
+          assert x['no_live_changes'] is True
+          assert x['source_versions'] == ['44853890794', '44871574162']
+          print("IONQ_RESEARCH_ONLY_REPRODUCIBLE",len(x["results"]))
+          PY
+      - name: Publish independent evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily20-ionq-identity-inception-sensitivity
+          path: output/daily20/ionq_identity/
+          if-no-files-found: warn
+          retention-days: 90

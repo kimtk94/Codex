@@ -1,0 +1,85 @@
+name: Audit indirect Git write paths (read-only)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 1 * * *"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "automation/ops/audit_indirect_git_writes.py"
+      - "automation/ops/test_audit_indirect_git_writes.py"
+      - "automation/kalman/**"
+      - "kalman-toss-gateway/scripts/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "automation/ops/audit_indirect_git_writes.py"
+      - "automation/ops/test_audit_indirect_git_writes.py"
+      - "automation/kalman/**"
+      - "kalman-toss-gateway/scripts/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: indirect-git-write-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    name: Static indirect Git write inventory (not protection approval)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Synthetic tests
+        run: python -m unittest automation.ops.test_audit_indirect_git_writes -v
+      - name: Existing literal workflow audit
+        run: python automation/ops/audit_main_writes.py --root . --output "$RUNNER_TEMP/direct-main-writes.json"
+      - name: New indirect writer and credential capability inventory
+        run: python automation/ops/audit_indirect_git_writes.py --root . --output "$RUNNER_TEMP/indirect-git-writes.json"
+      - name: Publish explicit hold / review summary
+        if: always()
+        env:
+          REPORT_DIR: ${{ runner.temp }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          root = Path(os.environ["REPORT_DIR"])
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          direct = root / "direct-main-writes.json"
+          indirect = root / "indirect-git-writes.json"
+          with summary.open("a", encoding="utf-8") as fp:
+              fp.write("## Git write safety inventory (read-only)\n\n")
+              if not direct.exists() or not indirect.exists():
+                  fp.write("**AUDIT_INCOMPLETE**: missing report; do not activate branch protection.\n")
+              else:
+                  d = json.loads(direct.read_text())
+                  i = json.loads(indirect.read_text())
+                  fp.write(f"- Direct workflow scanner: **{d['classification']}**; {d['direct_main_write_count']} direct main writes, {d['unknown_push_count']} unknown targets\n")
+                  fp.write(f"- Indirect scanner: **{i['status']}**; {i['workflow_count']} workflows; {i['referenced_source_files_inspected']} referenced sources\n")
+                  fp.write(f"- Workflow write-permission declarations: **{i['workflow_write_permission_count']}**\n")
+                  fp.write(f"- Indirect write signals: **{i['indirect_git_write_signals']}**; main-ref signals: **{i['literal_main_write_signals']}**\n\n")
+                  fp.write("**This is NOT branch-protection readiness certification.** Inspect attached JSON and third-party actions before enabling enforcement.\n")
+          PY
+      - name: Upload read-only audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: indirect-git-write-audit-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/direct-main-writes.json
+            ${{ runner.temp }}/indirect-git-writes.json
+          if-no-files-found: warn
+          retention-days: 14

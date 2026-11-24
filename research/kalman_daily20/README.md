@@ -1,0 +1,396 @@
+# Kalman Daily 20 (research only)
+
+A serverless, independent 20-symbol US daily research track. It does **not** deploy a web app, connect to Toss, update Neon, or change R5/R5.2 production code.
+
+## Universe and data
+
+- Core symbols: the **exactly 20** symbols in `universe.json`. Fixed as of 2026-11-21 (ex-post selection; beware survivorship / selection bias in historical tests).
+- Context: SMH, ^VIX, HYG, LQD, TLT and GLD; **not trading candidates**.
+- One canonical US daily close signal per session; earliest simulated entry is the **next session's daily open**; initial reference holding horizon is exit on the **fourth subsequent session's close**.
+- Price source: existing Kalman YFinanceProvider, `auto_adjust=True` for stocks and ETFs; VIX unadjusted. Data are **research-grade Yahoo data, not exchange-grade certified quotes**. Corporate actions and revisions can change old adjusted prices.
+- The existing `engine.features_v2_002.cli` builds TA-Lib RSI/MACD/ADX/NATR/Bollinger/ROC etc. The research code builds extra trend, momentum and volume features.
+- Context series are lagged **one full US session** to avoid optimistic synchronization; no current-revision FRED values are used as historical point-in-time features.
+- Every core and context symbol must pass freshness and OHLC QC; a single failure marks the run BLOCKED (fail-closed). The latest *fully closed* XNYS session with an additional 45-minute buffer is used, not the wall-clock date.
+- Do not infer trade execution from a successful Actions job. The model run generates **research signals and retrospective OOS summaries only**.
+
+## Workflow
+
+`.github/workflows/kalman-daily20.yml` runs at 02:40 UTC Tue-Sat, manually by `workflow_dispatch`, and as a PR validation. Production credentials are not used. The serverless Drive restore/publish jobs use a scoped Google service account; the historical data and result archives persist in Drive, with short-lived GitHub artifacts only as handoff.
+
+To run offline contracts: `python -m unittest discover -s research/kalman_daily20 -p 'test_*.py' -v`
+
+The workflow:
+
+1. Verifies universe schema and builds a derived 26-asset config without changing canonical `market-data-v2-universe.json`.
+2. On main-branch scheduled/manual runs, restores the private, SHA-256-verified Google Drive history using a credential-isolated job; performs a 46-day overlap update except Saturday full-history reconciliation or detected price-scale revision. PR jobs do a full-history refresh with no Drive secrets. No LIVE writes.
+3. Computes existing TA-Lib features and checks each symbol's freshness, OHLC integrity, and feature availability.
+4. Runs **fixed-parameter** per-symbol annual expanding out-of-sample logistic baseline (first test year 2024, four-session label purge, imputation/scaling fit only on the training window).
+5. Reports per-symbol and per-year non-overlapping trade outcomes with 20bp total modeled cost. Does **not** claim a tradable portfolio MDD or independently replicate a QLD 15-minute entry.
+6. Uploads QC and aggregate research artifacts. A missing, stale, or incomplete symbol blocks the training step.
+
+## Known limitations / next gates
+
+- Incremental history uses 46 calendar days of overlap and full-history refetch each Saturday UTC or on adjusted-price-scale discrepancies. The latest Drive ZIP is updated in place; use Google Drive file revisions to retain recoverability. A failed cache download blocks the run rather than silently downgrading data provenance.
+- Model labels refer to a 4-session *daily* hold, not a 4-day intraday triple-barrier; this is a baseline only. True minute-level TP/SL requires verified 1-minute bars.
+- We have **not yet established profitable out-of-sample performance**. No trading order is generated.
+- Additional model families, regime attribution, hyperparameter tuning (nested CV), independent provider reconciliation, portfolio-level costs/exposure/MDD, and private Drive persistence are future milestones.
+
+
+## Durable Google Drive persistence
+
+The primary Daily20 data store is now **Google Drive**, not an expiring GitHub Actions artifact. The existing artifact is only a temporary handoff.
+
+- Folder: https://drive.google.com/drive/folders/1kJLk8sC2GDjtJjsdjeV-GhzsMYsFBhz7
+- Immutable ID for current data ZIP: `1nWbyCiRSscJSqgZYvYhJ9DKHRlBwlKgE` (`daily20_data_latest.zip`)
+- Immutable ID for current OOS results ZIP: `1l-e4OLKS4qlDjNsf8TdkMsd5w3QouF4w` (`daily20_results_latest.zip`)
+
+GitHub Actions `persist-google-drive` runs only after `daily-research` succeeds and only on scheduled/manual runs, never untrusted pull requests. It downloads the freshly validated artifacts, checks 26 raw + 26 feature Parquet files and 20 scores, adds a reproducibility manifest (source commit, run ID, session, per-file SHA-256), and replaces only these two pre-shared research-only Drive files. A Drive MD5 readback is required. Failures leave a visible red CI job; no live trading, Neon, or server dependence is introduced.
+
+Auth: existing `CKD_DRIVE_SA_JSON` or `GDRIVE_SA_JSON_B64` from the GitHub `TaehoonServer` environment. The publisher rejects an unexpected service-account identity. It must not use account-number or trading credentials. The two Drive files have writer access for that **specific** automation service account; the parent folder does not need to be shared.
+
+No Google Sheets cells are used to store the long OHLCV time series; CSV summaries can later be synced into a small readable Sheet without changing the authoritative Parquet snapshots.
+
+
+## Daily data incremental and secondary checks (v2)
+
+1. The `restore-drive-cache` GitHub job has access only to the scoped research Drive account and downloads `daily20_data_latest.zip` by a fixed file ID. It verifies Drive MD5, archive path hygiene, every per-file SHA-256 from the manifest, and the exact 26 raw symbols. A separate short-lived Actions artifact carries this validated archive to the data job, **not credentials**.
+2. The `daily-research` job uses `refresh_incremental.py` to fetch the most recent 46 calendar days from Yahoo, compares adjusted overlapping OHLC prices, and merges new timestamps with old history. A median repricing above 0.25%, a 95th-percentile repricing above 1%, or insufficient overlap triggers **a full 2017-present refetch**, avoiding inconsistent corporate-action adjustment scales. Missing snapshots or bad hashes fail closed.
+3. Saturdays UTC (after the Friday US close) force a full-history revision reconciliation. Pull requests remain public-data-only full downloads, never consuming Drive credentials.
+4. `secondary_qc.py` attempts an advisory 100-day FinanceDataReader comparison for SPY, QQQ, NVDA, XOM. It compares daily returns, explicitly labels provider independence **unverified** (FDR may use Yahoo internally), and reports unavailable data or disagreements separately. The primary data and models are not silently replaced by secondary quotes.
+5. The canonical Google Drive two-file output IDs and existing production models remain unchanged. See `market/refresh_mode.json` and `secondary_qc.json` in the result artifact for provenance.
+
+This is a data engineering milestone, not proof of strategy profitability or independent exchange-quality market quotes.
+ 
+
+## Portfolio-level, out-of-sample cash ledger
+
+`portfolio.py` runs **after** 20-symbol OOS trade generation but **before** research artifact publication and Drive updates. All 20 names compete for the same finite account. It does not trade live.
+
+- Date scope: 2024 onward (all trades remain anchored to annual expanding, label-purged OOS forecasts). Uses only completed historical trades; the last unobservable four-session horizon cannot be treated as completed.
+- At most 3 or 5 open long positions; gross target allocation 1/N with no borrowed money. Fractional shares, 0% cash interest. Current-session open marks are used for same-open sizing.
+- Open at the next US session with half of the specified round-trip friction; exit at the predeclared fourth-session **close** with remaining half. Sale proceeds at close cannot finance entries at the earlier open.
+- Same-open simultaneous entry competition: Logistic candidates ranked by their fixed OOS predicted probability, trend-rule candidates by the known 20-session closing-price momentum at signal date, then alphabetic ticker tie-break. Recomputed historical gross returns are reconciled against the existing out-of-sample label file; mismatches fail closed.
+- 16 **predeclared** scenario combinations: `LOGISTIC` vs `TREND_RULE`, all-20 vs excluding QLD/COIN/MSTR/IONQ, maximum 3 vs 5 holdings, 20 vs 40 basis-point total modeled execution friction. This grid is diagnostic, not an ex-post champion selection.
+- Exports `research/portfolio_scenarios.csv`, `research/portfolio_annual.csv`, `research/portfolio_daily_equity.csv`, `research/portfolio_executions.csv`, `research/portfolio_summary.json`. The existing Drive results ZIP automatically carries these files; publishing is blocked if any are missing.
+- Metrics include annualized return, calendar-year returns, **end-of-day** equity MDD, annualized daily volatility, zero-risk-free Sharpe, active-day and average exposure, executed and rejected entries, SPY and QQQ buy-and-hold from first study date, plus signal-regime/volatility/tech-leadership attribution.
+
+### Critical interpretation
+
+All recorded baseline entry signals are **BULL-only** because the OOS candidate generator already filters on prior-session SPY>SMA200 and VIX<=35. Entry-regime BEAR performance therefore has **no observations**, even if the daily portfolio equity experiences bear sessions while holdings are open. Do not report bear-regime alpha.
+
+EOD MDD misses intraday drawdowns, gaps, market impact, bid-ask volatility, borrow/funding and market-open delay. Holding fractional shares and buying leveraged QLD at adjusted open are sim assumptions, not verified broker fills. Benchmark assumes first-session-close purchase with no transaction costs; this comparison is imperfect but transparent.
+
+The 2026-chosen fixed list creates historical survivor/selection bias; per-year and stress outcomes are descriptive and cannot certify forward alpha. No strategy auto-promotion: `tradable_strategy_approved=false`.
+
+
+## Isolated bear-regime challenger and 2025–2026 failure attribution
+
+The **baseline signals and real trading paths remain unchanged**. Daily20 now runs
+`regime_challenger.py` *after* the validated 16-scenario portfolio ledger.
+
+- Market state is defined with **prior US completed-session** `SPY < SMA200`;
+  stale/incomplete SPY/VIX observations are never silently interpolated.
+  The bear study caps prior-session VIX at 45. This upper bound is a frozen
+  research hypothesis, not a recommended stop-loss/entry gate.
+- `BEAR_RULE`: today's completed-bar RSI14 between 30–60, positive one-day
+  return, and improving MACD histogram, all from known signal-day features.
+  This fixed mean-reversion rule does **not** use subsequent realized returns.
+- `BEAR_LOGISTIC`: annual expanding model fitted only on historical bear
+  entries, with four-session label purge into the test year. Same fixed
+  Logistic(C=0.2, class_weight=balanced), 21 fixed features and 0.60
+  probability threshold; at least 126 old bear rows and both classes are
+  required or the year/ticker is marked insufficient.
+- OOS 2024 onwards: 5 candidate families (the unchanged bull Logistic alone,
+  bear rule alone, bear Logistic alone, bull + bear rule, bull + bear Logistic)
+  × 2 fixed risk cohorts (20/all vs 16 excluding QLD, IONQ, COIN, MSTR)
+  × 2 total-cost levels (20 and 40bp) = **20 prespecified** cash-ledger cases.
+  The risk target is fixed at 20% per filled slot and at most 5 slots,
+  long-only, 0% interest, no leverage, next open entry and fourth close exit.
+- The *existing* baseline Logistic EOD portfolio return, MDD, and number of
+  executed trades must be reproduced exactly by the challenger path.
+  Otherwise the run fails and publication is blocked.
+- The per-year report counts prior-session bull/bear market days, VIX buckets,
+  incumbent approved-filter signals, completed-label bear opportunities, and
+  both bear candidate families. **Zero bear trades or insufficient bear training
+  are legitimate results**, not grounds for fabricating profitability.
+- Outputs under `research/regime_challenger/`: `regime_summary.json`,
+  `bear_oos_trades.csv`, `bear_model_coverage.csv`,
+  `regime_year_coverage.csv`, `regime_session_context.csv`,
+  `regime_scenarios.csv`, `regime_daily_equity.csv`,
+  `regime_executions.csv`, `regime_annual.csv`, plus observed
+  `baseline_loss_attribution.csv` and `baseline_loss_attribution.json`
+  covering the incumbent's actual realized PnL by exit year, symbol,
+  signal-day lagged VIX bucket and technology leadership. The attribution
+  is descriptive, not causal and not a parameter-selection dataset.
+  They are included in
+  the unchanged pinned Google Drive research ZIP; Drive publication fails
+  closed if any evidence is absent or declares LIVE eligibility.
+
+### Interpretation and decision gate
+
+The 2026-selected universe is historically selected; Yahoo adjusted bar
+revisions, overnight open execution and 4-day mark-to-market modeling have
+important caveats. Any apparent improvement in 2024–2026 is descriptive
+and **not new holdout evidence** because these years have already been
+inspected. Separate, newly arriving forward sessions are needed to test the
+prior-session VIX 20–30 pattern or accept a bear strategy. No automated
+promotion, orders, or production ledger writes occur. The independent
+provider source lineage is still unverified.
+
+
+## Sealed prospective OOS shadow observations (v1)
+
+**Separate from every retrospective 2024–2026 result.** From the first successful
+operating run after the 2026-11-20 US close, `forward_shadow.py` records *new*
+Daily20 Logistic probabilities and candidate decisions for all 20 core assets
+before the following XNYS open; it never reconstructs "past forecasts" from
+historical models. Each forecast has an event hash, SHA-linked predecessor,
+GitHub commit/run ID, model version and `recorded_at_utc`.
+
+- The Drive **results ZIP** is now also restored in the credential-isolated
+  job alongside the already-verified price ZIP. Both are MD5-checked against
+  Drive and each archive member is SHA256 checked against its original
+  `drive_manifest.json`. The model job receives only these *data files*, no
+  Google credentials. No additional Drive files, account keys or servers.
+- After the model step, `forward_shadow/journal.jsonl` is rebuilt **only by
+  appending** new `SIGNAL` and later `SETTLED` records. An existing
+  session/symbol probability or candidate flag cannot be edited by re-running
+  CI. SHA linkage and count invariants block any altered/missing history from
+  being republished. This is tamper-evident **not tamper-proof**: Google Drive
+  revisions and GitHub Actions metadata remain external audit anchors.
+- No signal is admitted before full XNYS close + 45 minutes, or on a late
+  manual run *after the next XNYS open*. A missed day is **not backfilled**.
+  PR checks have no Drive credentials and produce only a PR-test receipt, never
+  provisional forward evidence.
+- A forecast becomes a matured, **observation-only** outcome only after the
+  **fourth subsequent US session has fully closed**. The next session's open
+  and fourth session's close yield gross return and 20/40/80bp net-cost
+  sensitivities. `next_open_gap_return` and
+  `worst_four_session_low_vs_entry` quantify indicative gaps and downside;
+  they are NOT confirmed execution fills, stop orders or portfolio MDD.
+- All 20 daily predictions are frozen, even if `research_candidate=false`.
+  A non-candidate's subsequent observed price move is *not* an executed trade.
+  Only admitted candidates are counted in candidate realized-return summaries.
+- The very first old Drive ZIP without a journal is a one-time, tightly dated
+  **bootstrap exception** (old evidence must end at or before 2026-11-20).
+  Once a journal exists, restoring it is mandatory; a future results ZIP
+  missing the journal fails closed rather than resetting history.
+- Files in the unchanged pinned Drive results ZIP:
+  `research/forward_shadow/journal.jsonl` (append-only event stream),
+  `report.json` (as-of cutoff, counts and hash tip), `snapshots.csv`,
+  and `outcomes.csv`. The Google Drive publisher verifies this evidence and
+  source Actions run ID independently before updating either pinned ZIP.
+
+**Validation gate:** the first captured 2026-11-20-close signal cannot mature
+until after the **2026-11-27** early-closing XNYS session (fourth subsequent
+session: Nov 23, Nov 24, Nov 25, Nov 27; Nov 26 is US Thanksgiving).
+Therefore an initial result of `settled_events=0` is **correct**, not failure.
+Future OOS power is initially tiny; no strategy approval based on a handful of
+matured observations, and no LIVE/R5 interaction.
+
+
+## Independent, prospective bear-family shadow journals
+
+\`bear_forward.py\` runs **after** the unchanged daily Bull Logistic
+\`forward_shadow.py\`, and has no effect on that journal, existing R5 execution,
+or the retrospective Bear challenger. This is a 2026-11-20 **forward** launch,
+not an attempt to re-label 2024–2026 discovered returns as independent OOS.
+
+- Exactly **40 frozen observations per fully closed US market session**:
+  \`BEAR_LOGISTIC\` and \`BEAR_RULE\` for each of the same 20 core symbols.
+  Signals are admitted only from 45m after a fully closed NYSE session until
+  just before the next NYSE open, and are recorded with actual UTC time,
+  GitHub run/commit, frozen model/policy metadata, a 21-feature SHA-256 digest,
+  and the hash of that symbol's *already sealed* Bull baseline signal.
+- Bear eligibility uses **prior-session** SPY below its SMA200 and prior VIX
+  ≤45. The frozen rule requires completed-bar RSI14 in [30, 60], positive
+  1-day return and increasing MACD histogram. Bear Logistic uses the same
+  prior-year-only, four-session label-purged fitted logistic from the
+  independent challenger; its probability remains \`null\` and candidate is
+  false if the requisite historical bear labels are insufficient. This is
+  an honest lack-of-model state, not a zero probability.
+- Existing archived results ZIP is cryptographically checked member-by-member
+  before restoring a prior Bear journal. A first journal may begin only while
+  the November 20 close remains prior to the next US market open. After
+  that admission window, a missed historical signal is **not backfilled**.
+  All subsequent journals are SHA-linked and fail closed if changed, missing,
+  partially written, or inconsistent with the frozen baseline signal.
+- Both families receive observation-only **4th subsequent NYSE close**
+  outcomes, never earlier (Thanksgiving Nov 26 is excluded), including
+  +20/+40/+80bp transaction-cost sensitivity, next-opening gap and minimum
+  low across the four-session observation window. **All 40** are observed
+  for audit, but non-candidates do not count as hypothetical strategy trades.
+- Outputs in the existing pinned Drive results ZIP:
+  \`research/bear_forward/journal.jsonl\`, \`report.json\`, \`snapshots.csv\`,
+  \`outcomes.csv\`, \`latest_candidates.csv\`. The independent Drive publisher
+  validates both family groups, linkage to the sealed baseline, 40-pair
+  completeness, SHA chain, research-only identity, and read-only model policy.
+  No new Drive files, local server, internet-facing web app, or LIVE writes.
+
+This newly frozen shadow track remains observational: execution, data-source
+revision, market impact, correlation/concentration, limited bear examples, and
+fully independent prospective portfolio PnL require additional verification.
+The existing retrospective Bear-only Logistic +40.94% return **must not** be
+mistaken for realized or independently confirmed forward alpha.
+
+## Mandatory portfolio Monte Carlo (paired and year-stratified)
+
+`monte_carlo.py` runs under **the same required GitHub Actions job** after
+the incumbent 16 and bear challenger 20 retrospective cash-ledger scenarios.
+**Publication to Google Drive is BLOCKED** if the fixed stress report is
+missing, inconsistent or attempts to claim live/future OOS validation.
+
+- Resample the **entire daily equity-return vector jointly** (36 strategy
+  scenarios + SPY and QQQ) so the same market-wide loss day is applied to all
+  strategies. This retains contemporaneous cross-strategy/benchmark dependence.
+- Apply *circular moving block bootstrap* with blocks of **1 / 5 / 20 trading
+  sessions, 2,000 replications per block length**; seed fixed at 2601121.
+  Repeated sample draws are made **separately within each historical calendar
+  year**, preserving the observed number of 2024, 2025 and 2026 sessions. A
+  block of 1 is the IID optimistic diagnostic, and 5/20 lengths stress loss
+  clustering. Even 20-day blocks do not preserve all serial correlation.
+- The source is **real cash-constrained daily portfolio equity**, net of the
+  strategy's already modeled transaction costs, not a random shuffle of
+  independent trades or sum of 1,499 individual trade returns. Paired SPY/QQQ
+  daily closes are sampled with exactly the same date indices.
+- For each of 38 series × 3 blocks = **114 results rows**, report empirical
+  5th/median/95th percentile simulated cumulative returns, bottom-5% CVaR,
+  lower-tail close-only MDD, probabilities of negative total return and
+  drawdown 20%/30%, probabilities of lagging paired SPY/QQQ, and medians of
+  return spread versus benchmarks. The 20-block results are prominent;
+  the 1/5-block results expose methodology sensitivity.
+- Results in `research/monte_carlo/monte_carlo_scenarios.csv`,
+  `monte_carlo_summary.json` and `monte_carlo_observed_baseline.csv`.
+  Deterministic seeds allow exact CI test reproduction, not predictive
+  certainty.
+
+**No live approval**: this is a *conditional stress distribution constructed
+from the same already-investigated 2024–2026 historical sample*, not a
+prospective forecast, a p-value correcting ex-post symbol selection, nor a
+replacement for genuinely future OOS evidence. Historical adjusted prices and
+the assumption of repeated daily return segments can misrepresent broker
+fills, regime transitions and position-sizing state. Monte Carlo 5th-percentile
+drawdown is not intraday max loss; use alongside gap and low-price diagnostics
+from frozen prospective observations.
+
+### Bear forward replay drift policy
+
+If the same just-closed US session is evaluated again after Yahoo adjusted
+prices or the historical training data have changed, recomputed Bear scores can
+differ. The **original `SIGNAL` events and hash chain always win**: they
+are not replaced, backdated, or reclassified. Instead the current run logs
+`frozen_replay_drift` and `frozen_replay_differences`, with family, symbol,
+changed fields and the original frozen event hash. The Drive publisher verifies
+these audit references, and the 4-session outcome remains tied to the **first
+captured candidate flag**. Historical replay comparisons are diagnostics, not
+additional prospective forecasts.
+
+
+## P0 point-in-time price and fitted-score replay provenance
+
+Separate read-only [GitHub Actions workflow \`kalman-daily20-provenance.yml\`]
+investigates same-date model-replay drift described in issue #884.
+
+- Replays the exact fixed 2026-11-20 signal day across **three stored
+  immutable Actions market+feature archives**: runs \`44853890794\`,
+  \`44856445903\`, \`44858008175\`. These all terminate on the same US
+  session. Uses the original frozen Bull signal journal as an external
+  comparison anchor; never revises its event hash/probability.
+- Computes **semantic OHLCV value differences by historical date** (not
+  merely different Parquet SHA256), provider-adjusted volume differences,
+  date omissions, technical-indicator differences, and current 21-feature
+  row digest. Repeats the fixed annual training sample selection and
+  single-date fitted Logistic predictions for both incumbent Bull and
+  research-only Bear models: 40 model comparisons per pair of snapshots.
+- Archives exact hashes for labeled training rows, signal-day 21-feature
+  vectors, fitted imputer/scaler/logistic coefficients, package versions,
+  and attribution \`HISTORICAL_TRAINING_INPUT_CHANGED\` vs
+  \`SIGNAL_FEATURE_CHANGED\` vs
+  \`INPUTS_IDENTICAL_MODEL_NUMERIC_NONDETERMINISM\`.
+- Produces two \`lineage_summary.json\` evidence files and CSVs
+  \`price_column_diff.csv\`, \`technical_column_diff.csv\`,
+  \`revised_sessions.csv\`, \`model_replay.csv\` into the short-lived
+  **90-day GitHub Actions artifact**. This is a separate P0 research audit
+  and does not alter the two existing pinned Drive ZIPs, any trading rules,
+  or any existing frozen forecast event.
+- This can isolate **observed raw/technical input changes** and fit
+  reproducibility under one pinned CI run. It cannot prove Yahoo's original
+  point-in-time market truth or secondary-provider independence. No
+  candidate threshold changes, OOS performance claims, or model promotion.
+
+In particular, a different Parquet file hash is not necessarily a
+different OHLCV value. This workflow checks both and requires matched
+US-session dates before inferring source-driven model drift.
+
+
+## Prospective source stability and replay HOLD (P0; issue #884)
+
+The main Daily20 research workflow now adds a **read-only provenance gate**
+after both Bull and Bear journals have been produced and before research
+artifacts are packaged. The gate does not change thresholds, historic
+forecasts, fills, the 20-stock universe, or any LIVE strategy.
+
+- On a **genuinely new** pre-next-open Bull+Bear seal (20 + 40 signal events),
+  save one per-session immutable `research/stability/snapshots/YYYY-MM-DD.json`
+  into the already pinned **results** Drive archive. It contains all 26
+  session-end OHLCV rows and, for each core stock, the 21 exact as-of features,
+  labeled training-row SHA256, prior-year purge cutoff, fitted
+  imputer/scaler/logistic parameter SHA256, fold status, observed score,
+  candidate flag, and original Bull/Bear journal-event hashes. Capture
+  Python/package versions and installed package `RECORD` hashes as an
+  environment fingerprint; these are **not** original wheel-file hashes.
+- Verify the previous results ZIP's per-member signed-manifest hashes before
+  copying older per-session snapshots **byte for byte**. If re-evaluating the
+  same date, never regenerate or overwrite its original frozen input snapshot.
+  Older pre-v1 signals are **not retrospectively called source-frozen**.
+- Compare recomputed scores, candidate decisions, final-bar/feature values,
+  training-row hashes, and coefficient hashes against the first snapshot.
+  Any **absolute score change >1 percentage point**, any candidate flip,
+  or a newly missing score is `REPLAY_DRIFT_RESEARCH_HOLD`. An exact 1pp
+  change is advisory; floating-point boundary tolerance is 1e-10pp.
+  Smaller changes remain in the drift audit.
+- A HOLD blocks **promotional attribution** in the research metadata,
+  not daily raw data updates or independent shadow observations. Both
+  snapshot and report are included in the existing short-lived Actions
+  artifact and the existing pinned results Drive ZIP; **no extra Drive
+  target, no server, no broker**. Existing Bull and Bear journal hashes remain
+  untouched, and no retrospective outcome becomes a prospective forecast.
+
+The historical vendor may revise adjusted OHLCV; this system demonstrates
+which inputs were used when a prediction was **first sealed**, not what Yahoo
+reported at the precise NYSE close. The 2026-11-20 legacy incident still
+lacks an original prospective input snapshot. The first compliant snapshot
+starts on the next *genuinely new* admitted session after deployment.
+
+
+### GitHub-only signed-ZIP replay fixture and real Drive readback
+
+The separate read-only workflow
+`.github/workflows/kalman-daily20-stability-fixture.yml`
+downloads two **real historical** data/feature archives for 2026-11-20
+and exercises the full `stability_gate.run` first-seal and same-day
+replay path, including the same signed-manifest ZIP builder used by
+the publisher. Event hashes in this test are **synthetic fixture anchors**,
+not live/forward observations. The test requires exact SHA256 equality
+of original/final restored snapshot bytes, material-drift HOLD, and
+rejection of tampered archived bytes. Results are retained only as
+short-lived GitHub Actions artifacts.
+
+The production Daily20 `persist-google-drive` job now invokes
+`stability_drive_readback.py` **after** the existing publisher:
+it re-downloads the same pinned results file from Google Drive,
+reverifies every ZIP member SHA256, checks all frozen per-session
+snapshot digests and report governance, compares the entire remote ZIP's
+SHA256 byte-for-byte with the locally uploaded ZIP, and fails closed if
+anything differs. A separate `kalman-daily20-drive-stability-readback`
+Actions artifact records the verified session and hash. It is read-only
+and does not create Drive files, change risk rules, or place orders.
+Credential-free unit tests cover tampering, mismatched metadata, changed
+compression, missing snapshots, and invalid MD5.
+
+**Deployment gate:** this suite establishes the software behavior but
+cannot prove the next true post-close snapshot has reached Drive yet.
+After a genuine new admitted US session, require one successful main
+Actions run including post-upload `READBACK_VERIFIED` and one independent
+subsequent replay/readback with the original stored snapshot digest
+unchanged before marking Issue #884's stability follow-up complete.

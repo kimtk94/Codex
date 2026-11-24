@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Personal QQ sent-mail evidence for SFDC Leads (strict sender + exact To/CC).
 
-Generated: Lead My Sent Audit A:T only. Decision ledgers, approval/choice
+Generated: Lead My Sent Audit A:T only; output tab auto-expands when required. Decision ledgers and approval/choice
 columns and CRM are NEVER written. 'No evidence' is not proof of no contact.
 """
 import base64
@@ -230,8 +230,22 @@ def main():
         return
     sheet="Lead My Sent Audit"
     size=target_rows[sheet]
-    if size<len(matrix) or size<650:
-        raise ValueError("Personal Audit output grid too small")
+    if size<len(matrix):
+        # Expand only our generated output tab. Never touch decision ledgers,
+        # other CSS tabs, or existing headers/columns.
+        meta=api.get(spreadsheetId=DEST,fields="sheets.properties(sheetId,title,gridProperties(rowCount))").execute()
+        matches=[x["properties"] for x in meta.get("sheets",[])
+                 if x["properties"].get("title")==sheet]
+        if len(matches)!=1:
+            raise ValueError("Personal Audit output tab identity mismatch")
+        new_size=max(len(matrix),size)
+        api.batchUpdate(spreadsheetId=DEST,body={"requests":[{
+            "updateSheetProperties":{
+                "properties":{"sheetId":matches[0]["sheetId"],
+                              "gridProperties":{"rowCount":new_size}},
+                "fields":"gridProperties.rowCount"}}]}).execute()
+        print("PERSONAL_AUDIT_ROWS_EXPANDED="+str(size)+"->"+str(new_size),flush=True)
+        size=new_size
     output=matrix+[[""]*len(HEADER) for _ in range(size-len(matrix))]
     api.values().update(spreadsheetId=DEST,range="'"+sheet+"'!A1:T"+str(size),
         valueInputOption="RAW",body={"values":output}).execute()

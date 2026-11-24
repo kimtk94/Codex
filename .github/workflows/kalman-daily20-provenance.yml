@@ -1,0 +1,128 @@
+name: Kalman Daily20 Historical Price and Score Provenance P0 (Read Only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_daily20/provenance_audit.py'
+      - 'research/kalman_daily20/test_provenance_audit.py'
+      - '.github/workflows/kalman-daily20-provenance.yml'
+  pull_request:
+    paths:
+      - 'research/kalman_daily20/provenance_audit.py'
+      - 'research/kalman_daily20/test_provenance_audit.py'
+      - '.github/workflows/kalman-daily20-provenance.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: kalman-daily20-provenance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  point-in-time-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deterministic read-only audit dependencies
+        run: |
+          python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<3' 'scikit-learn>=1.6,<2' 'pyarrow>=17'
+      - name: Provenance data contract tests
+        run: |
+          python -m unittest discover -s research/kalman_daily20 -p 'test_provenance_audit.py' -v
+          python -m compileall -q research/kalman_daily20/provenance_audit.py
+      - name: Retrieve original Nov20-close Actions price and feature snapshot (run 44853890794)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44853890794
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          name: kalman-daily20-data
+          path: evidence/run44853890794
+      - name: Retrieve Nov20 replay-varying snapshot (run 44856445903)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44856445903
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          name: kalman-daily20-data
+          path: evidence/run44856445903
+      - name: Retrieve later same-session snapshot (run 44858008175)
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44858008175
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          name: kalman-daily20-data
+          path: evidence/run44858008175
+      - name: Retrieve original sealed Nov20 forward score journal
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44853890794
+          repository: kimtk94/Codex
+          github-token: ${{ github.token }}
+          name: kalman-daily20-research
+          path: evidence/original_research
+      - name: Compare original to first replay on the exact same date
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/provenance_audit.py \
+            --left evidence/run44853890794 \
+            --right evidence/run44856445903 \
+            --left-run 44853890794 \
+            --right-run 44856445903 \
+            --asof 2026-11-20 \
+            --frozen-research evidence/original_research \
+            --out output/daily20/provenance/first_replay
+      - name: Compare two subsequent replays on the exact same date
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/provenance_audit.py \
+            --left evidence/run44856445903 \
+            --right evidence/run44858008175 \
+            --left-run 44856445903 \
+            --right-run 44858008175 \
+            --asof 2026-11-20 \
+            --frozen-research evidence/original_research \
+            --out output/daily20/provenance/later_replay
+      - name: Validate run-linked results and emit P0 evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for folder, left, right in (
+              ('first_replay', '44853890794', '44856445903'),
+              ('later_replay', '44856445903', '44858008175'),
+          ):
+              p = Path('output/daily20/provenance') / folder
+              report = json.loads((p / 'lineage_summary.json').read_text())
+              assert report['version'] == 'kalman-daily20-provenance-audit-v1'
+              assert report['left_run_id'] == left and report['right_run_id'] == right
+              assert report['asof_session'] == '2026-11-20'
+              assert report['research_only'] is True and report['production_writes'] is False
+              assert report['strategy_promoted'] is False
+              assert report['trained_folds'] == 40
+              for filename in report['files']:
+                  assert (p / filename).is_file()
+              print('LINEAGE_EVIDENCE_VALIDATED', folder, report['symbols_with_semantic_raw_numeric_changes'],
+                    report['classification'])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kalman-daily20-price-and-model-provenance-P0
+          path: output/daily20/provenance/
+          if-no-files-found: warn
+          retention-days: 90

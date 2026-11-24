@@ -1,0 +1,78 @@
+name: Feishu Lead Manual Checkboxes
+# Separate and safe: this workflow ONLY provisions three user-owned checkbox
+# field definitions on the dedicated Lead table and audits their values.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Create missing Lead manual checkboxes only (no record updates)'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '25 3 * * 1-5' # 12:25 KST: read-only integrity audit
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/lead_manual_checkboxes.py'
+      - 'automation/feishu/test_lead_manual_checkboxes.py'
+      - '.github/workflows/feishu-lead-manual-checkboxes.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/lead_manual_checkboxes.py'
+      - 'automation/feishu/test_lead_manual_checkboxes.py'
+      - '.github/workflows/feishu-lead-manual-checkboxes.yml'
+permissions:
+  contents: read
+concurrency:
+  group: isolated-lead-feishu-mail-description
+  cancel-in-progress: false
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install import dependencies
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Validate no automated record writes and manual checkbox guards
+        run: |
+          python -m py_compile automation/feishu/lead_manual_checkboxes.py automation/feishu/lead_mail_description_sync.py
+          python -m unittest discover -s automation/feishu -p 'test_lead_manual_checkboxes.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_lead_mail_description_sync.py' -v
+  audit:
+    needs: regression
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-manual-fields') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install minimal dependencies
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Audit dedicated Lead table and manually checked states
+        run: python automation/feishu/lead_manual_checkboxes.py
+      - name: Provision only missing manual Lead checkbox columns
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.apply == true) || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-manual-fields') }}
+        run: python automation/feishu/lead_manual_checkboxes.py --apply
+      - name: Summary
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+        run: |
+          echo "## Feishu Lead manual checkbox integrity" >> "$GITHUB_STEP_SUMMARY"
+          echo "Result: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Only missing Lead checkbox field definitions may be created." >> "$GITHUB_STEP_SUMMARY"
+          echo "User values and all existing records, email, SFDC, CRM, and other tables are untouched." >> "$GITHUB_STEP_SUMMARY"

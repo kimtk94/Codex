@@ -68,7 +68,8 @@ class AuditTests(unittest.TestCase):
             any_write.assert_not_called()
         return output.getvalue()
 
-    def test_missing_business_tables_does_not_block_mail_integrity(self):
+    def test_audit_requires_only_mail_intake_not_business_tables(self):
+        """An independent mail audit must not require Contacts/Revenue etc."""
         result = self.run_readonly_audit(["QQ Mail Intake"], [record(1)])
         self.assertIn("MAIL_SINK_READBACK_PASS records=1", result)
         self.assertIn("BASE_SCHEMA_BLOCK missing_required=6 duplicated_required=0", result)

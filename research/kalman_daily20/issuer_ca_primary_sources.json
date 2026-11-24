@@ -1,0 +1,265 @@
+{
+  "schema": "daily20-primary-corporate-action-sources-v1",
+  "research_only": true,
+  "governance": "Documented historical issuer/fund facts are not independent proof of Yahoo total-return factors or SIP regular 16:00 close. Require bytes hash+body anchors; non-amount schedule cannot certify any distribution amount. Issuer non-payment policy concerns common-share security class and is not a certified negation of a vendor event. Third-party SEC-hosted structured note filings QUOTING a sponsor are evidence of the quote but not a direct issuer filing. PDFs require verified extraction from original downloaded bytes; no cache-only/secondary data treated as issuer-certified. The June 2018 QQQ quarterly SEC note is issuer-quoted third-party reporting by PAYMENT quarter, not ex-date; the 2025 QLD split is a first-party factor for shares but NOT 2023 distribution attestation. Third-party 2023 historical payout amounts are hypotheses, not issuer-certified.",
+  "sources": [
+    {
+      "id": "SPY_STREET_DISTRIBUTIONS",
+      "entity": "State Street SPDR",
+      "kind": "fund_sponsor_distributions",
+      "url": "https://www.ssga.com/au/en_gb/institutional/etfs/state-street-spdr-sp-500-etf-spy"
+    },
+    {
+      "id": "AVGO_2018_MARCH",
+      "entity": "Broadcom Limited",
+      "kind": "issuer_dividend_release",
+      "url": "https://investors.broadcom.com/news-releases/news-release-details/broadcom-limited-announces-first-quarter-fiscal-year-2018-0"
+    },
+    {
+      "id": "AVGO_2018_JUNE",
+      "entity": "Broadcom Inc.",
+      "kind": "issuer_dividend_release",
+      "url": "https://investors.broadcom.com/news-releases/news-release-details/broadcom-inc-announces-second-quarter-fiscal-year-2018-0"
+    },
+    {
+      "id": "QLD_PROSHARES_CALENDAR",
+      "entity": "ProShares",
+      "kind": "fund_quarterly_exdate_schedule",
+      "url": "https://www.proshares.com/resources/distributions/distribution-schedule"
+    },
+    {
+      "id": "MSFT_2026_DIVIDEND",
+      "entity": "Microsoft Corporation",
+      "kind": "issuer_dividend_press_release",
+      "url": "https://news.microsoft.com/source/2026/09/15/microsoft-announces-quarterly-dividend-increase-7/"
+    },
+    {
+      "id": "XOM_2026_DIVIDEND",
+      "entity": "ExxonMobil Holdings Corporation",
+      "kind": "issuer_dividend_press_release",
+      "url": "https://investor.exxonmobil.com/company-information/press-releases/detail/1213/exxonmobil-announces-third-quarter-2026-results"
+    },
+    {
+      "id": "MSTR_NO_COMMON_DIVIDEND",
+      "entity": "Strategy Inc.",
+      "kind": "issuer_common_share_dividend_policy",
+      "url": "https://www.strategy.com/press/strategy-announces-third-quarter-2026-financial-results_10-29-2026"
+    },
+    {
+      "id": "HYG_BLACKROCK_2024_JP_ANNUAL",
+      "entity": "BlackRock iShares",
+      "kind": "issuer_fund_report_pdf",
+      "url": "https://www.blackrock.com/jp/individual/ja/literature/annual-report/ishares-iboxx-high-yield-corporate-bond-etf-annual-report-jp-ja-2024.pdf"
+    },
+    {
+      "id": "QQQ_2020_SEC_NOTE",
+      "entity": "SEC-hosted third-party note quoting Invesco",
+      "kind": "sec_filed_third_party_issuer_quote",
+      "url": "https://www.sec.gov/Archives/edgar/data/831001/000095010320018538/dp137172_424b2-us2014449.htm"
+    },
+    {
+      "id": "QQQ_2022_SEC_NOTE",
+      "entity": "SEC-hosted third-party note quoting Invesco",
+      "kind": "sec_filed_third_party_issuer_quote",
+      "url": "https://www.sec.gov/Archives/edgar/data/831001/000095010322018043/dp182689_424b2-us2207102.htm"
+    },
+    {
+      "id": "QQQ_2018_SEC_2020_Q3_TABLE",
+      "entity": "SEC-hosted third-party historic dividend table",
+      "kind": "sec_filed_third_party_issuer_quote",
+      "url": "https://www.sec.gov/Archives/edgar/data/831001/000095010320014313/dp132922_424b2-us2006361.htm"
+    },
+    {
+      "id": "QLD_2025_FORM_8937_SPLIT",
+      "entity": "ProShares Ultra QQQ",
+      "kind": "issuer_fund_report_pdf",
+      "url": "https://www.proshares.com/globalassets/proshares/form-8937/qld-form-8937.pdf"
+    }
+  ],
+  "claims": [
+    {
+      "symbol": "SPY",
+      "ex_date": "2018-06-15",
+      "source_id": "SPY_STREET_DISTRIBUTIONS",
+      "claim_type": "FUND_GROSS_USD_PER_CDI",
+      "reported_amount_usd": "1.24557",
+      "anchor_a": "12 Jun 2018",
+      "anchor_b": "1.24557",
+      "exdate_explicitly_issuer_published": true,
+      "claim_amount_exact": true,
+      "notes": "State Street Australian CDI gross-distribution table; requires share-unit conversion/issuer identity check before adjustment certification"
+    },
+    {
+      "symbol": "SPY",
+      "ex_date": "2021-12-17",
+      "source_id": "SPY_STREET_DISTRIBUTIONS",
+      "claim_type": "FUND_GROSS_USD_PER_CDI",
+      "reported_amount_usd": "1.63643",
+      "anchor_a": "17 Dec 2021",
+      "anchor_b": "1.63643",
+      "exdate_explicitly_issuer_published": true,
+      "claim_amount_exact": true,
+      "notes": "State Street Australian CDI gross-distribution table; decimal differs from Yahoo repair policy"
+    },
+    {
+      "symbol": "AVGO",
+      "ex_date": "2018-03-21",
+      "source_id": "AVGO_2018_MARCH",
+      "claim_type": "ISSUER_QUARTERLY_PRE_SPLIT_USD",
+      "reported_amount_usd": "1.75",
+      "anchor_a": "March 15, 2018",
+      "anchor_b": "1.75",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "Issuer announces quarterly dividend paid March 29; source does not independently certify ex-date; 2024 10:1 split requires separately reconstructed factor"
+    },
+    {
+      "symbol": "AVGO",
+      "ex_date": "2018-06-19",
+      "source_id": "AVGO_2018_JUNE",
+      "claim_type": "ISSUER_QUARTERLY_PRE_SPLIT_USD",
+      "reported_amount_usd": "1.75",
+      "anchor_a": "June 29, 2018",
+      "anchor_b": "1.75",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "Issuer June-2018 $1.75 payment, NOT directly comparable to 2026 split-adjusted Yahoo dividend"
+    },
+    {
+      "symbol": "QLD",
+      "ex_date": "2025-03-26",
+      "source_id": "QLD_PROSHARES_CALENDAR",
+      "claim_type": "FUND_DISTRIBUTION_SCHEDULE_ONLY",
+      "reported_amount_usd": null,
+      "anchor_a": "3/26/2025",
+      "anchor_b": "4/1/2025",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": false,
+      "notes": "Expected quarterly date, not proof of QLD distribution payment or amount"
+    },
+    {
+      "symbol": "QLD",
+      "ex_date": "2025-12-24",
+      "source_id": "QLD_PROSHARES_CALENDAR",
+      "claim_type": "FUND_DISTRIBUTION_SCHEDULE_ONLY",
+      "reported_amount_usd": null,
+      "anchor_a": "12/24/2025",
+      "anchor_b": "12/31/2025",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": false,
+      "notes": "Expected quarterly date, not proof of QLD distribution payment or amount"
+    },
+    {
+      "symbol": "QLD",
+      "ex_date": "2026-03-25",
+      "source_id": "QLD_PROSHARES_CALENDAR",
+      "claim_type": "FUND_DISTRIBUTION_SCHEDULE_ONLY",
+      "reported_amount_usd": null,
+      "anchor_a": "3/25/2026",
+      "anchor_b": "3/31/2026",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": false,
+      "notes": "Expected quarterly date, not proof of QLD distribution payment or amount"
+    },
+    {
+      "symbol": "MSFT",
+      "ex_date": "2026-11-19",
+      "source_id": "MSFT_2026_DIVIDEND",
+      "claim_type": "ISSUER_DECLARED_COMMON_USD",
+      "reported_amount_usd": "0.98",
+      "anchor_a": "dividend of $0.98 per share",
+      "anchor_b": "ex-dividend date will be Nov. 19, 2026",
+      "exdate_explicitly_issuer_published": true,
+      "claim_amount_exact": true,
+      "notes": "Microsoft Sep 15 announcement of Nov19 ex date and Dec10 payable date. Declared, not proof of payment or Alpaca process-date completeness"
+    },
+    {
+      "symbol": "XOM",
+      "ex_date": "2026-11-16",
+      "source_id": "XOM_2026_DIVIDEND",
+      "claim_type": "ISSUER_DECLARED_COMMON_USD",
+      "reported_amount_usd": "1.07",
+      "anchor_a": "dividend of $1.07 per share",
+      "anchor_b": "November 16, 2026",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "ExxonMobil Oct30 issuer release states November 16 shareholder RECORD date; not an explicit ex-date certification. Exact payout stated Dec10"
+    },
+    {
+      "symbol": "MSTR",
+      "ex_date": "2025-05-21",
+      "source_id": "MSTR_NO_COMMON_DIVIDEND",
+      "claim_type": "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY",
+      "reported_amount_usd": null,
+      "anchor_a": "historically not paid any dividends on its shares of class A common stock",
+      "anchor_b": "past performance is not indicative of future results",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": false,
+      "notes": "Strategy issuer policy identifies MSTR common stock as non-dividend-paying historically; cannot infer that the vendor 0.335 was on MSTR common instead of a preferred security or ticker alias. Preserve security-type identity HOLD"
+    },
+    {
+      "symbol": "HYG",
+      "ex_date": "2023-12-14",
+      "source_id": "HYG_BLACKROCK_2024_JP_ANNUAL",
+      "claim_type": "ISSUER_FUND_HISTORICAL_USD",
+      "reported_amount_usd": "0.37847",
+      "anchor_a": "12月14日",
+      "anchor_b": "0.37847",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "BlackRock Japanese 2024 annual HYG distribution table; USD 0.37847 is historic distribution amount on 14 December; date field may denote distribution rather than exact U.S. ex-date, so do NOT self-certify ex-date or adjustment."
+    },
+    {
+      "symbol": "QQQ",
+      "ex_date": "2020-09-21",
+      "source_id": "QQQ_2020_SEC_NOTE",
+      "claim_type": "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
+      "reported_amount_usd": "0.38824",
+      "anchor_a": "September 18, 2020",
+      "anchor_b": "$0.38824 per share",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "SEC-hosted THIRD PARTY structured-note prospectus quotes Sep18 Invesco dividend announcement; amount corroborated, but not an issuer filing, not exact ex-date proof, not independent Alpaca event identification."
+    },
+    {
+      "symbol": "QQQ",
+      "ex_date": "2022-09-19",
+      "source_id": "QQQ_2022_SEC_NOTE",
+      "claim_type": "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
+      "reported_amount_usd": "0.51856",
+      "anchor_a": "September 16, 2022",
+      "anchor_b": "$0.51856 per share",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "SEC-hosted THIRD PARTY structured-note filing quotes Invesco Sep16 announcement; cannot resolve Alpaca two different event IDs on same ex-date or distinguish payment from correction history."
+    },
+    {
+      "symbol": "QQQ",
+      "ex_date": "2018-06-18",
+      "source_id": "QQQ_2018_SEC_2020_Q3_TABLE",
+      "claim_type": "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
+      "reported_amount_usd": "0.37837",
+      "anchor_a": "2018 First Quarter $174.08 $153.45",
+      "anchor_b": "0.37837",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "SEC-hosted 2020 structured note (not issuer-filed) reports QQQ 2018 THIRD QUARTER cash $0.37837, by PAYMENT quarter (July31), not June 18 ex-date explicitly. Separate secondary ex-date joins required. Yahoo .378 rounded; Alpaca .37638 unresolved. Live SEC original source presents 2018 quarterly table with a preceding '2018 First Quarter' entry and Q3 0.37837, not the fictitious literal 07/02/18 anchor; exact June ex-date NOT in this filing."
+    },
+    {
+      "symbol": "QLD",
+      "ex_date": "2023-09-20",
+      "source_id": "QLD_2025_FORM_8937_SPLIT",
+      "claim_type": "ISSUER_SPLIT_CONTEXT_ONLY",
+      "reported_amount_usd": null,
+      "anchor_a": "November 19, 2025",
+      "anchor_b": "2:1 share split",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": false,
+      "split_event_date": "2025-11-20",
+      "split_new_shares_per_old": "2",
+      "third_party_raw_2023_cash_usd": "0.176282",
+      "third_party_adjusted_cash_usd": "0.088141",
+      "notes": "Issuer ProShares Form 8937 DIRECTLY attests 2025-11-20 QLD 2-for-1 split, not Sep2023 actual cash. Third-party payout candidate 2023-09-20 $0.176282 ÷ 2 = $0.088141 (Yahoo 3dp 0.088). No 2023 issuer distribution certificate; do not overwrite price/factor data."
+    }
+  ]
+}

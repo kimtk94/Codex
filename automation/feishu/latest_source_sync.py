@@ -37,6 +37,33 @@ def shape(grid):
         headers.append(h if seen[h]==1 else h+' ['+str(seen[h])+']')
     rows=[r+['']*(width-len(r)) for r in grid[index+1:] if any(text(v).strip() for v in r)] if identified else [r+['']*(width-len(r)) for r in grid if any(text(v).strip() for v in r)]
     return headers,rows,'HEADER_MATCHED' if identified else 'RAW_GRID_REVIEW'
+def snapshot_readback_equal(expected, observed):
+    """Compare every generated cell after a Sheets readback, no values logged.
+
+    Sheets values API trims trailing empty cells in returned rows; only those
+    empty cells can be ignored. Differences inside rows, extra nonempty cells,
+    reordered rows and changed field values must fail closed.
+    """
+    if (not isinstance(expected, list) or not isinstance(observed, list)
+            or not expected or len(expected) != len(observed)):
+        return False
+    if not all(isinstance(r, list) for r in expected + observed):
+        return False
+    width = max((len(r) for r in expected), default=0)
+    if width <= 0:
+        return False
+    for source_row, mirror_row in zip(expected, observed):
+        if any(text(v) for v in mirror_row[width:]):
+            return False
+        source = [text(v) for v in source_row[:width]]
+        mirrored = [text(v) for v in mirror_row[:width]]
+        source += [''] * (width - len(source))
+        mirrored += [''] * (width - len(mirrored))
+        if source != mirrored:
+            return False
+    return True
+
+
 def collect():
     now=dt.datetime.now(ZoneInfo('Asia/Seoul'));stamp=now.isoformat()
     auth=feishu('/open-apis/auth/v3/tenant_access_token/internal',payload={'app_id':require('FEISHU_APP_ID'),'app_secret':require('FEISHU_APP_SECRET')})
@@ -100,6 +127,9 @@ def publish(session,snapshots):
         addr=urllib.parse.quote("'"+title+"'!A1:AZ"+str(len(rows)),safe='')
         got=api(session,'GET','/values/'+addr).get('values',[])
         if len(got)!=len(rows):raise RuntimeError('READBACK_ROW_COUNT_MISMATCH')
+        if not snapshot_readback_equal(rows,got):
+            # Never log original cells, row identifiers or customer values.
+            raise RuntimeError('READBACK_CONTENT_MISMATCH')
     print('FEISHU_LATEST_SYNC_PASS sources='+str(len(snapshots))+' rows='+str(sum(len(x['rows']) for x in snapshots.values())))
     for fmt,s in snapshots.items(): print('SOURCE',fmt,'DATE',s['source_date'],'ROWS',len(s['rows']),'SCHEMA',s['schema'])
     return snapshots

@@ -47,7 +47,7 @@ test("different product/process/units are not linked, no currency conversion",()
   {product_signature:product,process_id:process,data_unit:"M raw reads"}]){
   assert.equal(rankKrwPrices(src,{...request,sample_quantity:20,production_basis:"PER_SAMPLE",data_size:"6"}).candidates.length,0);
  }
- assert.equal(canonicalPriceUnit("M reads"),"M reads");
+ assert.equal(canonicalPriceUnit("M reads"),"M raw reads");
  assert.equal(canonicalPriceUnit("G raw data"),"Gb");
 });
 test("all user-provided evidence remains unverified even if source flag present",()=>{

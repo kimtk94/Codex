@@ -1,0 +1,107 @@
+name: Goal Loop Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'automation/goal_loop/**'
+      - 'docs/automation/goal-loop-pilot.md'
+      - 'docs/automation/goal-loop-pilot-v2.md'
+      - 'docs/automation/goal-loop-pilot-v3.md'
+      - '.github/workflows/goal-loop-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/goal_loop/**'
+      - 'docs/automation/goal-loop-pilot.md'
+      - 'docs/automation/goal-loop-pilot-v2.md'
+      - 'docs/automation/goal-loop-pilot-v3.md'
+      - '.github/workflows/goal-loop-contract.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '40 2 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  controller:
+    name: goal-loop-controller-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile controller and pilot
+        run: python -m compileall -q automation/goal_loop
+      - name: Verify controller safety contract
+        run: python -m unittest discover -s automation/goal_loop -p 'test_*.py' -v
+      - name: Verify V1 goal contract (historical, without running Ollama)
+        run: python -m automation.goal_loop.controller --dry-run
+      - name: Verify V2 goal contract (separate checkpoint, no Ollama)
+        run: python -m automation.goal_loop.controller --goal automation/goal_loop/goals/pilot-status-v2.json --dry-run
+      - name: Verify V3 goal contract (independent checkpoint, no Ollama)
+        run: python -m automation.goal_loop.controller --goal automation/goal_loop/goals/pilot-quote-v3.json --dry-run
+      - name: Upload deterministic contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goal-loop-contract-${{ github.run_id }}
+          path: |
+            automation/goal_loop/goals/pilot-status.json
+            automation/goal_loop/goals/pilot-status-v2.json
+            automation/goal_loop/goals/pilot-quote-v3.json
+          retention-days: 14
+
+  pilot:
+    name: pilot-acceptance
+    if: startsWith(github.head_ref, 'agent/pilot-status-normalizer-') && !startsWith(github.head_ref, 'agent/pilot-status-normalizer-v2-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Enforce independent goal acceptance
+        run: python -m unittest automation.goal_loop.pilot_acceptance -v
+
+  pilot_v2:
+    name: pilot-acceptance-v2
+    if: startsWith(github.head_ref, 'agent/pilot-status-normalizer-v2-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Independently enforce V2 module-level source quality
+        run: python -m automation.goal_loop.source_quality automation/goal_loop/pilot_target_v2.py
+      - name: Independently verify V2 behavior
+        run: python -m unittest automation.goal_loop.pilot_acceptance_v2 -v
+
+  pilot_v3:
+    name: pilot-acceptance-v3
+    if: startsWith(github.head_ref, 'agent/pilot-quote-summary-v3-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Independently enforce nonproduction V3 Python source quality
+        run: python -m automation.goal_loop.source_quality automation/goal_loop/pilot_quote_summary_v3.py
+      - name: Verify synthetic KRW quotation aggregation behavior
+        run: python -m unittest automation.goal_loop.pilot_acceptance_v3 -v

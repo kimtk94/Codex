@@ -9,6 +9,7 @@ import base64
 import datetime as dt
 import json
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -21,6 +22,8 @@ TABS = {
     "SFDC Report Readiness": "A1:H10",
     "Revenue Source Authority": "A1:J25",
     "BI Revenue Net VAT Monthly": "A1:I25",
+    "BI Revenue Lifecycle Monthly": "A1:P25",
+    "Automation Health": "A1:D50",
     "Payment Reconciliation QC": "A1:C35",
     "Automation Workflow Runs": "A1:J45",
     "CSS Mail Backfill Status": "A1:L3",
@@ -46,27 +49,99 @@ def find_key(rows, key, column=0):
     return found[0]
 
 
-def month_gross_net(authority, net_table, month):
+def _nonnegative_krw(value):
+    """Parse exact whole KRW; never accept a float, guess, or blank as zero."""
+    raw = str(value).strip().replace(",", "").replace("₩", "").replace(" ", "")
+    if not re.fullmatch(r"(?:0|[1-9][0-9]*)", raw):
+        raise ValueError("REVENUE_MIRROR_AMOUNT_INVALID")
+    return int(raw)
+
+
+def relative_snapshot_order(net_stamp, lifecycle_stamp):
+    """Compare explicitly dated KST mirror snapshots; not a causal diagnosis."""
+    def parse(value):
+        try:
+            return dt.datetime.strptime(value, "%Y-%m-%d %H:%M:%S KST")
+        except (TypeError, ValueError):
+            return None
+    net_at = parse(net_stamp)
+    life_at = parse(lifecycle_stamp)
+    if net_at is None or life_at is None:
+        return "UNVERIFIED_TIMESTAMPS"
+    if life_at > net_at:
+        return "LIFECYCLE_NEWER_THAN_NET"
+    if net_at > life_at:
+        return "NET_NEWER_THAN_LIFECYCLE"
+    return "SAME_TIMESTAMP"
+
+
+def month_gross_net(authority, net_table, month, lifecycle=None):
     gross_row = find_key([authority[0]] + [r for r in authority[1:]
         if cell(r, 2) == "CANONICAL_ACTUAL_GROSS"], month)
     net_row = find_key([authority[0]] + [r for r in authority[1:]
         if cell(r, 2) == "CANONICAL_ISSUED_NET"], month)
     monthly = find_key(net_table, month)
-    gross = int(cell(gross_row, 4))
-    net = int(cell(net_row, 4))
-    count = int(cell(gross_row, 3))
-    actual_count = int(cell(monthly, 4))
-    # All values are integer KRW; avoid floating-point VAT drift.
+    gross = _nonnegative_krw(cell(gross_row, 4))
+    net = _nonnegative_krw(cell(net_row, 4))
+    count = _nonnegative_krw(cell(gross_row, 3))
+    actual_count = _nonnegative_krw(cell(monthly, 4))
+    monthly_gross = _nonnegative_krw(cell(monthly, 1))
+    monthly_net = _nonnegative_krw(cell(monthly, 2))
+    # Historical per-invoice VAT rounding can cause small gross/net differences.
+    # Preserve the established 10/11 parity contract of this read-only audit.
     parity = (gross * 10 == net * 11 and
-        gross == int(cell(monthly, 1)) and
-        net == int(cell(monthly, 2)) and
-        count == int(cell(net_row, 3)) == actual_count and
+        gross == monthly_gross and net == monthly_net and
+        count == _nonnegative_krw(cell(net_row, 3)) == actual_count and
         cell(gross_row, 5) == "VAT_INCLUDED" and
         cell(net_row, 5) == "VAT_EXCLUDED" and
         cell(gross_row, 7) == cell(net_row, 7) == "YES")
-    return {"month": month, "invoice_count": count,
-            "gross_vat_included_krw": gross, "net_vat_excluded_krw": net,
-            "snapshot_amount_parity": parity}
+    result = {"month": month, "invoice_count": count,
+              "snapshot_amount_parity": parity}
+    if lifecycle is not None:
+        life = find_key(lifecycle, month)
+        life_gross = _nonnegative_krw(cell(life, 1))
+        life_count = _nonnegative_krw(cell(life, 5))
+        result.update({
+            "lifecycle_invoice_count": life_count,
+            "invoice_count_delta_lifecycle_minus_net": life_count - actual_count,
+            "lifecycle_gross_differs_from_net": life_gross != monthly_gross,
+            "net_snapshot_at": cell(monthly, 7),
+            "lifecycle_snapshot_at": cell(life, 11),
+            "snapshot_order": relative_snapshot_order(cell(monthly, 7), cell(life, 11)),
+            "invoice_identity_review_required": (life_gross != monthly_gross or
+                                                life_count != actual_count),
+        })
+        result["snapshot_amount_parity"] = (
+            parity and life_gross == gross and life_count == count)
+    # Public CI evidence contains only aggregates/flags, not monetary values.
+    return result
+
+
+def legacy_health_observation(rows, now, max_age_hours=48):
+    """An old legacy PASS is NOT proof that a system is currently healthy."""
+    if rows[0][:4] != ["Component", "Last success KST", "State", "Detail"]:
+        raise ValueError("LEGACY_HEALTH_SCHEMA_INVALID")
+    if now.tzinfo is None:
+        raise ValueError("HEALTH_CLOCK_TZ_REQUIRED")
+    kst = dt.timezone(dt.timedelta(hours=9))
+    now_kst = now.astimezone(kst)
+    counts = {"legacy_green_rows": 0, "stale_green_rows": 0,
+              "unknown_timestamp_green_rows": 0,
+              "legacy_green_is_current_proof": False}
+    for row in rows[1:]:
+        if cell(row, 2) not in ("PASS", "PASS_VERIFIED"):
+            continue
+        counts["legacy_green_rows"] += 1
+        try:
+            stamp = dt.datetime.strptime(
+                cell(row, 1), "%Y-%m-%d %H:%M:%S KST").replace(tzinfo=kst)
+        except ValueError:
+            counts["unknown_timestamp_green_rows"] += 1
+            continue
+        age = now_kst - stamp
+        if age < dt.timedelta(0) or age > dt.timedelta(hours=max_age_hours):
+            counts["stale_green_rows"] += 1
+    return counts
 
 
 def observe(data, now, target_month=None):
@@ -81,6 +156,8 @@ def observe(data, now, target_month=None):
     readiness = rows_for(data, "SFDC Report Readiness", 8)
     authority = rows_for(data, "Revenue Source Authority", 10)
     monthly = rows_for(data, "BI Revenue Net VAT Monthly", 9)
+    lifecycle = rows_for(data, "BI Revenue Lifecycle Monthly", 12)
+    health = rows_for(data, "Automation Health", 4)
     payment = rows_for(data, "Payment Reconciliation QC", 3)
     workflows = rows_for(data, "Automation Workflow Runs", 10)
     backfill = rows_for(data, "CSS Mail Backfill Status", 10)
@@ -113,7 +190,8 @@ def observe(data, now, target_month=None):
                 "stable_id": cell(row, 2), "modified_timestamp": cell(row, 3),
                 "field_check": cell(row, 4), "promotion_status": cell(row, 6),
             }
-    rev = month_gross_net(authority, monthly, target_month)
+    rev = month_gross_net(authority, monthly, target_month, lifecycle)
+    legacy_health = legacy_health_observation(health, now)
     metrics = {cell(r, 0): cell(r, 1) for r in payment[2:] if cell(r, 0)}
     run_results = {
         cell(r, 9): cell(r, 2) for r in workflows[1:] if cell(r, 9)
@@ -165,6 +243,7 @@ def observe(data, now, target_month=None):
         },
         "monitor": {
             "source": {"workflow_execution_only": run_results,
+                       "legacy_health": legacy_health,
                        "reason": "WORKFLOW_SUCCESS_IS_NOT_SOURCE_FRESHNESS"},
             "sink": {"reason": "BUSINESS_READBACK_STATUS_LEDGER_NOT_PROVEN"},
         },
@@ -188,6 +267,10 @@ def observe(data, now, target_month=None):
                    + "/actions/runs/" + os.environ.get("GITHUB_RUN_ID", "0")}
             if k == "payment_revenue" and axis == "sink" and not rev["snapshot_amount_parity"]:
                 e["reason"] = "CANONICAL_REVENUE_SNAPSHOT_MISMATCH"
+            if k == "monitor" and axis == "source" and (
+                    legacy_health["stale_green_rows"] or
+                    legacy_health["unknown_timestamp_green_rows"]):
+                e["reason"] = "LEGACY_HEALTH_GREEN_STATUS_NOT_CURRENT"
             if k in ("lead", "quote") and axis == "sink":
                 e["reason"] = "SFDC_STAGING_NOT_VERIFIED_SAVED"
             if k == "payment_revenue" and axis == "source" and (
@@ -201,6 +284,7 @@ def observe(data, now, target_month=None):
             "source_probed_live": False, "sink_readback_live": False,
             "domains": result, "blocked_domains": len(result),
             "verified_crosschecks": 0,
+            "snapshot_integrity": {"revenue": rev, "legacy_health": legacy_health},
             "note": "Mirror telemetry; independent QQ/SFDC/Feishu source probes and sink readbacks required."}
 
 
@@ -237,12 +321,37 @@ def main():
     line = ("CSS_FRESHNESS_MIRROR_AUDIT_COMPLETE=YES DOMAINS=9 CROSSCHECKS=18 " +
             "LIVE_SOURCE_SINK_CERTIFIED=0 STATUS=BLOCK SOURCE_MIRROR_ONLY")
     print(line)
+    health = report["snapshot_integrity"]["legacy_health"]
+    revenue_ok = report["snapshot_integrity"]["revenue"]["snapshot_amount_parity"]
+    if not revenue_ok:
+        print("::warning title=Revenue snapshot mismatch::Lifecycle/Net VAT/Authority mirror parity is not established")
+        # Count and order are evidence for triage, never permission to rewrite.
+        snapshot = report["snapshot_integrity"]["revenue"]
+        print("REVENUE_SNAPSHOT_HOLD month=" + snapshot["month"] +
+              " invoice_count_delta_lifecycle_minus_net=" +
+              str(snapshot.get("invoice_count_delta_lifecycle_minus_net")) +
+              " order=" + snapshot.get("snapshot_order", "UNVERIFIED") +
+              " source_invoice_identity_review=REQUIRED")
+
+    if health["stale_green_rows"] or health["unknown_timestamp_green_rows"]:
+        print("::warning title=Legacy Health stale PASS::Old PASS labels are not live certification")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as out:
             out.write("## CSS source/sink freshness — evidence only\n\n")
             out.write("Mirror snapshot read: PASS. Independent original source probes: NOT DONE. " +
                       "Live destination readbacks: NOT DONE. **No business PASS.**\n\n")
+            out.write("Revenue Net VAT/Lifecycle/Authority parity: **" +
+                      ("MATCH" if revenue_ok else "MISMATCH / HOLD") + "**; "
+                      "Legacy stale PASS rows: **" + str(health["stale_green_rows"]) +
+                      "**; unknown-date PASS rows: **" +
+                      str(health["unknown_timestamp_green_rows"]) + "**.\n\n")
+            snapshot = report["snapshot_integrity"]["revenue"]
+            out.write("Revenue count difference (Lifecycle - Net VAT): **" +
+                      str(snapshot.get("invoice_count_delta_lifecycle_minus_net")) +
+                      "**; timestamp ordering: **" +
+                      snapshot.get("snapshot_order", "UNVERIFIED") +
+                      "**. Verify original invoice IDs before any recalculation.\n\n")
             out.write("| Domain | Source | Sink | Business status |\n|---|---|---|---|\n")
             for item in report["domains"]:
                 out.write("| " + item["name"] + " | BLOCK | BLOCK | BLOCK |\n")

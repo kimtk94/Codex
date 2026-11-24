@@ -1,0 +1,73 @@
+name: Daily20 Historical Backup Completeness and Integrity (Read Only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - research/kalman_daily20/audit_historical_backups.py
+      - .github/workflows/kalman-daily20-backup-audit.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-original-four-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Parquet audit reader (no Drive or broker)
+        run: |
+          python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'pyarrow>=17,<28'
+      - name: Retrieve exact original GitHub ZIP bytes (same four historical runs)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p evidence
+          while read -r run kind artifact; do
+            echo "Fetching immutable historical artifact ${run}/${kind}: ${artifact}"
+            curl -fLSs --retry 3 --connect-timeout 20 \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/${artifact}/zip" \
+              -o "evidence/run${run}_${kind}.zip" || exit 1
+          done <<'ARTIFACTS'
+          44853890794 data 14686667025
+          44853890794 research 14686642101
+          44856445903 data 14687797645
+          44856445903 research 14687533170
+          44858008175 data 14688159383
+          44858008175 research 14688298968
+          44871574162 data 14694207115
+          44871574162 research 14694311587
+          ARTIFACTS
+      - name: Verify all eight archive hashes against independently saved Drive backups
+        run: |
+          cd evidence
+          sha256sum -c <<'SHA'
+          3f6166ce09e33f903427ed9fc9a4d5f04c486b10f290ca8f06e055063b7b9ba9  run44853890794_data.zip
+          61820c4dad41f90bddc92a5c32859205181d7db56ba01862ed78dd5cfeb77aaf  run44853890794_research.zip
+          e437f519321eb92ccec3b3987ed7a22c618dcbea2176a92337fb55376f2c5a26  run44856445903_data.zip
+          92fdb0f412bfda30aca9000fefc36805876470fee36e62bcf11c72d442f1cb0b  run44856445903_research.zip
+          57351e216dcd48e5416b9576772b5aca2d047088d1dc041455a7fddfc2086fed  run44858008175_data.zip
+          9dfa7e766d5f6376f51ab8b816f0bb1bf10f151ea88042c228ad203af97f4ef4  run44858008175_research.zip
+          a79197124aba572b1eaeaee2278324de0e14d32ae504fe705aa35f3cc076deb8  run44871574162_data.zip
+          b940c6fed2764eeffd60a6cf459407de4a9a9bf20afdaae5d4779f8bf32882e6  run44871574162_research.zip
+          SHA
+      - name: Inspect all 208 real Parquet tables, timestamp gaps, OOS and journal hash chains
+        run: |
+          python research/kalman_daily20/audit_historical_backups.py \
+            --input-dir evidence \
+            --out output/daily20/archive_audit
+      - name: Publish audit evidence (not research signals)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily20-historical-backup-completeness-audit
+          path: output/daily20/archive_audit/
+          if-no-files-found: warn
+          retention-days: 90

@@ -1,0 +1,1322 @@
+name: Kalman Daily 20 Research (No Server / No Live)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_daily20/**'
+      - '.github/workflows/kalman-daily20.yml'
+  schedule:
+    # First pass: completed NYSE day, before the next NYSE open.
+    - cron: '40 2 * * 2-6'
+    # Independent same-session replay of the *already frozen* original inputs.
+    # The immutable snapshot and event hashes must NOT be replaced on replay.
+    - cron: '40 4 * * 2-6'
+  pull_request:
+    paths:
+      - 'research/kalman_daily20/**'
+      - '.github/workflows/kalman-daily20.yml'
+      - 'kalman-toss-gateway/engine/market_data/**'
+      - 'kalman-toss-gateway/engine/features_v2_002/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  # GitHub Actions retains at most one running and one pending run per group.
+  # Separate PR-only numerical research from the protected main writer queue;
+  # preserve serialization of main push/dispatch and BOTH scheduled passes.
+  group: kalman-daily20-research-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'protected-main' }}
+  cancel-in-progress: false
+  # Default single pending slot replaces older pending runs even with
+  # cancel-in-progress false. Explicit queue=max retains up to 100 waiting
+  # runs so later protected-main pushes cannot evict either scheduled seal.
+  queue: max
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal test dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<2.4' 'scikit-learn>=1.6,<2' 'exchange-calendars>=4.7' 'pyarrow>=17,<25'
+      - name: Offline tests and compilation
+        env:
+          PYTHONFAULTHANDLER: '1'
+          ARROW_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+        run: |
+          python -m unittest discover -s research/kalman_daily20 -p 'test_*.py' -v
+          python -m compileall -q research/kalman_daily20
+      - name: Validate 20-core universe against canonical data schema
+        run: |
+          python research/kalman_daily20/daily20.py universe --config research/kalman_daily20/universe.json --out output/daily20/universe-derived.json
+
+
+      - name: Attest installed contract job model wheels and native parser binaries
+        env:
+          ARROW_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/model_runtime_lineage.py \
+            --phase contracts --out output/daily20/contract_environment/report.json
+      - name: Publish independent contract runtime evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-contract-runtime
+          path: output/daily20/contract_environment/report.json
+          if-no-files-found: error
+          retention-days: 14
+
+
+  restore-drive-cache:
+    needs: contracts
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install private archive reader (no trading dependencies)
+        run: python -m pip install --disable-pip-version-check google-auth google-api-python-client 'pandas>=2.2,<3' 'pyarrow>=17' 'exchange-calendars>=4.7'
+      - name: Generate immutable universe
+        run: python research/kalman_daily20/daily20.py universe --out output/daily20/universe-derived.json
+      - name: Restore pinned Google Drive archive and validate every SHA256
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_daily20/refresh_incremental.py \
+            --universe output/daily20/universe-derived.json \
+            --output-dir output/daily20/market \
+            --end-date "$(python -c 'from datetime import timedelta; from research.kalman_daily20.daily20 import last_completed_nyse; print(last_completed_nyse() + timedelta(days=1))')" \
+            --restore-only \
+            --archive-output output/daily20/previous-data.zip \
+            --results-archive-output output/daily20/previous-results.zip
+      - name: Fetch Cboe VIX and optional Alpaca SIP via existing protected Colab-synced environment
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: |
+          SESSION=$(python -c 'from research.kalman_daily20.daily20 import last_completed_nyse; print(last_completed_nyse())')
+          python research/kalman_daily20/collect_independent_close.py \
+            --session "$SESSION" \
+            --out-report output/daily20/independent_feed.json \
+            --out-reference output/daily20/quote_reference.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('output/daily20/independent_feed.json').read_text())
+          assert report['research_only'] is True
+          assert report['production_writes'] is False
+          assert report['verified_regular_finality'] == 0
+          assert report['attempted'] == 26
+          # No credential values in stdout or persisted evidence.
+          print("DAILY20_PROTECTED_ALPACA_SIP_STATUS", report['alpaca']['status'])
+          PY
+      - name: Match SIP market-center official M prints to provider's current listing master (read only)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_daily20/resolve_primary_listing.py \
+            --independent output/daily20/independent_feed.json \
+            --reference output/daily20/quote_reference.json \
+            --out-report output/daily20/venue_identity.json \
+            --out-reference output/daily20/selected_reference.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("output/daily20/venue_identity.json").read_text())
+          assert report["tested_assets"] == 25
+          assert report["finality_verified"] == 0
+          assert report["raw_and_yahoo_adjusted_directly_comparable"] is False
+          print("DAILY20_PRIMARY_M_RESEARCH_SELECTION",report["primary_M_quote_research_selection_count"],
+                "out of 25; price factor NOT attested")
+          PY
+      - name: Collect Alpaca corporate actions by process date (candidate evidence only)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: |
+          SESSION=$(python -c 'import json; print(json.load(open("output/daily20/independent_feed.json"))["session"])')
+          python research/kalman_daily20/corporate_actions_reference.py \
+            --session "$SESSION" \
+            --out output/daily20/corporate_actions_reference.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/corporate_actions_reference.json").read_text())
+          assert r["research_only"] is True
+          assert r["production_writes"] is False
+          assert r["finality_verified"] == 0
+          assert r["factor_independently_certified"] == 0
+          assert len(r["queried_symbols"]) == 25
+          print("DAILY20_PROTECTED_CA_REFERENCE",r["status"],
+                "pages",r["page_count"],"events",len(r["events"]))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daily20-private-cache-from-drive
+          path: |
+            output/daily20/previous-data.zip
+            output/daily20/previous-results.zip
+            output/daily20/independent_feed.json
+            output/daily20/quote_reference.json
+            output/daily20/venue_identity.json
+            output/daily20/selected_reference.json
+            output/daily20/corporate_actions_reference.json
+          if-no-files-found: error
+          retention-days: 1
+
+  daily-research:
+    needs: [contracts, restore-drive-cache]
+    if: always() && needs.contracts.result == 'success' && (needs.restore-drive-cache.result == 'success' || needs.restore-drive-cache.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing market and TA-Lib dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r kalman-toss-gateway/engine/market_data/requirements.txt
+          python -m pip install --disable-pip-version-check 'scikit-learn>=1.6,<2' 'exchange-calendars>=4.7'
+      - name: Generate immutable research universe
+        run: |
+          python research/kalman_daily20/daily20.py universe --out output/daily20/universe-derived.json
+      - name: Resolve fully closed NYSE end date (never ingest an unfinished candle)
+        run: |
+          echo "DAILY20_END_DATE=$(python -c 'from datetime import timedelta; from research.kalman_daily20.daily20 import last_completed_nyse; print(last_completed_nyse() + timedelta(days=1))')" >> "$GITHUB_ENV"
+      - name: Download pinned historical archive from isolated restore job
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          name: daily20-private-cache-from-drive
+          path: output/daily20/cache
+      - name: Incremental overlap refresh (full on PR or weekly Saturday)
+        working-directory: kalman-toss-gateway
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python ../research/kalman_daily20/refresh_incremental.py \
+              --universe ../output/daily20/universe-derived.json \
+              --output-dir ../output/daily20/market \
+              --end-date "$DAILY20_END_DATE" --no-drive
+          else
+            python ../research/kalman_daily20/refresh_incremental.py \
+              --universe ../output/daily20/universe-derived.json \
+              --output-dir ../output/daily20/market \
+              --end-date "$DAILY20_END_DATE" \
+              --cache-file ../output/daily20/cache/previous-data.zip
+          fi
+      - name: Compute TA-Lib feature snapshots
+        working-directory: kalman-toss-gateway
+        run: |
+          python -m engine.features_v2_002.cli --input-dir ../output/daily20/market/raw/yfinance --output-dir ../output/daily20/features
+      - name: Fail closed on missing / stale price and feature data
+        run: |
+          python research/kalman_daily20/daily20.py audit --manifest output/daily20/universe-derived.json --market output/daily20/market --features output/daily20/features --out output/daily20/qc.json
+      - name: Adopt protected environment's source evidence (PR fetches public Cboe only)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/collect_independent_close.py \
+              --qc output/daily20/qc.json \
+              --out-report output/daily20/research/source_finality/independent_feed.json \
+              --out-reference output/daily20/research/source_finality/quote_reference.json
+            python research/kalman_daily20/resolve_primary_listing.py \
+              --independent output/daily20/research/source_finality/independent_feed.json \
+              --reference output/daily20/research/source_finality/quote_reference.json \
+              --out-report output/daily20/research/source_finality/venue_identity.json \
+              --out-reference output/daily20/research/source_finality/selected_reference.json
+          else
+            mkdir -p output/daily20/research/source_finality
+            cp output/daily20/cache/independent_feed.json output/daily20/research/source_finality/independent_feed.json
+            cp output/daily20/cache/quote_reference.json output/daily20/research/source_finality/quote_reference.json
+            cp output/daily20/cache/venue_identity.json output/daily20/research/source_finality/venue_identity.json
+            cp output/daily20/cache/selected_reference.json output/daily20/research/source_finality/selected_reference.json
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("output/daily20")
+          doc=json.loads((root/"research/source_finality/independent_feed.json").read_text())
+          reference=json.loads((root/"research/source_finality/quote_reference.json").read_text())
+          selected=json.loads((root/"research/source_finality/selected_reference.json").read_text())
+          venue=json.loads((root/"research/source_finality/venue_identity.json").read_text())
+          qc=json.loads((root/"qc.json").read_text())
+          assert doc["session"] == reference["session"] == selected["session"] == venue["session"] == qc["expected_session"]
+          assert doc["research_only"] is True
+          assert doc["production_writes"] is False
+          assert doc["strategy_promoted"] is False
+          assert doc["verified_regular_finality"] == 0
+          assert doc["attempted"] == 26
+          assert reference["schema"] == selected["schema"] == "daily20-quote-reference-v1"
+          assert venue["tested_assets"] == 25 and venue["finality_verified"] == 0
+          assert venue["raw_and_yahoo_adjusted_directly_comparable"] is False
+          assert venue["primary_session_asof_independently_certified"] is False
+          assert len(selected["quotes"]) == venue["selected_reference_count_including_cboe"]
+          print("DAILY20_INDEPENDENT_FEED_RESEARCH_ONLY",doc["cboe"]["status"],doc["alpaca"]["status"],
+                "research M selection",venue["primary_M_quote_research_selection_count"])
+          PY
+      - name: Capture prospective 26-asset close finality and same-session replay (fail closed)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/source_finality.py \
+              --market output/daily20/market \
+              --qc output/daily20/qc.json \
+              --reference output/daily20/research/source_finality/selected_reference.json \
+              --out output/daily20/research/source_finality/report.json
+          else
+            python research/kalman_daily20/source_finality.py \
+              --market output/daily20/market \
+              --qc output/daily20/qc.json \
+              --reference output/daily20/research/source_finality/selected_reference.json \
+              --prior-zip output/daily20/cache/previous-data.zip \
+              --out output/daily20/research/source_finality/report.json
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("output/daily20/research/source_finality/report.json").read_text())
+          assert report["research_only"] is True
+          assert report["research_hold"] is True
+          assert report["verified"] == 0 and report["examined"] == 26
+          assert report["status"] in ("SOURCE_FINALITY_HOLD", "REPLAY_DRIFT_RESEARCH_HOLD")
+          print("DAILY20_FINALITY_RESEARCH_PROVISIONAL",report["status"])
+          PY
+      - name: Record Yahoo dividend/split factor lineage (research-only; NOT independent certification)
+        run: |
+          python research/kalman_daily20/factor_lineage.py \
+            --market output/daily20/market \
+            --qc output/daily20/qc.json \
+            --out-dir output/daily20/research/factor_lineage
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/factor_lineage/report.json").read_text())
+          assert r["research_only"] is True and r["production_writes"] is False
+          assert r["strategy_promoted"] is False
+          assert r["required"] == 25 and len(r["rows"]) == 25
+          assert r["independent_corporate_actions_certified"] == 0
+          assert r["finality_verified"] == 0
+          assert r["overall_status"] == "CORPORATE_ACTION_FACTORS_RESEARCH_HOLD"
+          print("DAILY20_YAHOO_CA_UNCERTIFIED",r["vendor_history_observed"],"/25")
+          PY
+      - name: Link raw venue M, Yahoo split-adjusted, and Daily20 adjusted prices (research HOLD)
+        run: |
+          python research/kalman_daily20/price_basis_bridge.py \
+            --source-finality output/daily20/research/source_finality/report.json \
+            --primary-venue output/daily20/research/source_finality/venue_identity.json \
+            --yahoo-factor-dir output/daily20/research/factor_lineage \
+            --out output/daily20/research/price_basis_bridge/report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/price_basis_bridge/report.json").read_text())
+          assert r["version"] == "daily20-price-basis-bridge-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["live_execution"]
+          assert r["required_assets"] == 26 and len(r["rows"]) == 26
+          assert r["research_price_certified"] == 0
+          assert r["independent_adjustment_factors_certified"] == 0
+          assert r["status"] == "PRICE_BASIS_RECONCILIATION_RESEARCH_HOLD"
+          assert all(x["research_hold"] and not x["independent_price_certified"]
+                     and not x["independent_adjustment_factor_certified"]
+                     for x in r["rows"])
+          print("DAILY20_PRICE_BASIS_HOLD", r["raw_primary_M_auction_reference_count"],
+                "/25 primary raw M, vendor trace", r["vendor_unrepaired_trace_count"],
+                "/25, model/vendor differences",
+                r["same_session_model_vendor_adj_close_mismatches_gt_half_cent"],
+                "CERTIFIED 0/26")
+          PY
+      - name: Rank raw M-vs-Yahoo split-adjusted variance by asset (HOLD queue only)
+        run: |
+          python research/kalman_daily20/price_variance_triage.py \
+            --bridge output/daily20/research/price_basis_bridge/report.json \
+            --out-dir output/daily20/research/price_variance_triage
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          p=Path("output/daily20/research/price_variance_triage")
+          r=json.loads((p/"report.json").read_text())
+          with (p/"review_queue.csv").open(newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert r["version"] == "daily20-price-variance-triage-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["live_execution"]
+          assert r["status"] == "RAW_VS_SPLIT_ADJUSTED_DIAGNOSTIC_HOLD"
+          assert r["required"] == 26 and r["equity_etf_cases"] == len(rows) == 25
+          assert r["vix_index_separate"] == 1
+          assert sum(r["bucket_counts"].values()) == 25
+          assert r["independent_final_close_certified"] == 0
+          assert r["independent_factor_certified"] == 0
+          assert all(x["finality_verified"] == "False"
+                     and x["likely_cause_certified"] == "False" for x in rows)
+          print("DAILY20_PRICE_VARIANCE_QUEUE",r["session"],
+                "venue_M",r["primary_M_research_references"],"/25",
+                "vendor",r["yahoo_unrepaired_traces"],"/25",
+                "review_counts",r["bucket_counts"],"CERTIFIED 0/26 HOLD")
+          PY
+      - name: Compare ex-dated Yahoo dividends/splits to Alpaca (uncertified and fail-closed)
+        run: |
+          mkdir -p output/daily20/research/corporate_actions
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SESSION=$(python -c 'import json; print(json.load(open("output/daily20/qc.json"))["expected_session"])')
+            python research/kalman_daily20/corporate_actions_reference.py \
+              --session "$SESSION" \
+              --offline \
+              --out output/daily20/research/corporate_actions/reference.json
+          else
+            cp output/daily20/cache/corporate_actions_reference.json \
+              output/daily20/research/corporate_actions/reference.json
+          fi
+          python research/kalman_daily20/corporate_actions_compare.py \
+            --factor-dir output/daily20/research/factor_lineage \
+            --reference output/daily20/research/corporate_actions/reference.json \
+            --out-dir output/daily20/research/corporate_actions
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/corporate_actions/report.json").read_text())
+          assert r["required"] == 25
+          assert r["research_only"] is True and r["production_writes"] is False
+          assert r["finality_verified"] == 0 and r["independent_factor_certification"] == 0
+          assert r["status"] == "CORPORATE_ACTION_CROSSCHECK_RESEARCH_HOLD"
+          print("DAILY20_CA_MATCH_RESEARCH_ONLY",r["reference_status"],
+                "matched",r["matched_ex_date_events"],"CERTIFIED 0/25")
+          PY
+      - name: Diagnose CA exceptions and schema-specific issuer identity (no source auto-certification)
+        run: |
+          python research/kalman_daily20/corporate_action_forensics.py \
+            --factor-dir output/daily20/research/factor_lineage \
+            --reference output/daily20/research/corporate_actions/reference.json \
+            --comparison-dir output/daily20/research/corporate_actions \
+            --out-dir output/daily20/research/corporate_action_forensics
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          root=Path("output/daily20/research/corporate_action_forensics")
+          r=json.loads((root/"report.json").read_text())
+          with (root/"review_queue.csv").open(newline="") as f:
+            rows=list(csv.DictReader(f))
+          assert r["required_symbols"] == 25
+          assert r["research_only"] is True and r["production_writes"] is False
+          assert r["strategy_promoted"] is False and r["finality_verified"] == 0
+          assert r["independent_factor_certification"] == 0
+          assert r["issue_resolutions_issuer_verified"] == 0
+          assert len(rows) == r["review_exception_count"]
+          assert r["identity_source_report_complete"]
+          assert all(x["resolved_by_issuer_evidence"] == "False" for x in rows)
+          print("DAILY20_CA_FORENSICS_HOLD",r["review_exception_count"],"exceptions",
+                "Yahoo repaired-event suppression",r["yahoo_repair_suppression_observed"],
+                "role-based identity",r["identity_role_schema_events"],"certified 0/26")
+          PY
+      - name: Archive issuer and ETF sponsor evidence for CA exceptions (never certify prices)
+        run: |
+          # Reader is isolated from market data and trading dependencies.
+          # PDF text extraction failure remains HOLD, never issuer certification.
+          python -m pip install --disable-pip-version-check 'pypdf>=5,<7'
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_ca_primary_evidence.py \
+              --review output/daily20/research/corporate_action_forensics/review_queue.csv \
+              --out-dir output/daily20/research/issuer_ca_primary \
+              --offline
+          else
+            python research/kalman_daily20/issuer_ca_primary_evidence.py \
+              --review output/daily20/research/corporate_action_forensics/review_queue.csv \
+              --out-dir output/daily20/research/issuer_ca_primary
+          fi
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          root=Path("output/daily20/research/issuer_ca_primary")
+          report=json.loads((root/"report.json").read_text())
+          with (root/"unresolved_review.csv").open(newline="") as stream:
+            cases=list(csv.DictReader(stream))
+          assert report["version"] == "daily20-issuer-ca-primary-evidence-v1"
+          assert report["research_only"] is True
+          assert report["production_writes"] is False
+          assert report["strategy_promoted"] is False
+          assert report["source_finality_verified"] == 0
+          assert report["factor_certified"] == 0
+          assert report["issuer_action_payments_certified"] == 0
+          assert report["issuer_identities_certified"] == 0
+          assert report["remaining_review_case_count"] == len(cases)
+          assert len(cases) == report["unresolved_cases_analyzed"]
+          assert report["curated_official_leads"] == 15
+          assert 0 <= report["issuer_fund_historical_document_leads"] <= 1
+          assert 0 <= report["sec_filed_third_party_quote_leads"] <= 3
+          assert 0 <= report["issuer_split_context_leads"] <= 1
+          assert report["split_2025_is_not_cash_2023_attestation"] is True
+          if "${{ github.event_name }}" != "pull_request":
+              # Only protected main has actual Alpaca comparisons: 15 rows.
+              assert report["unresolved_cases_analyzed"] == 15
+              assert report["issuer_fund_historical_document_leads"] == 1
+              assert report["sec_filed_third_party_quote_leads"] == 3
+              assert report["issuer_split_context_leads"] == 1
+          assert report["sec_hosted_third_party_quote_not_issuer_certified"] is True
+          assert all(r["independent_adjustment_factor_certified"] == "False" for r in cases)
+          print("DAILY20_CA_PRIMARY_HOLD",report["unresolved_cases_analyzed"],
+                "pending",report["official_leads_applicable"],"issuer leads",
+                report["live_source_anchor_supported_cases"],"live anchors",
+                report["raw_source_fetch_success"],"source bodies; certified 0/26")
+          PY
+      - name: Issuer dividend gap audit (research-only; no promotion)
+        run: |
+          python research/kalman_daily20/issuer_ca_gap_audit.py \
+            --primary-dir output/daily20/research/issuer_ca_primary \
+            --out output/daily20/research/issuer_ca_gap_audit.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_ca_gap_audit.json").read_text())
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["issuer_payments_certified"] == 0
+          assert r["source_finality_verified"] == 0
+          assert r["unarchived_research_leads_are_certified"] is False
+          assert r["status"] == "ISSUER_DISTRIBUTIONS_2_EVENTS_HOLD"
+          assert {(x["symbol"],x["ex_date"]) for x in r["events"]} == {
+            ("QQQ","2018-06-18"), ("QLD","2023-09-20")}
+          assert all(not x["actual_payment_certified"] for x in r["events"])
+          if "${{ github.event_name }}" != "pull_request":
+              assert r["both_archived_sources_verified"]
+          print("DAILY20_DIVIDEND_GAP_HOLD",r["status"],
+                "archived",r["both_archived_sources_verified"],"0/26")
+          PY
+      - name: Audit per-asset official-close and issuer-factor proof obligations (HOLD)
+        run: |
+          python research/kalman_daily20/official_price_proof_obligations.py \
+            --source output/daily20/research/source_finality/report.json \
+            --bridge output/daily20/research/price_basis_bridge/report.json \
+            --actions output/daily20/research/corporate_actions/report.json \
+            --gaps output/daily20/research/issuer_ca_gap_audit.json \
+            --out-dir output/daily20/research/official_price_proof_obligations
+          python - <<'PY'
+          import csv,hashlib,json
+          from pathlib import Path
+          root=Path("output/daily20/research/official_price_proof_obligations")
+          r=json.loads((root/"report.json").read_text())
+          raw=(root/"evidence_obligations.csv").read_bytes()
+          rows=list(csv.DictReader(raw.decode("utf-8").splitlines()))
+          assert r["version"]=="daily20-26asset-official-proof-obligations-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["live_execution"]
+          assert r["status"]=="OFFICIAL_CLOSE_AND_FACTOR_RESEARCH_HOLD"
+          assert r["required_assets"]==len(rows)==26
+          assert r["equity_etf_assets"]==25 and r["index_assets"]==1
+          assert r["official_close_certified"]==0
+          assert r["independent_factor_certified"]==0
+          assert r["independent_factor_applicable"]==25
+          assert r["issuer_specific_cash_gaps"]==2
+          assert hashlib.sha256(raw).hexdigest()==r["evidence_obligations_csv_sha256"]
+          assert all(x["close_certified"]=="False" for x in rows)
+          print("DAILY20_26_OFFICIAL_PROOF_QUEUE",r["session"],
+                "M refs",r["primary_M_observed"],"/25",
+                "vendor traces",r["vendor_traces_observed"],"/25",
+                "official cert",r["official_close_certified"],"/26",
+                "independent factors",r["independent_factor_certified"],"/25",
+                "issuer cash gaps",r["issuer_specific_cash_gaps"])
+          PY
+      - name: Check official publisher source routes and re-fetch Cboe VIX history (HOLD)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/official_close_source_access.py \
+              --independent output/daily20/research/source_finality/independent_feed.json \
+              --reference output/daily20/research/source_finality/selected_reference.json \
+              --venue output/daily20/research/source_finality/venue_identity.json \
+              --obligations output/daily20/research/official_price_proof_obligations/report.json \
+              --out-dir output/daily20/research/official_close_access
+          else
+            python research/kalman_daily20/official_close_source_access.py \
+              --independent output/daily20/research/source_finality/independent_feed.json \
+              --reference output/daily20/research/source_finality/selected_reference.json \
+              --venue output/daily20/research/source_finality/venue_identity.json \
+              --obligations output/daily20/research/official_price_proof_obligations/report.json \
+              --out-dir output/daily20/research/official_close_access --probe-cboe
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          root=Path("output/daily20/research/official_close_access")
+          report=json.loads((root/"report.json").read_text())
+          assert report["version"]=="daily20-primary-publisher-access-v1"
+          assert report["status"]=="PRIMARY_PUBLISHER_ACCESS_AND_CERTIFICATION_RESEARCH_HOLD"
+          assert report["research_only"] and not report["live_execution"]
+          assert not report["strategy_promoted"] and not report["production_writes"]
+          assert len(report["rows"])==26
+          assert report["official_close_certified"]==0 and report["official_close_required"]==26
+          assert report["independent_corporate_factors_certified"]==0
+          assert report["equities_missing_primary_numeric_evidence"]==25
+          assert sum(report["access_route_counts"].values())==25
+          assert all(not row["point_in_time_close_certified"] for row in report["rows"])
+          archive=root/"cboe_vix_public_source.csv.gz"
+          if archive.exists():
+              assert report["raw_publication_gzip_sha256"]==hashlib.sha256(archive.read_bytes()).hexdigest()
+          print("DAILY20_PRIMARY_OFFICIAL_ROUTE_HOLD",report["session"],
+                report["access_route_counts"],
+                "CBOE_SECOND_CAPTURE",report["cboe_publisher_recheck"]["recheck_status"],
+                "SOURCE_FINALITY_CERTIFIED",report["official_close_certified"],"/26")
+          PY
+      - name: Probe Nasdaq 16 historical NOCP public pages (access-only; never a price)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] || \
+             [ "${{ github.event.schedule }}" = "40 4 * * 2-6" ]; then
+            python research/kalman_daily20/nasdaq_nocp_access_audit.py \
+              --access output/daily20/research/official_close_access/report.json \
+              --out-dir output/daily20/research/nasdaq_nocp_access
+          else
+            python research/kalman_daily20/nasdaq_nocp_access_audit.py \
+              --access output/daily20/research/official_close_access/report.json \
+              --out-dir output/daily20/research/nasdaq_nocp_access --probe-public
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          import csv,hashlib,json
+          root=Path("output/daily20/research/nasdaq_nocp_access")
+          r=json.loads((root/"report.json").read_text())
+          payload=(root/"public_portal_probe.csv").read_bytes()
+          with (root/"public_portal_probe.csv").open(newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert r["version"]=="daily20-nasdaq-nocp-public-access-v1"
+          assert r["status"]=="NASDAQ_PUBLIC_NOCP_ACCESS_NOT_PRICE_CERTIFICATION_HOLD"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["live_execution"]
+          assert r["nasdaq_current_master_route_count"]==len(rows)
+          if r["session"]=="2026-11-20" and len(rows)!=16:
+              assert r["current_venue_route_coverage_status"]=="CURRENT_MASTER_VENUE_ROUTES_INCOMPLETE_HOLD"
+          elif r["session"]=="2026-11-20":
+              assert r["current_venue_route_coverage_status"]=="BASELINE_16_CURRENT_MASTER_ROUTES_OBSERVED_UNCERTIFIED"
+          assert r["official_nocp_numeric_records_admitted"]==0
+          assert r["independent_regular_close_certified"]==0
+          assert r["factor_certified"]==0
+          assert all(x["nocp_price"]=="" and
+                     x["official_certified"]=="False" for x in rows)
+          assert r["csv_sha256"]==hashlib.sha256(payload).hexdigest()
+          print("DAILY20_NASDAQ_OFFICIAL_CLOSE_HOLD",r["session"],
+                "routes",len(rows),"probes",r["public_pages_attempted"],
+                "web_200",r["public_html_200_count"],
+                "authenticated_NOCP",r["official_nocp_numeric_records_admitted"],
+                "certified",r["independent_regular_close_certified"])
+          PY
+      - name: Record original QQQ 2018 trust amendment (date rule only; no paid cash)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qqq2018_schedule.py \
+              --offline --out-dir output/daily20/research/issuer_qqq2018_rule
+          else
+            python research/kalman_daily20/issuer_qqq2018_schedule.py \
+              --out-dir output/daily20/research/issuer_qqq2018_rule
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qqq2018_rule/report.json").read_text())
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["source_finality_verified"] == 0
+          assert r["issuer_cash_payment_certified"] is False
+          assert r["issuer_paid_cash_amount_usd"] is None
+          assert r["independent_adjustment_factor_certified"] is False
+          assert r["matched_qqq_exception_date"] is True
+          if r["source_anchor_verified"]:
+              assert r["status"] == "FIRST_PARTY_2018_RULE_VERIFIED_CASH_HOLD"
+              assert r["source_archive"] and r["source_sha256"]
+          print("DAILY20_QQQ2018_ISSUER_RULE_RESEARCH_HOLD",r["status"])
+          PY
+      - name: Archive first-party QQQ FY2018 distribution aggregate (NOT June 18 cash)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qqq2018_fiscal.py \
+              --offline --out-dir output/daily20/research/issuer_qqq2018_fiscal
+          else
+            python research/kalman_daily20/issuer_qqq2018_fiscal.py \
+              --out-dir output/daily20/research/issuer_qqq2018_fiscal
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qqq2018_fiscal/report.json").read_text())
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["report_fiscal_year_end"] == "2018-09-30"
+          assert r["case_ex_date"] == "2018-06-18"
+          assert r["fiscal_total_is_event_payment_amount"] is False
+          assert r["qqq_2018_06_18_specific_cash_usd_certified"] is None
+          assert r["issuer_single_event_amount_certified"] is False
+          assert r["independent_adjustment_factor_certified"] is False
+          assert r["independent_close_certified"] is False
+          assert r["source_finality_verified"] == 0
+          if r["fy2018_financial_highlights_row_verified"]:
+              assert r["status"] == "ISSUER_FY2018_AGGREGATE_VERIFIED_20180618_CASH_HOLD"
+              assert r["fy2018_distributions_per_share_usd"] == "1.31"
+              assert r["source_sha256"] and r["original_html_gzip"]
+          else:
+              assert r["status"] in ("PR_OFFLINE_NO_FIRST_PARTY_REPORT_HOLD",
+                                     "ISSUER_FY2018_ROW_NOT_VERIFIED_HOLD",
+                                     "ISSUER_FY2018_SOURCE_OR_ARCHIVE_ERROR_HOLD")
+          print("DAILY20_QQQ2018_FISCAL_CONTEXT",r["status"],
+                "2018_FY_DISTRIBUTION",r["fy2018_distributions_per_share_usd"],
+                "JUNE18_CASH_HOLD 0/26")
+          PY
+      - name: Capture QLD official 2023 distribution API (cash and factor HOLD)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qld2023_distribution_api.py \
+              --offline --out-dir output/daily20/research/issuer_qld2023_api
+          else
+            python research/kalman_daily20/issuer_qld2023_distribution_api.py \
+              --out-dir output/daily20/research/issuer_qld2023_api
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qld2023_api/report.json").read_text())
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and r["source_finality_verified"] == 0
+          assert r["issuer_payment_finality_certified"] is False
+          assert r["independent_adjustment_factor_certified"] is False
+          assert r["independent_close_certified"] is False
+          assert r["historical_nonpayment_proven"] is False
+          assert r["queried_ex_date"] == "2023-09-20"
+          assert r["version"] == "daily20-qld2023-issuer-distribution-api-v3"
+          assert r["historical_api_completeness_certified"] is False
+          assert r["published_dividend_share_unit_basis"] == "UNDETERMINED_POSSIBLY_SPLIT_ADJUSTED"
+          if r["source_sha256"]:
+              assert r["source_archive"] and r["source_bytes"] > 0
+              assert r["source_response_kind"] in (
+                  "JSON_ARRAY_CANDIDATE", "JSON_OBJECT_CANDIDATE",
+                  "HTML_OR_XML", "OTHER_TEXT_OR_BINARY")
+              if r["status"] == "ISSUER_API_FETCH_OR_SCHEMA_FAILED_HOLD":
+                  assert r["source_fetched_but_schema_rejected"] is True
+                  assert r["failure_stage"] == "API_SCHEMA_VALIDATE"
+                  assert r["fetch_error_code"]
+                  assert r["api_2023_row_count"] is None
+              else:
+                  assert r["api_2023_row_count"] is not None
+                  assert r["status"] in ("ISSUER_API_2023_TARGET_ROW_PRESENT_CASH_UNCERTIFIED",
+                                          "ISSUER_API_2023_TARGET_ROW_ABSENT_HISTORY_HOLD")
+          else:
+              assert r["source_archive"] is None
+              assert r["status"] in ("PR_OFFLINE_NO_SOURCE_HOLD",
+                                      "ISSUER_API_FETCH_OR_SCHEMA_FAILED_HOLD")
+          print("DAILY20_QLD2023_API_RESEARCH_HOLD",r["status"],
+                "failure_code",r["fetch_error_code"],"stage",r["failure_stage"],"0/26")
+          PY
+      - name: Reconcile issuer API versus vendor lineage (two unresolved cases; research-only)
+        run: |
+          python research/kalman_daily20/issuer_ca_provider_reconciliation.py \
+            --gap output/daily20/research/issuer_ca_gap_audit.json \
+            --qld-dir output/daily20/research/issuer_qld2023_api \
+            --qqq-dir output/daily20/research/issuer_qqq2018_rule \
+            --out output/daily20/research/issuer_ca_provider_reconciliation.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_ca_provider_reconciliation.json").read_text())
+          assert r["version"] == "daily20-ca-vendor-lineage-reconciliation-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["source_finality_verified_assets"] == 0
+          assert r["issuer_distribution_payments_certified"] == 0
+          assert r["publisher_rows_are_directly_archived"] is False
+          assert r["issuer_api_absence_never_implies_historical_nonpayment"] is True
+          assert r["status"] == "TWO_CORPORATE_ACTION_SOURCE_DISAGREEMENTS_HOLD"
+          assert {(x["symbol"],x["ex_date"]) for x in r["cases"]} == {
+            ("QQQ","2018-06-18"), ("QLD","2023-09-20")}
+          qld=next(x for x in r["cases"] if x["symbol"] == "QLD")
+          assert qld["historical_nonpayment_proven"] is False
+          assert qld["upstream_feed_independence_certified"] is False
+          assert qld["issuer_cash_payment_certified"] is False
+          assert qld["issuer_adjustment_factor_certified"] is False
+          if "${{ github.event_name }}" != "pull_request" and qld["issuer_api_source_sha256"]:
+              assert qld["issuer_archive_grade"] == "ARCHIVED_ORIGINAL_BYTES_HASH_VERIFIED"
+          print("DAILY20_CA_VENDOR_LINEAGE_HOLD", qld["status"],
+                "issuer archive",qld["issuer_archive_grade"],"CERTIFIED 0/26")
+          PY
+      - name: Pin historical SEC accession identities (QLD 2023 + QQQ 2018)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_historical_edgar.py \
+              --offline --out-dir output/daily20/research/issuer_historical_edgar
+          else
+            python research/kalman_daily20/issuer_historical_edgar.py \
+              --out-dir output/daily20/research/issuer_historical_edgar
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_historical_edgar/report.json").read_text())
+          assert r["version"] == "daily20-historical-edgar-fixed-accessions-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["issuer_cash_payment_certified"] is False
+          assert r["historical_nonpayment_proven"] is False
+          assert r["independent_adjustment_factor_certified"] is False
+          assert r["source_finality_verified_assets"] == 0
+          assert r["mutable_pdf_historical_certification"] is False
+          assert r["status"] == "HISTORICAL_EDGAR_METADATA_RESEARCH_HOLD"
+          assert {(x["symbol"],x["event_ex_date"]) for x in r["cases"]} == {
+            ("QLD","2023-09-20"), ("QQQ","2018-06-18")}
+          assert all(x["historical_issuer_event_paid_cash_certified"] is False for x in r["cases"])
+          assert all(x["underlying_report_cash_ledger_examined"] is False for x in r["cases"])
+          assert all(x["source_status"] in (
+             "OFFLINE_SOURCE_NOT_FETCHED_HOLD",
+             "SEC_FIXED_HISTORICAL_FILING_METADATA_VERIFIED_CASH_HOLD",
+             "SEC_FIXED_FILING_ANCHORS_INCOMPLETE_HOLD",
+             "SEC_FIXED_FILING_FETCH_OR_PARSE_FAILED_HOLD") for x in r["cases"])
+          print("DAILY20_SEC_PINNED_FILING_BOUNDARY_HOLD",
+                [(x["source_id"],x["source_status"]) for x in r["cases"]],
+                "CASH_CERTIFIED 0")
+          PY
+      - name: Inspect pinned SEC QLD 2023 full N-CSRS (bounded research-only original)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qld2023_sec_fulltext.py \
+              --offline --out-dir output/daily20/research/issuer_qld2023_fulltext
+          else
+            python research/kalman_daily20/issuer_qld2023_sec_fulltext.py \
+              --index output/daily20/research/issuer_historical_edgar/report.json \
+              --previous-results output/daily20/previous-results.zip \
+              --out-dir output/daily20/research/issuer_qld2023_fulltext
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qld2023_fulltext/report.json").read_text())
+          assert r["version"] == "daily20-qld-2023-ncsrs-fulltext-v2"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and r["source_finality_verified_assets"] == 0
+          assert r["issuer_event_cash_certified"] is False
+          assert r["historical_nonpayment_proven"] is False
+          assert r["independent_price_adjustment_factor_certified"] is False
+          assert r["status"] in (
+              "OFFLINE_NO_SEC_FULLTEXT_HOLD",
+              "SEC_INDEX_UNVERIFIED_FULLTEXT_HOLD",
+              "SEC_FULLTEXT_FETCH_OR_VALIDATE_FAILED_HOLD",
+              "SEC_FULLTEXT_SCANNED_UNSCOPED_PAYMENT_HOLD",
+              "SEC_QLD_2023_PERIOD_ZERO_DISTRIBUTIONS_ACCOUNTING_HOLD",
+              "SEC_FULLTEXT_ANCHORS_MISSING_HOLD")
+          if r.get("qld_issuer_period_zero_distributions_two_statement_agreement"):
+              assert r["status"] == "SEC_QLD_2023_PERIOD_ZERO_DISTRIBUTIONS_ACCOUNTING_HOLD"
+              assert r["qld_statement_changes_fund_column_pinned"] is True
+              assert r["qld_statement_2023_period_total_distributions_reported_zero"] is True
+              assert r["qld_financial_highlights_fund_row_pinned"] is True
+              assert r["qld_financial_highlights_2023_period_per_share_distributions_reported_zero"] is True
+              assert r["event_specific_historical_nonpayment_certified"] is False
+          if r["source_sha256"]:
+              assert r["source_archive"] == "qld_2023_original_full_ncsrs.htm.gz"
+              assert 10000 <= r["source_bytes"] <= 80000000
+              assert r["source_acquisition"] in (
+                  "LIVE_SEC_FIXED_ORIGINAL",
+                  "VERIFIED_IMMUTABLE_PRIOR_ARCHIVE")
+          print("DAILY20_QLD_SEC_FULLTEXT_RESEARCH_HOLD",r["status"],
+                r["source_acquisition"],"source_bytes",r["source_bytes"],
+                "failure",r["source_failure_code"])
+          PY
+      - name: Capture Invesco QQQ 2018 issuer API distribution (no auto-certification)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qqq2018_invesco_api.py \
+              --offline --out-dir output/daily20/research/issuer_qqq2018_invesco
+          else
+            python research/kalman_daily20/issuer_qqq2018_invesco_api.py \
+              --out-dir output/daily20/research/issuer_qqq2018_invesco
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qqq2018_invesco/report.json").read_text())
+          assert r["version"] == "daily20-qqq2018-invesco-api-v1"
+          assert r["research_only"] and not r["production_writes"] and not r["strategy_promoted"]
+          assert r["cusip"] == "46090E103" and r["event_ex_date"] == "2018-06-18"
+          assert r["issuer_2018_payment_settlement_certified"] is False
+          assert r["issuer_2018_cash_finality_certified"] is False
+          assert r["independent_factor_certified"] is False
+          assert r["historical_nonpayment_proven"] is False
+          assert r["source_history_completeness_certified"] is False
+          assert r["source_share_unit_basis_certified"] is False
+          assert r["source_finality_verified_assets"] == 0
+          assert r["status"] in (
+              "OFFLINE_ISSUER_JSON_UNFETCHED_HOLD",
+              "ISSUER_JSON_PENDING_HOLD",
+              "ISSUER_JSON_TRANSPORT_FAILED_HOLD",
+              "ISSUER_JSON_SOURCE_SIZE_INVALID_HOLD",
+              "ISSUER_JSON_SCHEMA_REJECTED_RAW_ARCHIVED_HOLD",
+              "ISSUER_API_2018_EVENT_OBSERVED_CASH_FINALITY_HOLD",
+              "ISSUER_API_2018_EVENT_NOT_IN_CURRENT_HISTORY_HOLD")
+          if r["source_sha256"]:
+              assert r["source_archive"] == "qqq_2018_invesco_original_distribution_response.json.gz"
+              assert 0 < r["source_bytes"] <= 2000000
+          if r["issuer_api_target_row"]:
+              assert r["issuer_api_target_row"]["ex_date"] == "2018-06-18"
+              assert r["issuer_api_target_row"]["historical_payment_settlement_certified"] is False
+          print("DAILY20_QQQ2018_ISSUER_JSON_HOLD", r["status"],
+                "cash candidate",r.get("issuer_api_target_row"),
+                "error",r["fetch_or_schema_failure_code"],"0/26")
+          PY
+      - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
+        run: |
+          python research/kalman_daily20/listing_asof.py \
+            --qc output/daily20/qc.json \
+            --current-venue output/daily20/research/source_finality/venue_identity.json \
+            --out output/daily20/research/listing_asof/report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/listing_asof/report.json").read_text())
+          assert r["required"] == 25 and len(r["rows"]) == 25
+          assert r["research_only"] is True and r["production_writes"] is False
+          assert r["strategy_promoted"] is False and r["finality_verified"] == 0
+          assert r["historical_listing_asof_certified"] == 0
+          assert r["status"] == "HISTORICAL_LISTING_ASOF_RESEARCH_HOLD"
+          assert [(x["session"],x["sip_code"]) for x in r["pltr_transfer_regression"]] == [
+            ("2024-11-25","N"),("2024-11-26","Q")]
+          print("DAILY20_LISTING_ASOF",r["asof_research_interval_covered"],
+                "/25 research coverage; historical documented symbols",
+                r["documented_historical_symbols"],"certified 0/25 HOLD")
+          PY
+      - name: Capture official Nasdaq Trader listing directory and journal source hashes (research only)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/official_listing_directory.py \
+              --preview \
+              --out-dir output/daily20/research/official_directory
+          else
+            python research/kalman_daily20/official_listing_directory.py \
+              --prior-zip output/daily20/cache/previous-results.zip \
+              --current-venue output/daily20/research/source_finality/venue_identity.json \
+              --out-dir output/daily20/research/official_directory
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/official_directory/report.json").read_text())
+          assert r["required"] == 25
+          assert r["research_only"] is True and r["production_writes"] is False
+          assert r["strategy_promoted"] is False and r["finality_verified"] == 0
+          assert r["source_snapshot_is_historical_asof_evidence"] is False
+          assert r["status"] in (
+              "OFFICIAL_DIRECTORY_SNAPSHOT_RESEARCH_HOLD",
+              "OFFICIAL_DIRECTORY_SOURCE_UNAVAILABLE_HOLD",
+              "OFFICIAL_DIRECTORY_SOURCE_HISTORY_INCOMPLETE_HOLD")
+          assert r["journal"]["current_snapshot_not_retrojected"] is True
+          h = r["source_history"]
+          assert h["regular_close_or_point_in_time_listing_certified"] is False
+          if "${{ github.event_name }}" == "pull_request":
+              assert h["status"] == "PR_PREVIEW_UNSEALED"
+          else:
+              # We cannot call a Drive backup durable if any previously
+              # sealed Nasdaq Trader raw body was lost or silently replaced.
+              assert h["status"] == "FULL_SOURCE_BYTES_VERIFIED"
+              assert h["all_journal_digests_attested_by_raw_bytes"] is True
+              assert h["raw_source_blob_count"] >= 2
+              assert r["journal"]["earlier_full_source_bytes_preserved"] is True
+          print("DAILY20_OFFICIAL_SNAPSHOT",r["status"],
+                "observed",r.get("research_listing_observed",0),"/25",
+                "journal",r["journal"]["status"],
+                "full_blob_history",h["status"],
+                "source_blob_count",h.get("raw_source_blob_count",0),
+                "certified 0/25")
+          PY
+      - name: Secondary provider return comparison (advisory; independence unverified)
+        run: |
+          python research/kalman_daily20/secondary_qc.py \
+            --market output/daily20/market \
+            --out output/daily20/secondary_qc.json \
+            --end-date "$DAILY20_END_DATE"
+      - name: Out-of-sample annual baseline (no broker, no production writes)
+        run: |
+          python research/kalman_daily20/daily20.py train --config research/kalman_daily20/universe.json --market output/daily20/market --features output/daily20/features --out output/daily20/research
+      - name: PR-only real-input first-seal contract rehearsal (SYNTHETIC events, NEVER uploaded)
+        if: github.event_name == 'pull_request'
+        run: |
+          python research/kalman_daily20/first_seal_real_input_rehearsal.py \
+            --data-root output/daily20 \
+            --scores output/daily20/research/latest_research_scores.csv \
+            --qc output/daily20/qc.json \
+            --out "$RUNNER_TEMP/daily20-first-seal-real-input-rehearsal.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads((Path(os.environ["RUNNER_TEMP"]) / "daily20-first-seal-real-input-rehearsal.json").read_text())
+          assert d["status"] == "REAL_INPUT_SYNTHETIC_EVENT_CONTRACT_PASS"
+          assert d["research_only"] and not d["live_execution"]
+          assert d["synthetic_event_hashes_only"]
+          assert d["synthetic_events_written_to_drive"] is False
+          assert d["prospective_first_seal_claimed"] is False
+          assert d["official_close_certified"] is False
+          assert d["price_assets_verified"] == 26
+          assert d["feature_values_verified"] == 420
+          assert d["real_model_fit_provenance_verified"] == 40
+          assert d["synthetic_event_anchor_count"] == 60
+          assert d["models_and_features_stable_on_two_recomputations"] is True
+          print("DAILY20_REAL_INPUT_REHEARSAL_CI_PASS 26/26 prices 420/420 features 40/40 models 60/60 synthetic-events HOLD")
+          PY
+      - name: Aggregate cash-constrained OOS portfolio and Regime diagnostics
+        run: |
+          python research/kalman_daily20/portfolio.py \
+            --config research/kalman_daily20/universe.json \
+            --market output/daily20/market \
+            --trades output/daily20/research/oos_trades.csv \
+            --out output/daily20/research
+      - name: Bear-regime challengers and 2025-26 decay diagnostics (research only)
+        run: |
+          python research/kalman_daily20/regime_challenger.py \
+            --config research/kalman_daily20/universe.json \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --baseline-trades output/daily20/research/oos_trades.csv \
+            --portfolio-summary output/daily20/research/portfolio_summary.json \
+            --out output/daily20/research/regime_challenger
+      - name: Mandatory paired Monte Carlo risk stress (IID, 5d and 20d blocks)
+        run: |
+          python research/kalman_daily20/monte_carlo.py \
+            --config research/kalman_daily20/universe.json \
+            --market output/daily20/market \
+            --portfolio output/daily20/research/portfolio_daily_equity.csv \
+            --regime output/daily20/research/regime_challenger/regime_daily_equity.csv \
+            --out output/daily20/research/monte_carlo
+      - name: Forward shadow PR check — never synthesize prospective evidence from PR replay
+        if: github.event_name == 'pull_request'
+        run: |
+          python research/kalman_daily20/forward_shadow.py \
+            --out output/daily20/research/forward_shadow \
+            --pr-contract
+      - name: Audit first prospective NYSE seal readiness against authenticated Drive archive
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/next_session_two_pass_contract.py \
+            --phase pre \
+            --schedule-slot "${{ github.event.schedule }}" \
+            --event-name "${{ github.event_name }}" \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --qc output/daily20/qc.json \
+            --pre output/daily20/research/two_pass/preflight.json
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          r=json.loads(Path("output/daily20/research/two_pass/preflight.json").read_text())
+          assert r["version"]=="daily20-first-seal-two-pass-contract-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["live_execution"] and not r["strategy_promoted"]
+          assert not r["price_certified"] and r["no_historical_reseal"]
+          assert (r["expected_new_bull"],r["expected_new_bear"]) in ((0,0),(20,40))
+          assert r["github_event_origin"]=="${{ github.event_name }}"
+          if r["github_event_origin"]=="push":
+              assert r["expected_new_bull"]==r["expected_new_bear"]==0
+          if r["scheduled_slot"]=="40 4 * * 2-6":
+              assert r["scheduled_replay_first_seal_verified"]
+              assert r["mode"]=="SAME_SESSION_REPLAY_EXPECTED"
+              assert (r["expected_new_bull"],r["expected_new_bear"])==(0,0)
+          print("DAILY20_TWO_PASS_PHASE_READY",r["session"],r["mode"],
+                "slot",r["scheduled_slot"] or "NON_SCHEDULED")
+          PY
+      - name: Append future-only signals and delayed 4-NYSE-session outcomes
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/forward_shadow.py \
+            --config research/kalman_daily20/universe.json \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --market output/daily20/market \
+            --scores output/daily20/research/latest_research_scores.csv \
+            --qc output/daily20/qc.json \
+            --out output/daily20/research/forward_shadow
+      - name: PR-only real-data bear scorer smoke (does not count as forward OOS)
+        if: github.event_name == 'pull_request'
+        run: |
+          python research/kalman_daily20/bear_forward.py \
+            --config research/kalman_daily20/universe.json \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --qc output/daily20/qc.json \
+            --out output/daily20/research/bear_forward \
+            --pr-asof-smoke
+      - name: Seal prospective BEAR_LOGISTIC and BEAR_RULE evidence (no retrospective backfill)
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/bear_forward.py \
+            --config research/kalman_daily20/universe.json \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --qc output/daily20/qc.json \
+            --baseline-journal output/daily20/research/forward_shadow/journal.jsonl \
+            --out output/daily20/research/bear_forward
+      - name: Freeze prospective 21-feature and fitted-model provenance; grade replay HOLD
+        if: github.event_name != 'pull_request'
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/stability_gate.py \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --scores output/daily20/research/latest_research_scores.csv \
+            --bull-journal output/daily20/research/forward_shadow/journal.jsonl \
+            --bear-journal output/daily20/research/bear_forward/journal.jsonl \
+            --bull-report output/daily20/research/forward_shadow/report.json \
+            --bear-report output/daily20/research/bear_forward/report.json \
+            --source-finality output/daily20/research/source_finality/report.json \
+            --out output/daily20/research/stability
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("output/daily20/research/stability/report.json").read_text())
+          assert report["research_only"] is True
+          assert report["strategy_promoted"] is False
+          assert report["promotional_attribution_allowed"] is False
+          assert report["source_finality_research_hold"] is True
+          assert report["source_finality_verified_assets"] == 0
+          if report["research_hold"]:
+              print("SOURCE_OR_REPLAY_RESEARCH_HOLD: provisional source-finality evidence is preserved; attribution and promotion blocked")
+          else:
+              print("STABILITY_RESEARCH_ONLY", report["status"])
+          PY
+      - name: Attest first-seal 26/420/40/60 or preserve prior replay journal byte prefix
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/next_session_two_pass_contract.py \
+            --phase post \
+            --schedule-slot "${{ github.event.schedule }}" \
+            --event-name "${{ github.event_name }}" \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --qc output/daily20/qc.json \
+            --pre output/daily20/research/two_pass/preflight.json \
+            --bull-dir output/daily20/research/forward_shadow \
+            --bear-dir output/daily20/research/bear_forward \
+            --stability-dir output/daily20/research/stability \
+            --out output/daily20/research/two_pass/report.json
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          r=json.loads(Path("output/daily20/research/two_pass/report.json").read_text())
+          assert r["research_only"] and not r["strategy_promoted"]
+          assert not r["live_execution"] and not r["production_writes"]
+          assert r["journal_prefix_byte_identical"]
+          assert r["all_prior_snapshots_byte_identical"]
+          assert not r["original_signal_events_rewritten"]
+          assert r["research_hold"] and not r["full_raw_market_close_certified"]
+          if r["mode"]=="FIRST_GENUINE_SEAL_EXPECTED":
+              assert (r["bull_new"],r["bear_new"])==(20,40)
+              assert r["full_26_price_420_feature_40_model_60_event_attested"]
+          else:
+              assert (r["bull_new"],r["bear_new"])==(0,0)
+          print("DAILY20_TWO_PASS_INTEGRITY_HOLD",r["session"],
+                "mode",r["mode"],"status",r["status"],
+                "changed",r["replay_inputs_changed"],
+                "new",r["bull_new"]+r["bear_new"])
+          PY
+      - name: Reconcile immutable Bull/Bear replay drift with stability incidents (never re-seal)
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/replay_drift_reconciliation.py \
+            --bull output/daily20/research/forward_shadow/report.json \
+            --bear output/daily20/research/bear_forward/report.json \
+            --stability output/daily20/research/stability/report.json \
+            --finality output/daily20/research/source_finality/report.json \
+            --out-dir output/daily20/research/replay_drift_reconciliation
+          python - <<'PY'
+          from pathlib import Path
+          import csv, json
+          root=Path("output/daily20/research/replay_drift_reconciliation")
+          r=json.loads((root/"report.json").read_text())
+          with (root/"replay_differences.csv").open(newline="") as f:
+              records=list(csv.DictReader(f))
+          assert r["version"] == "daily20-replay-reconciliation-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["live_execution"] and not r["strategy_promoted"]
+          assert not r["original_journals_modified"]
+          assert not r["causal_upstream_mechanism_certified"]
+          assert r["independent_source_finality_verified"] == 0
+          assert len(records) == r["bull_drift_count"] + r["bear_drift_count"]
+          assert all(x["cause_certified"] == "False" for x in records)
+          if r["legacy_without_original_21_feature_snapshot"]:
+              assert r["legacy_bull_holds_reconciled"]
+              assert r["original_21_feature_snapshot_available"] is False
+          print("DAILY20_REPLAY_TRIAGE_HOLD",r["session"],
+                "bull",r["bull_drift_count"],
+                "material",r["bull_material_count"],
+                "bear",r["bear_drift_count"],
+                "stability",r["stability_incident_count"],
+                "legacy",r["legacy_without_original_21_feature_snapshot"])
+          PY
+      - name: Restore this run's independent contract-job environment report
+        uses: actions/download-artifact@v4
+        with:
+          name: kalman-daily20-contract-runtime
+          path: output/daily20/contract_runtime
+      - name: Record installed model binary hashes and compare run environments (HOLD)
+        env:
+          ARROW_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/model_runtime_lineage.py \
+              --phase research \
+              --qc output/daily20/qc.json \
+              --contracts output/daily20/contract_runtime/report.json \
+              --out output/daily20/research/model_runtime_lineage/report.json
+          else
+            python research/kalman_daily20/model_runtime_lineage.py \
+              --phase research \
+              --qc output/daily20/qc.json \
+              --contracts output/daily20/contract_runtime/report.json \
+              --prior-zip output/daily20/cache/previous-results.zip \
+              --replay output/daily20/research/replay_drift_reconciliation/report.json \
+              --stability output/daily20/research/stability/report.json \
+              --out output/daily20/research/model_runtime_lineage/report.json
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/model_runtime_lineage/report.json").read_text())
+          assert r["version"]=="daily20-model-runtime-lineage-v1"
+          assert r["phase"]=="research" and r["research_only"]
+          assert not r["live_execution"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and not r["frozen_signals_modified"]
+          assert not r["numerical_drift_cause_certified"]
+          assert not r["independent_price_certified"]
+          assert len(r["contracts_comparison"]["compared_required_packages"])==5
+          assert len(r["environment"]["model_source_sha256"])==7
+          print("DAILY20_MODEL_RUNTIME_REPLAY_HOLD",r["session"],
+                "contract_equal",r["contracts_comparison"]["model_environment_identical"],
+                "prior",r["prior_runtime_status"],
+                "bull_material",
+                (r["replay_observations"] or {}).get("bull_material_count"))
+          PY
+      - name: Audit fourth-NYSE-session settlements, price revisions, and frozen signal economics (HOLD)
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/forward_settlement_integrity.py \
+            --market output/daily20/market \
+            --qc output/daily20/qc.json \
+            --bull-journal output/daily20/research/forward_shadow/journal.jsonl \
+            --bear-journal output/daily20/research/bear_forward/journal.jsonl \
+            --bull-report output/daily20/research/forward_shadow/report.json \
+            --bear-report output/daily20/research/bear_forward/report.json \
+            --out output/daily20/research/forward_settlement_integrity
+          python - <<'PY'
+          from pathlib import Path
+          import csv, json
+          root=Path("output/daily20/research/forward_settlement_integrity")
+          r=json.loads((root/"report.json").read_text())
+          with (root/"settlement_queue.csv").open(newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert r["version"]=="daily20-4xnys-settlement-evidence-v1"
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["live_execution"] and not r["strategy_promoted"]
+          assert r["source_finality_verified_assets"]==0
+          assert r["official_regular_close_certified"] is False
+          assert r["original_journals_unchanged"]
+          assert r["holding_period_subsequent_xnys_sessions"]==4
+          assert r["signal_count"]==len(rows)==r["bull_signals"]+r["bear_signals"]
+          assert r["pending_unmatured"]+r["settled_events"]==len(rows)
+          assert all(row["state"].startswith(("PENDING_", "SETTLED_")) for row in rows)
+          print("DAILY20_FORWARD_SETTLEMENT_GATE_HOLD", r["session"],
+                "pending",r["pending_unmatured"],
+                "settled",r["settled_events"],
+                "revised",r["settled_vendor_price_revisions"],
+                "first_due",r["first_unsettled_exit_date"])
+          PY
+      - name: Publish reproducible research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-research
+          path: |
+            output/daily20/universe-derived.json
+            output/daily20/qc.json
+            output/daily20/secondary_qc.json
+            output/daily20/market/refresh_mode.json
+            output/daily20/market/*status.json
+            output/daily20/features/*status.json
+            output/daily20/research/
+          if-no-files-found: warn
+          retention-days: 21
+      - name: Publish price/feature history as short-lived research artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-data
+          path: |
+            output/daily20/market/raw/yfinance/*.parquet
+            output/daily20/features/talib/*.parquet
+          if-no-files-found: error
+          retention-days: 21
+
+
+  persist-google-drive:
+    needs: daily-research
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download validated raw data from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: kalman-daily20-data
+          path: drive_stage/data
+      - name: Download OOS evidence from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: kalman-daily20-research
+          path: drive_stage/results
+      - name: Install isolated Google Drive upload dependencies
+        run: python -m pip install --disable-pip-version-check google-auth google-api-python-client
+      - name: Validate and publish pinned Drive files (no server, no web)
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_daily20/publish_drive.py \
+            --data-root drive_stage/data \
+            --results-root drive_stage/results \
+            --output-root drive_stage/uploaded
+      - name: Independently re-download pinned Drive results and verify first-seal snapshot hashes
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_daily20/stability_drive_readback.py \
+            --local-zip drive_stage/uploaded/daily20_results_latest.zip \
+            --out drive_stage/readback/daily20_stability_readback.json
+      - name: Preserve read-only Drive post-upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-drive-stability-readback
+          path: drive_stage/readback/daily20_stability_readback.json
+          if-no-files-found: warn
+          retention-days: 21

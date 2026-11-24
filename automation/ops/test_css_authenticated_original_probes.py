@@ -8,15 +8,16 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from css_authenticated_original_probes import (
     compare_feishu_projection, validate_mail_coverage, same_rows, manifest_index,
     latest_ingest_checkpoint, parse_internaldate, missing_arrival_buckets,
+    sanitized_gap_counts, summarized_feishu_drift_triage,
 )
 
 
 def mail_folders():
     return {
         "INBOX": {"folder": "INBOX", "uidvalidity": "256", "uids": ["1", "2"],
-                  "recent_uids": ["2"], "scan_uids": ["1", "2"]},
+                  "recent_uids": ["2"], "scan_uids": ["1", "2"], "year_uids": ["1", "2"]},
         "SENT": {"folder": "Sent Messages", "uidvalidity": "512", "uids": ["3"],
-                 "recent_uids": ["3"], "scan_uids": ["3"]},
+                 "recent_uids": ["3"], "scan_uids": ["3"], "year_uids": ["3"]},
     }
 
 
@@ -30,6 +31,127 @@ def feishu_snapshot():
 
 
 class OriginalProbesTests(unittest.TestCase):
+    def test_feishu_drift_triage_separates_display_and_business_changes(self):
+        header = ["Invoice Number", "Outstanding Amount", "Status", "Note"]
+        original = {
+            "sheet_id": "source_v1", "source_date": "2026-11-23",
+            "row_count": 3, "schema": "HEADER_MATCHED",
+            "projected_grid": [
+                header, ["PRIVATE_A", "1,000", "Open", "Note"],
+                ["PRIVATE_B", "2,000", "Open", "Note"],
+                ["PRIVATE_C", "3,000", "Open", "Note"],
+            ],
+        }
+        mirror = [
+            header, ["PRIVATE_A", "1000", "Open", "Note"],
+            ["PRIVATE_B", "2,000", "", "Note"],
+            ["PRIVATE_C", "3,000", "Open", "Note "],
+        ]
+        metadata = {"id": "source_v1", "date": "2026-11-23",
+                    "rows": 3, "schema": "HEADER_MATCHED"}
+        result = compare_feishu_projection(original, metadata, mirror)
+        triage = summarized_feishu_drift_triage(
+            {"formats": {"Payment Outstanding": result}})
+        item = triage["Payment Outstanding"]
+        self.assertEqual(item["triage"], "CONTENT_OR_MISSING_CELL_REVIEW")
+        self.assertEqual(item["changed_cells"], 3)
+        self.assertEqual(item["presentation_only_cells"], 2)
+        self.assertEqual(item["content_or_presence_cells"], 1)
+        self.assertEqual(item["financial_field_cells"], 1)
+        self.assertEqual(item["status_field_cells"], 1)
+        self.assertNotIn("PRIVATE_A", str(triage))
+        self.assertNotIn("Invoice Number", str(triage))
+        self.assertEqual(triage["Payment Receipt"]["triage"], "UNVERIFIED")
+
+    def test_feishu_display_only_drift_still_not_certified(self):
+        sample = feishu_snapshot()
+        sample["projected_grid"][1][1] = "1,000"
+        meta = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        mirror = [["Project Number", "Invoice Amount"],
+                  ["X1", "1000"], ["X2", "2000"]]
+        triage = summarized_feishu_drift_triage({"formats": {
+            "Payment Outstanding": compare_feishu_projection(sample, meta, mirror)
+        }})["Payment Outstanding"]
+        self.assertEqual(triage["triage"], "PRESENTATION_ONLY_REVIEW")
+        self.assertEqual(triage["changed_cells"], 1)
+        self.assertEqual(triage["content_or_presence_cells"], 0)
+
+    def test_feishu_metadata_only_mismatch_and_valid_snapshot(self):
+        sample = feishu_snapshot()
+        base = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        bad = dict(base, id="stale_source_id")
+        a = summarized_feishu_drift_triage({"formats": {
+            "eTax Invoice": compare_feishu_projection(sample, bad,
+                                                      sample["projected_grid"])
+        }})["eTax Invoice"]
+        self.assertEqual(a["changed_cells"], 0)
+        self.assertEqual(a["triage"], "SOURCE_VERSION_OR_METADATA_REVIEW")
+        ok = summarized_feishu_drift_triage({"formats": {
+            "eTax Invoice": compare_feishu_projection(sample, base,
+                                                      sample["projected_grid"])
+        }})["eTax Invoice"]
+        self.assertEqual(ok["triage"], "SNAPSHOT_MATCH_ONLY")
+
+    def test_feishu_unavailable_or_inconsistent_counts_are_unknown(self):
+        partial = {"formats": {"Payment Receipt": {
+            "status": "SINK_LAG", "content_different_cell_count": 2,
+            "drift_characteristics": {"NUMERIC_DISPLAY_ONLY": 2},
+            "customer": "PRIVATE_EMAIL",
+        }}}
+        result = summarized_feishu_drift_triage(partial)
+        self.assertEqual(result["Payment Receipt"]["triage"], "UNVERIFIED")
+        self.assertIsNone(result["Payment Receipt"]["changed_cells"])
+        self.assertNotIn("PRIVATE_EMAIL", str(result))
+        missing = summarized_feishu_drift_triage({"status":"SOURCE_UNAVAILABLE"})
+        self.assertTrue(all(x["triage"]=="UNVERIFIED" for x in missing.values()))
+        self.assertTrue(all(x["changed_cells"] is None for x in missing.values()))
+
+    def test_operational_gap_summary_is_aggregate_only(self):
+        secret = "PRIVATE_CUSTOMER_ABC"
+        mail = {
+            "scan_365d_missing_uid_count": 14,
+            "historical_61_to_365d_uid_gap": 7,
+            "historical_outside_365d_uid_gap": 123,
+            "customer_email": secret,
+        }
+        feishu = {
+            "formats": {
+                "Payment Outstanding": {
+                    "content_different_cell_count": 3,
+                    "source_customer": secret,
+                },
+                "eTax Invoice": {"content_different_cell_count": 0},
+                "Unknown Private Tab": {"content_different_cell_count": 999},
+            }
+        }
+        result = sanitized_gap_counts(mail, feishu)
+        self.assertEqual(result["qq_missing_365d"], 14)
+        self.assertEqual(result["qq_missing_61_to_365d"], 7)
+        self.assertEqual(result["qq_missing_older_than_365d"], 123)
+        self.assertEqual(result["feishu_changed_cells_by_format"]["Payment Outstanding"], 3)
+        self.assertIsNone(result["feishu_changed_cells_by_format"]["Payment Receipt"])
+        self.assertEqual(result["feishu_changed_cells_by_format"]["eTax Invoice"], 0)
+        self.assertNotIn(secret, str(result))
+        self.assertNotIn("Unknown Private Tab", str(result))
+
+    def test_operational_gap_summary_unknown_is_not_zero(self):
+        result = sanitized_gap_counts({"status": "SOURCE_UNAVAILABLE"},
+                                      {"status": "SOURCE_UNAVAILABLE"})
+        self.assertIsNone(result["qq_missing_365d"])
+        self.assertIsNone(result["qq_missing_61_to_365d"])
+        self.assertIsNone(result["qq_missing_older_than_365d"])
+        self.assertTrue(all(value is None for value in
+                            result["feishu_changed_cells_by_format"].values()))
+        bad = sanitized_gap_counts({"scan_365d_missing_uid_count": True,
+                                    "historical_61_to_365d_uid_gap": -1},
+                                   {"formats": {"eTax Invoice": {
+                                       "content_different_cell_count": "0"}}})
+        self.assertIsNone(bad["qq_missing_365d"])
+        self.assertIsNone(bad["qq_missing_61_to_365d"])
+        self.assertIsNone(bad["feishu_changed_cells_by_format"]["eTax Invoice"])
+
     def test_verified_original_uids_and_staging_are_covered_only(self):
         keys = ["INBOX|256|1", "INBOX|256|2", "Sent Messages|512|3", "OLD|1|99"]
         r = validate_mail_coverage(mail_folders(), keys)
@@ -59,6 +181,49 @@ class OriginalProbesTests(unittest.TestCase):
         self.assertEqual(result["recent_3d_state"], "PASS_UID_ONLY")
         self.assertEqual(result["scan_60d_state"], "PASS_UID_ONLY")
         self.assertEqual(result["uid_coverage_state"], "HISTORICAL_SINK_LAG")
+
+    def test_one_year_priority_is_separate_from_full_mailbox_history(self):
+        folders=mail_folders()
+        folders["INBOX"]["uids"]=["1","2","99"]
+        # Only one old UID is absent. 1 is between 61 and 365 days,
+        # while 99 is older than 365 days and excluded from current review.
+        folders["INBOX"]["scan_uids"]=["2"]
+        folders["INBOX"]["year_uids"]=["1","2"]
+        result=validate_mail_coverage(folders,["INBOX|256|2","Sent Messages|512|3"])
+        self.assertEqual(2,result["missing_uid_count"])
+        self.assertEqual(0,result["recent_3d_missing_uid_count"])
+        self.assertEqual(0,result["scan_60d_missing_uid_count"])
+        self.assertEqual(1,result["scan_365d_missing_uid_count"])
+        self.assertEqual("SINK_LAG",result["scan_365d_state"])
+        self.assertEqual(1,result["historical_61_to_365d_uid_gap"])
+        self.assertEqual(1,result["historical_outside_365d_uid_gap"])
+        self.assertEqual("IMAP_INTERNALDATE_DAY_GRAIN_ROLLING_365D",result["window_scope"])
+        self.assertFalse(result["mime_body_verified"])
+
+    def test_365d_window_requires_all_folders_and_hierarchy(self):
+        folders=mail_folders()
+        del folders["SENT"]["year_uids"]
+        with self.assertRaisesRegex(ValueError,"WINDOW_EVIDENCE_MISSING"):
+            validate_mail_coverage(folders,["INBOX|256|2"])
+        folders=mail_folders()
+        folders["INBOX"]["year_uids"]=["2"]
+        with self.assertRaisesRegex(ValueError,"WINDOW_HIERARCHY_INVALID"):
+            validate_mail_coverage(folders,["INBOX|256|2"])
+        folders=mail_folders()
+        folders["INBOX"]["year_uids"]=["1","2","999"]
+        with self.assertRaisesRegex(ValueError,"WINDOW_NOT_SUBSET_OF_ALL"):
+            validate_mail_coverage(folders,["INBOX|256|2"])
+
+    def test_year_uid_parity_not_claimed_for_older_history(self):
+        folders=mail_folders()
+        folders["INBOX"]["uids"]=["1","2","99"]
+        folders["INBOX"]["recent_uids"]=["2"]
+        folders["INBOX"]["scan_uids"]=["2"]
+        folders["INBOX"]["year_uids"]=["2"]
+        result=validate_mail_coverage(folders,["INBOX|256|2","Sent Messages|512|3"])
+        self.assertEqual("PASS_UID_ONLY",result["scan_365d_state"])
+        self.assertEqual(2,result["historical_outside_365d_uid_gap"])
+        self.assertEqual("HISTORICAL_SINK_LAG",result["uid_coverage_state"])
 
     def test_window_search_must_succeed_not_implicitly_zero(self):
         folders = mail_folders()
@@ -145,6 +310,104 @@ class OriginalProbesTests(unittest.TestCase):
         r = compare_feishu_projection(obj, meta, mirror)
         self.assertEqual(r["status"], "SINK_LAG")
         self.assertFalse(r["content_parity"])
+
+    def test_aggregate_outstanding_drift_without_exposing_customer_cells(self):
+        source = feishu_snapshot()
+        source["projected_grid"][2] = ["PERSONAL_RECORD_ID", "2000"]
+        meta = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        mirror = [["Project Number", "Invoice Amount"], ["X1", "1000"],
+                  ["PERSONAL_RECORD_ID", "3456"]]
+        r = compare_feishu_projection(source, meta, mirror)
+        self.assertEqual("SINK_LAG", r["status"])
+        self.assertEqual(1, r["content_different_row_count"])
+        self.assertEqual(1, r["content_different_cell_count"])
+        self.assertEqual(1, r["content_different_column_count"])
+        self.assertEqual(1, r["changed_nonempty_cell_count"])
+        self.assertEqual(0, r["source_nonempty_mirror_empty_cell_count"])
+        self.assertNotIn("PERSONAL_RECORD_ID", str(r))
+        self.assertNotIn("3456", str(r))
+
+    def test_blank_vs_missing_and_trailing_empty_equivalent(self):
+        src = feishu_snapshot()
+        meta = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        src["projected_grid"] = [["A", "B"], ["PRIVATE", ""], ["Y", "Z"]]
+        mirror = [["A", "B"], ["PRIVATE"], ["Y", "Z"]]
+        r = compare_feishu_projection(src, meta, mirror)
+        self.assertEqual("PASS_SNAPSHOT_PROJECTION_ONLY", r["status"])
+        self.assertEqual(0, r["content_different_cell_count"])
+        mirror = [["A", "B"], ["PRIVATE", "SINK_EXTRA"], ["Y", ""]]
+        r = compare_feishu_projection(src, meta, mirror)
+        self.assertEqual("SINK_LAG", r["status"])
+        self.assertEqual(2, r["content_different_cell_count"])
+        self.assertEqual(2, r["content_different_row_count"])
+        self.assertEqual(1, r["mirror_nonempty_source_empty_cell_count"])
+        self.assertEqual(1, r["source_nonempty_mirror_empty_cell_count"])
+        self.assertNotIn("PRIVATE", str(r))
+        self.assertNotIn("SINK_EXTRA", str(r))
+
+    def test_absent_mirror_row_has_aggregate_gap_not_row_identity(self):
+        src = feishu_snapshot()
+        meta = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        mirror = src["projected_grid"][:-1]
+        r = compare_feishu_projection(src, meta, mirror)
+        self.assertEqual("SINK_LAG", r["status"])
+        self.assertEqual(1, r["missing_mirror_row_count"])
+        self.assertEqual(0, r["unexpected_mirror_row_count"])
+        self.assertEqual(1, r["content_different_row_count"])
+        self.assertEqual(2, r["content_different_cell_count"])
+        self.assertNotIn("X2", str(r))
+
+    def test_safe_field_roles_and_value_shape_classify_only_aggregates(self):
+        source = {
+            "sheet_id": "s", "source_date": "2026-11-11",
+            "row_count": 3, "schema": "HEADER_MATCHED",
+            "projected_grid": [
+                ["Invoice Number", "Outstanding Amount", "Status", "Note"],
+                ["PRIVATE_A", "1,000", "Ready", "Memo"],
+                ["PRIVATE_B", "2,500", "Open", "KEEP"],
+                ["PRIVATE_C", "3,000", "Open", "KEEP"],
+            ],
+        }
+        mirror = [
+            ["Invoice Number", "Outstanding Amount", "Status", "Note"],
+            ["PRIVATE_A", "1000", "Ready", "Memo"],
+            ["PRIVATE_B", "2,500", "", "KEEP"],
+            ["PRIVATE_C", "3,000", "Open", "KEEP "],
+        ]
+        meta = {"id": "s", "date": "2026-11-11",
+                "rows": 3, "schema": "HEADER_MATCHED"}
+        result = compare_feishu_projection(source, meta, mirror)
+        self.assertEqual("SINK_LAG", result["status"])
+        self.assertEqual(3, result["content_different_cell_count"])
+        self.assertEqual(3, result["content_different_row_count"])
+        self.assertEqual(3, result["content_different_column_count"])
+        types = result["drift_characteristics"]
+        self.assertEqual(1, types["NUMERIC_DISPLAY_ONLY"])
+        self.assertEqual(1, types["SOURCE_FILLED_MIRROR_EMPTY"])
+        self.assertEqual(1, types["WHITESPACE_ONLY"])
+        self.assertEqual(0, types["SUBSTANTIVE_NONEMPTY_CHANGE"])
+        roles = result["drift_business_field_roles"]
+        self.assertEqual(1, roles["FINANCIAL_FIELD"])
+        self.assertEqual(1, roles["STATUS_FIELD"])
+        self.assertEqual(1, roles["NOTE_FIELD"])
+        for secret in ("PRIVATE_A", "PRIVATE_B", "PRIVATE_C", "1,000",
+                       "Invoice Number", "Outstanding Amount", "KEEP"):
+            self.assertNotIn(secret, str(result))
+
+    def test_safe_drift_classifies_substantive_change_not_numerically_equivalent(self):
+        source = feishu_snapshot()
+        meta = {"id":"abc", "date":"2026-10-31",
+                "rows":2,"schema":"HEADER_MATCHED"}
+        mirror = [["Project Number", "Invoice Amount"], ["X1","1,200 USD"],
+                  ["X2", "3,000"]]
+        result = compare_feishu_projection(source,meta,mirror)
+        self.assertEqual(2,result["drift_characteristics"]["SUBSTANTIVE_NONEMPTY_CHANGE"])
+        self.assertEqual(0,result["drift_characteristics"]["NUMERIC_DISPLAY_ONLY"])
+        self.assertEqual(2,result["drift_business_field_roles"]["FINANCIAL_FIELD"])
+        self.assertNotIn("3,000",str(result))
 
     def test_stale_source_id_not_masked_by_recent_mirror_sync(self):
         obj = feishu_snapshot()

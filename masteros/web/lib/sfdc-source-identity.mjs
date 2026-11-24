@@ -1,3 +1,4 @@
+import {prefillVerifiedKrw} from "./sfdc-pair-auto-krw.mjs";
 /** Read-only source identity reconciliation; never authorizes Salesforce saving. */
 const s=value=>String(value??"").trim();
 const id=(value,prefix)=>typeof value==="string"&&new RegExp("^"+prefix+"[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$").test(value);
@@ -77,7 +78,8 @@ export function applyVerifiedSource(draft,result){
      !sameSalesforceId(draft.referenceAccount?.id,result.account.id,"001"))return draft;
   // Never overwrite user-edited Product/Gb/sample/price/name/Description.
   const account={...result.account},contact={...result.contact};
-  return {...draft,account,contact,referenceAccount:account,referenceContact:contact,
+  const resolved={...draft,account,contact,referenceAccount:account,referenceContact:contact,
     sourceOpportunityId:result.nativeOpportunityId,
     referenceDefaults:{...draft.referenceDefaults,account:{...account},contact:{...contact}}};
+  return result.priceEvidence?.ok?prefillVerifiedKrw(resolved,result.priceEvidence):resolved;
 }

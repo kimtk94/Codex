@@ -1,0 +1,78 @@
+name: CSS Recurring Source Writer Watchdog (Safe Recovery)
+# Protect against missed GitHub scheduled ticks; reuse the ONLY authorized
+# existing unified Feishu writer. No direct financial/customer writes here.
+on:
+  pull_request:
+    paths:
+      - 'automation/ops/css_writer_schedule_watchdog.py'
+      - 'automation/ops/test_css_writer_schedule_watchdog.py'
+      - '.github/workflows/css-recurring-sources-watchdog.yml'
+  workflow_dispatch:
+    inputs:
+      apply_stale_writer:
+        description: 'If eligible, request existing unified Feishu guarded writer; default report-only'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '40 2,5,8,11,14,17,20,23 * * *' # 11:40,14:40,...,08:40 KST
+  # Independent fallback trigger: the mirror-only source audit runs on its
+  # own four-times-daily schedule. Ignore push and PR-based audit completions.
+  workflow_run:
+    workflows:
+      - 'CSS Live Freshness Evidence (Mirror vs Original Gate)'
+      - 'CSS Central Workflow Health Publisher'
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: css-recurring-sources-watchdog
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify recurrence, cooldown, writer allowlist, fail closed
+        run: |
+          python3 -m py_compile automation/ops/css_writer_schedule_watchdog.py
+          python3 -m unittest discover -s automation/ops -p 'test_css_writer_schedule_watchdog.py' -v
+
+  monitor:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == 'kimtk94/Codex' && github.event.workflow_run.conclusion == 'success')) }}
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CSS_WATCHDOG_AUTO_DISPATCH: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.apply_stale_writer == true)) && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check last production Feishu and QQ runs and request bounded writer recovery if eligible
+        run: python3 automation/ops/css_writer_schedule_watchdog.py
+      - name: Preserve sanitized, aggregate-only scheduled health report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: css-recurring-sources-watchdog
+          path: audit-results/css-writer-watchdog.json
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: State immutable business boundaries
+        if: always()
+        run: |
+          echo 'WATCHDOG_ONLY: no QQ auto replay; no source finance writes, SFDC saves, or customer mail.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Only existing feishu-sources-unified.yml may receive workflow_dispatch apply=true after verified stale schedule and cooldown.' >> "$GITHUB_STEP_SUMMARY"

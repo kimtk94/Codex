@@ -1,0 +1,52 @@
+{
+  "schema": "daily20-ca-secondary-vendor-lineage-v1",
+  "research_only": true,
+  "governance": "All observations are curated citations to publisher-visible historical rows, NOT independent captures of underlying vendor records. A publisher's data-provider attribution is a claimed lineage and not proof of independence. No observations certify actual issuer cash payment, historic security identifiers, split-adjustment factor or daily price finality.",
+  "cases": [
+    {
+      "symbol": "QLD",
+      "ex_date": "2023-09-20",
+      "observations": [
+        {
+          "id": "QLD_2023_09_ETFIQ_TIINGO",
+          "url": "https://etfiq.com/funds/qld/dividends/",
+          "publisher": "ETFIQ",
+          "attributed_upstream": "Tiingo",
+          "source_class": "THIRD_PARTY_VENDOR_DERIVED",
+          "displayed_amount_usd": "0.176282",
+          "amount_basis": "ORIGINAL_2023_SHARES_CANDIDATE",
+          "observed_pay_date": "2023-09-27",
+          "claim_status": "PUBLISHED_CANDIDATE_NOT_ORIGINAL_ISSUER_CERTIFIED"
+        },
+        {
+          "id": "QLD_2023_09_STOCKANALYSIS_SP",
+          "url": "https://stockanalysis.com/etf/qld/dividend/",
+          "publisher": "Stock Analysis",
+          "attributed_upstream": "S&P Global Market Intelligence",
+          "source_class": "THIRD_PARTY_VENDOR_DERIVED",
+          "displayed_amount_usd": "0.08814",
+          "amount_basis": "AFTER_2025_SPLIT_CANDIDATE",
+          "observed_pay_date": "2023-09-27",
+          "claim_status": "PUBLISHED_CANDIDATE_NOT_ORIGINAL_ISSUER_CERTIFIED"
+        }
+      ]
+    },
+    {
+      "symbol": "QQQ",
+      "ex_date": "2018-06-18",
+      "observations": [
+        {
+          "id": "QQQ_2018_06_TIINGO",
+          "url": "https://app.tiingo.com/qqq/dividends",
+          "publisher": "Tiingo",
+          "attributed_upstream": "Tiingo",
+          "source_class": "THIRD_PARTY_VENDOR",
+          "displayed_amount_usd": "0.37837",
+          "amount_basis": "2018_SHARES_CANDIDATE",
+          "observed_pay_date": null,
+          "claim_status": "PUBLISHED_CANDIDATE_NOT_ORIGINAL_ISSUER_CERTIFIED"
+        }
+      ]
+    }
+  ]
+}
