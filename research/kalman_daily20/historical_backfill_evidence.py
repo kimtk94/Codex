@@ -119,7 +119,7 @@ def verify_backfill(universe: dict, market, features, session: str, *,
     refresh = None
     if refresh_report is not None:
         refresh = json.loads(Path(refresh_report).read_text())
-        if refresh.get("status") != "READY" and refresh.get("mode") != "FULL_HISTORY":
+        if refresh.get("status") != "READY" or refresh.get("mode") not in ("INCREMENTAL", "FULL_HISTORY"):
             raise ValueError("REFRESH_REPORT_NOT_READY")
     return {
         "version": VERSION, "session": session,
