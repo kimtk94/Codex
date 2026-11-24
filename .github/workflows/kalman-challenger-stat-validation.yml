@@ -1,0 +1,28 @@
+name: Kalman challenger statistical validation contracts
+on:
+  pull_request:
+    paths:
+      - 'research/kalman_daily20/challenger_stat_validation.py'
+      - '.github/workflows/kalman-challenger-stat-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install research numerical dependency
+        run: python -m pip install numpy==2.3.5
+      - name: Validate synthetic statistical contracts only
+        run: python research/kalman_daily20/challenger_stat_validation.py --self-test
