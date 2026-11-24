@@ -30,6 +30,20 @@ FIELDS = (
 )
 SMOKE_KEY = "__QQ_FEISHU_SMOKE_V1__"
 MAX_MESSAGE_BYTES = 262144
+READ_THROTTLE_DELAYS = (2, 4, 8, 16, 32)
+
+
+def read_throttle_delay(headers, backoff):
+    """Honor positive server delta-seconds without unbounded sleeps."""
+    for name in ("X-Ogw-Ratelimit-Reset", "Retry-After"):
+        try:
+            seconds = float((headers or {}).get(name, ""))
+        except (TypeError, ValueError):
+            continue
+        if seconds > 0:
+            # A longer cooldown is left for the next scheduled run.
+            return max(backoff, seconds) if seconds <= 60 else None
+    return backoff
 
 
 class SafeError(RuntimeError):
@@ -52,15 +66,33 @@ def api(method, path, token=None, data=None, action="feishu_api"):
         data=json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None,
         headers=headers, method=method,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            obj = json.load(response)
-    except urllib.error.HTTPError as exc:
-        raise SafeError(action + "_HTTP_" + str(exc.code)) from None
-    except (urllib.error.URLError, TimeoutError):
-        raise SafeError(action + "_NETWORK_ERROR") from None
-    if obj.get("code") != 0:
-        raise SafeError(action + "_CODE_" + str(obj.get("code", "UNKNOWN"))) from None
+    for attempt in range(len(READ_THROTTLE_DELAYS) + 1):
+        throttled = False
+        response_headers = None
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                obj = json.load(response)
+                response_headers = getattr(response, "headers", None)
+        except urllib.error.HTTPError as exc:
+            reason = action + "_HTTP_" + str(exc.code)
+            throttled = exc.code == 429
+            response_headers = exc.headers
+            exc.close()
+        except (urllib.error.URLError, TimeoutError):
+            raise SafeError(action + "_NETWORK_ERROR") from None
+        else:
+            if obj.get("code") == 0:
+                break
+            reason = action + "_CODE_" + str(obj.get("code", "UNKNOWN"))
+            # Bitable also reports throttling in HTTP 200 response bodies.
+            throttled = obj.get("code") == 1254290
+        # Retry the same read, not an entire scan or a possibly committed write.
+        if method.upper() != "GET" or not throttled or attempt == len(READ_THROTTLE_DELAYS):
+            raise SafeError(reason) from None
+        delay = read_throttle_delay(response_headers, READ_THROTTLE_DELAYS[attempt])
+        if delay is None:
+            raise SafeError(reason) from None
+        time.sleep(delay)
     # The auth endpoint returns tenant_access_token at the response root.
     # Other Bitable endpoints return their payload under "data".
     if path == "/open-apis/auth/v3/tenant_access_token/internal":
@@ -534,3 +566,4 @@ if __name__ == "__main__":
     except Exception as exc:
         print("FEISHU_MAIL_SYNC_FAILED:" + type(exc).__name__, file=sys.stderr)
         sys.exit(1)
+

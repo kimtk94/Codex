@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Source evidence and numeric correctness tests for Feishu KPI pages."""
+import copy
 import unittest
 from unittest import mock
 
 import sales_metrics_sync as m
+import setup_sales_web as web
 from qq_mail_ingest import SafeError
 
 
@@ -651,6 +653,526 @@ class MetricsTests(unittest.TestCase):
                                      {"Verified Quote Value K USD":None}))
         self.assertTrue(m.equivalent({"Verified Quote Value K USD":None},
                                     {"Verified Quote Value K USD":None}))
+
+
+class ProjectPaymentWriteTests(unittest.TestCase):
+    PID="AMEA2026100751"
+    MANAGEMENT={
+        "관리 담당":[{"id":"ou_manual_owner"}],
+        "관리 우선순위":"높음", "관리 상태":"대기",
+        "다음 확인일":1795474800000, "관리 메모":"고객 확인 후 다음 일정 합의",
+    }
+
+    def row(self,completion="CSS_EXPLICIT_FINAL_HANDOFF"):
+        return {"Source Key":"PROJECT:"+self.PID,"AMEA":self.PID,
+                "Completion Evidence":completion,"Next Action":"샘플 진행 확인"}
+
+    def current(self,balance="0",receipt_amount="1100000"):
+        import test_latest_payment_bridge as fixture
+        matches,billing,_=m.build_payment_evidence(
+            fixture.sources(outs=[fixture.out(balance=balance)],
+                            rec=[fixture.receipt(amount=receipt_amount)]),
+            fixture.manifest(),fixture.NOW)
+        return matches,billing
+
+    def previous(self,manual_source=None):
+        matches,billing=self.current()
+        evidence=copy.deepcopy(matches[self.PID])
+        evidence.update({"Receipt Source Snapshot Date":"2026-10-01",
+                         "Outstanding Source Snapshot Date":"2026-10-02"})
+        if manual_source:
+            evidence.update({"Receipt Source":manual_source,
+                "Receipt Verification Status":"VERIFIED",
+                "Bank Receipt Reference":"independent-bank-reference",
+                "Receipt Verified By":"independent-reviewer"})
+        return {**self.row(),**billing[self.PID],**evidence,
+                "Outstanding Balance M KRW":0,"Invoice Gross M KRW":1.1,
+                "Workflow Lane":"PAID_ARCHIVED",
+                "Payment State":"PAID_VERIFIED" if manual_source else "PAID_SOURCE_MATCHED"}
+
+    def sync(self,old,desired=None,matches=None,billing=None,tamper=None):
+        records=[] if old is None else [{"record_id":"r1","fields":copy.deepcopy(old)}]
+        writes=[]
+        reads=[]
+        def listing(path,token,action):
+            reads.append(action)
+            result=copy.deepcopy(records)
+            if action=="project_board_readback" and tamper:
+                tamper(result)
+            return result
+        def api(method,path,token,data,action):
+            self.assertEqual(method,"POST")
+            writes.append(copy.deepcopy(data["records"]))
+            for incoming in data["records"]:
+                if path.endswith("batch_create"):
+                    records.append({"record_id":"r"+str(len(records)+1),
+                                    "fields":copy.deepcopy(incoming["fields"])})
+                else:
+                    record=next(r for r in records if r["record_id"]==incoming["record_id"])
+                    record["fields"].update(copy.deepcopy(incoming["fields"]))
+            return {"records":copy.deepcopy(data["records"])}
+        with mock.patch.object(m,"list_all",side_effect=listing), \
+             mock.patch.object(m,"api",side_effect=api), \
+             mock.patch.object(m,"timestamp",return_value="2026-11-07T09:00:00+09:00"):
+            result=m.sync_board_table("token","/table",[desired or self.row()],matches,billing)
+        return records[0]["fields"],writes,result,reads
+
+    def test_positive_current_balance_reopens_old_auto_archive(self):
+        previous=self.previous()
+        matches,billing=self.current(balance="1100000")
+        self.assertEqual(matches,{})
+        stored,writes,result,reads=self.sync(previous,matches=matches,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+        self.assertEqual(stored["Payment State"],"SOURCE_RECEIPT_RECHECK_REQUIRED")
+        self.assertEqual(stored["PM Risk"],"HIGH")
+        self.assertEqual(stored["PM Issue"],"PAYMENT_EVIDENCE_CONFLICT")
+        self.assertEqual(stored["Receipt Verification Status"],"SOURCE_RECHECK_REQUIRED")
+        self.assertEqual(stored["Outstanding Balance KRW"],1100000)
+        self.assertEqual(stored["Outstanding Balance M KRW"],1.1)
+        for field in ("Bank Receipt Reference","Verified Received KRW",
+                      "Receipt Verified At","Receipt Source Snapshot Date"):
+            self.assertEqual(stored[field],previous[field])
+        self.assertEqual(result,(0,1,0))
+        self.assertEqual(reads,["project_board_existing","project_board_readback"])
+
+    def test_absent_current_auto_match_never_uses_stored_proof(self):
+        for balance in ("0","",None):
+            with self.subTest(balance=balance):
+                matches,billing=self.current(balance=balance or "",receipt_amount="500000")
+                self.assertEqual(matches,{})
+                if balance is None:
+                    billing={}
+                previous=self.previous()
+                # Feishu rich-text values/whitespace must not bypass invalidation.
+                previous["Receipt Source"]=[{"text":" "+m.SOURCE_RECEIPT+" "}]
+                stored,_,_,_=self.sync(previous,matches=matches,billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+                self.assertEqual(stored["Payment State"],"SOURCE_RECEIPT_RECHECK_REQUIRED")
+                if balance!="0":
+                    self.assertIsNone(stored["Outstanding Balance KRW"])
+                    self.assertIsNone(stored["Outstanding Balance M KRW"])
+                if balance is None:
+                    self.assertIsNone(stored["Invoice Gross KRW"])
+                    self.assertIsNone(stored["Invoice Gross M KRW"])
+                    self.assertEqual(stored["Payment Owner Scope"],"OWNER_UNVERIFIED")
+
+    def test_current_exact_receipt_restores_archive_and_clears_stale_balance(self):
+        previous=self.previous()
+        previous.update({"Receipt Verification Status":"SOURCE_RECHECK_REQUIRED",
+                         "Outstanding Balance KRW":1100000,"Outstanding Balance M KRW":1.1})
+        matches,billing=self.current(balance="")
+        stored,_,_,_=self.sync(previous,matches=matches,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PAID_ARCHIVED")
+        self.assertEqual(stored["Payment State"],"PAID_SOURCE_MATCHED")
+        self.assertEqual(stored["Receipt Verification Status"],"SOURCE_EXACT_VERIFIED")
+        self.assertIsNone(stored["Outstanding Balance KRW"])
+        self.assertIsNone(stored["Outstanding Balance M KRW"])
+
+    def test_positive_balance_blocks_even_a_supplied_current_receipt(self):
+        matches,_=self.current()
+        _,billing=self.current(balance="1100000")
+        stored,_,_,_=self.sync(None,matches=matches,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+        self.assertEqual(stored["Payment State"],"RECEIPT_OUTSTANDING_REVIEW")
+
+    def test_partial_subproject_completion_does_not_archive_with_receipt(self):
+        matches,billing=self.current()
+        stored,_,_,_=self.sync(self.previous(),
+            desired=self.row("PARTIAL_SUBPROJECT_COMPLETION_REVIEW"),
+            matches=matches,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PRODUCTION_ACTIVE")
+        self.assertIn("전체 종료 전환 보류",stored["Next Action"])
+
+    def test_bank_and_erp_conflicts_preserve_all_manual_evidence(self):
+        for source in ("BANK_RECEIPT","ERP_CASH_RECEIPT"):
+            with self.subTest(source=source):
+                previous=self.previous(source)
+                _,billing=self.current(balance="1100000")
+                billing[self.PID]["Payment Invoice No"]="209126000992"
+                stored,writes,_,_=self.sync(previous,billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+                self.assertEqual(stored["Payment State"],"MANUAL_RECEIPT_OUTSTANDING_REVIEW")
+                self.assertIn("수동 입금 증빙 보존",stored["Next Action"])
+                for field in m.EVIDENCE_FIELDS:
+                    self.assertEqual(stored[field],previous[field])
+                self.assertTrue(set(m.EVIDENCE_FIELDS).isdisjoint(writes[0][0]["fields"]))
+
+    def test_manual_verification_does_not_require_automatic_source_match(self):
+        for balance in ("0",""):
+            with self.subTest(balance=balance):
+                previous=self.previous("BANK_RECEIPT")
+                _,billing=self.current(balance=balance)
+                stored,_,_,_=self.sync(previous,matches={},billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAID_ARCHIVED")
+                self.assertEqual(stored["Payment State"],"PAID_VERIFIED")
+
+    def test_older_manual_attestation_cannot_close_new_invoice_scope(self):
+        for changed in ({"Payment Invoice No":"209126000992"},
+                        {"Invoice Gross KRW":2200000}):
+            with self.subTest(changed=changed):
+                previous=self.previous("ERP_CASH_RECEIPT")
+                _,billing=self.current()
+                billing[self.PID].update(changed)
+                stored,_,_,_=self.sync(previous,billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+                self.assertEqual(stored["Payment State"],"MANUAL_RECEIPT_INVOICE_REVIEW")
+                for field in m.EVIDENCE_FIELDS:
+                    self.assertEqual(stored[field],previous[field])
+
+    def test_manual_invoice_order_alone_is_not_a_scope_conflict(self):
+        previous=self.previous("BANK_RECEIPT")
+        previous["Payment Invoice No"]="209126000991;209126000992"
+        _,billing=self.current()
+        billing[self.PID]["Payment Invoice No"]="209126000992; 209126000991"
+        stored,_,_,_=self.sync(previous,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PAID_ARCHIVED")
+        self.assertEqual(stored["Payment State"],"PAID_VERIFIED")
+
+    def test_auto_receipt_never_replaces_complete_or_incomplete_manual_proof(self):
+        for amount in (1100000,500000):
+            with self.subTest(received=amount):
+                previous=self.previous("BANK_RECEIPT")
+                previous["Verified Received KRW"]=amount
+                matches,billing=self.current()
+                stored,writes,_,_=self.sync(previous,matches=matches,billing=billing)
+                expected="PAID_VERIFIED" if amount==1100000 else "PAYMENT_EVIDENCE_REVIEW"
+                self.assertEqual(stored["Payment State"],expected)
+                for field in m.EVIDENCE_FIELDS:
+                    self.assertEqual(stored[field],previous[field])
+                self.assertTrue(set(m.EVIDENCE_FIELDS).isdisjoint(writes[0][0]["fields"]))
+
+    def test_unverified_bank_and_erp_drafts_are_not_replaced_by_auto_proof(self):
+        for source,status in (("BANK_RECEIPT","PENDING"),("ERP_CASH_RECEIPT","")):
+            with self.subTest(source=source,status=status):
+                previous=self.previous(source)
+                previous["Receipt Verification Status"]=status
+                matches,billing=self.current()
+                stored,writes,_,_=self.sync(previous,matches=matches,billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+                self.assertEqual(stored["Payment State"],"PAYMENT_EVIDENCE_REVIEW")
+                for field in m.EVIDENCE_FIELDS:
+                    self.assertEqual(stored[field],previous[field])
+                self.assertTrue(set(m.EVIDENCE_FIELDS).isdisjoint(writes[0][0]["fields"]))
+
+    def test_five_manual_workbench_fields_never_enter_record_payload(self):
+        self.assertEqual(set(self.MANAGEMENT),m.PROJECT_MANAGEMENT_FIELDS)
+        for existing in (False,True):
+            with self.subTest(existing=existing):
+                previous={**self.previous(),**self.MANAGEMENT} if existing else None
+                injected={name:"unexpected source-owned value" for name in self.MANAGEMENT}
+                desired={**self.row(),**injected}
+                matches,billing=self.current()
+                matches[self.PID].update(injected)
+                billing[self.PID].update(injected)
+                billing[self.PID]["Payment Owner Scope"]="OTHER_SALES"
+                stored,writes,_,_=self.sync(previous,desired,matches,billing)
+                for batch in writes:
+                    for record in batch:
+                        self.assertTrue(set(self.MANAGEMENT).isdisjoint(record["fields"]))
+                for name,value in self.MANAGEMENT.items():
+                    if existing:
+                        self.assertEqual(stored[name],value)
+                    else:
+                        self.assertNotIn(name,stored)
+                self.assertEqual(stored["Payment Owner Scope"],"OTHER_SALES")
+                self.assertEqual(desired,{**self.row(),**injected})
+
+    def test_manual_only_edit_and_reopened_archive_are_idempotent(self):
+        _,billing=self.current(balance="1100000")
+        stored,_,_,_=self.sync(self.previous(),billing=billing)
+        stored.update(self.MANAGEMENT)
+        stored["관리 메모"]="사용자가 후속 메모를 수정함"
+        again,writes,result,reads=self.sync(stored,billing=billing)
+        self.assertEqual(result,(0,0,1))
+        self.assertEqual(writes,[])
+        self.assertEqual(reads,["project_board_existing"])
+        self.assertEqual(again["관리 메모"],stored["관리 메모"])
+
+    def test_current_unknown_progress_clears_previous_number(self):
+        old={**self.previous(),"Progress %":80}
+        desired={**self.row(),"PM Source Coverage":"CURRENT_INPUT"}
+        stored,writes,_,_=self.sync(old,desired=desired)
+        self.assertIsNone(stored["Progress %"])
+        self.assertIsNone(writes[0][0]["fields"]["Progress %"])
+
+    def test_carryover_only_updates_advisory_fields_and_preserves_timestamp(self):
+        current={**self.row(),"PM Source Coverage":"CURRENT_INPUT"}
+        # Existing different canonical project is absent from this input.
+        stale_pid="AMEA2026000002"
+        previous={"Source Key":"PROJECT:"+stale_pid,"AMEA":stale_pid,
+                  "Workflow Lane":"PAID_ARCHIVED","Payment State":"PAID_VERIFIED",
+                  "Last Sync KST":"previous","관리 메모":"keep",
+                  "PM Quote Link":"EXACT_QUOTE_SNAPSHOT","Progress %":100}
+        stored,writes,result,_=self.sync(previous,desired=current)
+        # creates happen before updates. The old row stays first.
+        self.assertEqual(stored["Workflow Lane"],previous["Workflow Lane"])
+        self.assertEqual(stored["Payment State"],previous["Payment State"])
+        self.assertEqual(stored["Last Sync KST"],"previous")
+        self.assertEqual(stored["관리 메모"],"keep")
+        self.assertEqual(stored["Progress %"],100)
+        self.assertEqual(stored["PM Source Coverage"],"CARRYOVER_REVIEW")
+        self.assertEqual(stored["PM Quote Link"],"NOT_RECHECKED")
+        self.assertEqual(set(writes[-1][0]["fields"]),set(m.DATA_FIELDS))
+        self.assertEqual(result[:2],(1,1))
+
+    def test_reopened_payment_state_requires_successful_readback(self):
+        _,billing=self.current(balance="1100000")
+        def stale_readback(records):
+            records[0]["fields"]["Workflow Lane"]="PAID_ARCHIVED"
+        with self.assertRaisesRegex(SafeError,"PROJECT_BOARD_READBACK_MISMATCH"):
+            self.sync(self.previous(),billing=billing,tamper=stale_readback)
+
+
+class MetadataTests(unittest.TestCase):
+    @staticmethod
+    def fields(table):
+        return [{"field_name":name,"type":kind,"field_id":"fld"+str(i),
+                 "property":{"formatter":"0" if name in
+                     m.COUNT_FIELD_FORMATS.get(table,set()) else "0.00"}}
+                for i,(name,kind) in enumerate(m.SCHEMAS[table])]
+
+    @staticmethod
+    def views(table,fields):
+        ids={row["field_name"]:row["field_id"] for row in fields}
+        catalog=[];details={}
+        for i,spec in enumerate(m.VIEW_SPECS[table]):
+            vid="vew"+str(i)
+            row={"view_name":spec[0],"view_id":vid}
+            catalog.append(row)
+            conditions=[{"field_id":ids[name],"operator":"is",
+                         "value":m.json.dumps([value])}
+                        for name,value in zip(spec[1::2],spec[2::2]) if name]
+            details[vid]={**row,"property":{"filter_info":{
+                "conjunction":"and","conditions":conditions}}}
+        return catalog,details
+
+    def test_one_page_steady_state_uses_46_metadata_reads_without_writes(self):
+        """43 prior optimized reads + three data-check view details."""
+        root="/base";catalog=[];responses={};details={};reads=[]
+        for i,table in enumerate(m.SCHEMAS):
+            tid="tbl"+str(i);path=root+"/tables/"+tid
+            catalog.append({"name":table,"table_id":tid})
+            fields=self.fields(table)
+            views,by_id=self.views(table,fields)
+            responses[path+"/fields"]=fields
+            responses[path+"/views"]=views
+            details.update({path+"/views/"+vid:view for vid,view in by_id.items()})
+        responses[root+"/tables"]=catalog
+        def listing(url,token,action):
+            reads.append((action,url))
+            return copy.deepcopy(responses[url])
+        def api(method,url,token,**kwargs):
+            self.assertEqual(method,"GET","unchanged metadata must not be written")
+            reads.append((method,url))
+            return {"view":copy.deepcopy(details[url])}
+        with mock.patch.object(m,"list_all",side_effect=listing), \
+             mock.patch.object(web,"list_all",side_effect=listing), \
+             mock.patch.object(web,"get_fields",side_effect=lambda token,path:
+                               listing(path+"/fields",token,"view_fields")), \
+             mock.patch.object(m,"api",side_effect=api), \
+             mock.patch.object(web,"api",side_effect=api):
+            paths=m.ensure_tables("token",root)
+            m.setup_views("token",paths)
+        self.assertEqual(set(paths),set(m.SCHEMAS))
+        self.assertEqual(len(reads),46)
+        self.assertEqual(sum(url.endswith("/views") for _,url in reads),10)
+        self.assertEqual(sum(action=="GET" for action,_ in reads),25)
+
+    def test_quote_scope_does_not_provision_pm_fields_or_risk_view(self):
+        table="Project Progress Board"
+        fields=[row for row in self.fields(table)
+                if row["field_name"] not in (*m.SIGNAL_FIELDS,*m.DATA_FIELDS)]
+        specs=tuple(spec for spec in m.VIEW_SPECS[table] if spec[0] not in {
+            "04 위험 검토","05 연결 충돌","06 연결 확인","07 이전 원본 보존"})
+        with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+             mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
+             mock.patch.object(m,"list_all",return_value=fields), \
+             mock.patch.object(m,"api") as mutation:
+            self.assertEqual(m.ensure_tables("token","/base",scope="quote"),
+                             {table:"/base/tables/tbl1"})
+            mutation.assert_not_called()
+        # Keep the risk spec in the real view contract. Build a fixture without
+        # its fields or view, then exercise quote scope against that fixture.
+        with mock.patch.dict(m.VIEW_SPECS,{table:specs},clear=True):
+            catalog,details=self.views(table,fields)
+        with mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",return_value=catalog), \
+             mock.patch.object(web,"api",side_effect=lambda method,url,token,**kw:
+                               {"view":details[url.rsplit("/",1)[-1]]}) as getter, \
+             mock.patch.object(m,"api") as mutation:
+            m.setup_views("token",{table:"/table"},scope="quote")
+            self.assertEqual(getter.call_count,len(specs))
+            mutation.assert_not_called()
+
+    def test_duplicate_project_signal_field_fails_before_mutation(self):
+        table="Project Progress Board"
+        fields=self.fields(table)
+        field=next(row for row in fields if row["field_name"]=="PM Risk")
+        with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+             mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
+             mock.patch.object(m,"list_all",return_value=[*fields,{**field,"field_id":"fldDuplicate"}]), \
+             mock.patch.object(m,"api") as mutation:
+            with self.assertRaisesRegex(SafeError,"PROJECT_SIGNAL_SCHEMA_REVIEW_REQUIRED"):
+                m.ensure_tables("token","/base",scope="operations")
+            mutation.assert_not_called()
+
+    def test_field_creation_requires_fresh_schema_readback(self):
+        table="Monthly Tax Invoice";complete=self.fields(table)
+        before=[row for row in complete if row["field_name"]!="Net Revenue M KRW"]
+        for readback,valid in ((complete,True),(before,False)):
+            with self.subTest(persisted=valid), \
+                 mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+                 mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
+                 mock.patch.object(m,"list_all",side_effect=[before,readback]) as listing, \
+                 mock.patch.object(m,"api",return_value={}) as api:
+                if valid:
+                    m.ensure_tables("token","/base")
+                else:
+                    with self.assertRaisesRegex(SafeError,"METRIC_SCHEMA_MISMATCH"):
+                        m.ensure_tables("token","/base")
+                self.assertEqual(listing.call_count,2)
+                api.assert_called_once()
+                self.assertEqual(api.call_args.args[0],"POST")
+
+    def test_wrong_schema_type_stops_before_mutation(self):
+        table="Monthly Tax Invoice";fields=self.fields(table)
+        fields[0]["type"]=2
+        with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+             mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
+             mock.patch.object(m,"list_all",return_value=fields), \
+             mock.patch.object(m,"api") as api:
+            with self.assertRaisesRegex(SafeError,"METRIC_SCHEMA_TYPE_MISMATCH"):
+                m.ensure_tables("token","/base")
+            api.assert_not_called()
+
+    def test_invisible_created_table_is_not_accepted(self):
+        table="Project SIF Monitor"
+        with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+             mock.patch.object(m,"table_catalog",return_value={}) as catalog, \
+             mock.patch.object(m,"api",return_value={"table_id":"tbl1"}), \
+             mock.patch.object(m,"list_all") as fields:
+            with self.assertRaisesRegex(SafeError,"METRIC_TABLE_CREATE_READBACK_FAILED"):
+                m.ensure_tables("token","/base")
+            self.assertEqual(catalog.call_count,2)
+            fields.assert_not_called()
+
+    def test_unchanged_integer_formats_validate_initial_live_fields(self):
+        table="Weekly Quote KPI";fields=self.fields(table)
+        with mock.patch.object(m,"api") as api,mock.patch.object(m,"list_all") as listing:
+            m.ensure_integer_field_display("token","/table",table,fields)
+            api.assert_not_called();listing.assert_not_called()
+            broken=[row for row in fields if row["field_name"]!="Approved Quote Count"]
+            with self.assertRaisesRegex(SafeError,"METRIC_NUMERIC_FORMAT_SOURCE_MISSING"):
+                m.ensure_integer_field_display("token","/table",table,broken)
+
+    def test_formatter_put_still_requires_successful_response_and_readback(self):
+        table="Monthly Tax Invoice";before=self.fields(table)
+        before[2]["property"]={"formatter":"0.0"}
+        response={"field":{"field_name":"Invoice Count","property":{"formatter":"0"}}}
+        with mock.patch.object(m,"api",return_value=response), \
+             mock.patch.object(m,"list_all",return_value=before) as listing:
+            with self.assertRaisesRegex(SafeError,"METRIC_INTEGER_FIELD_FORMAT_READBACK_FAILED"):
+                m.ensure_integer_field_display("token","/table",table,before)
+            listing.assert_called_once()
+        with mock.patch.object(m,"api",return_value={}), \
+             mock.patch.object(m,"list_all") as listing:
+            with self.assertRaisesRegex(SafeError,"METRIC_NUMERIC_FORMAT_UPDATE_UNVERIFIED"):
+                m.ensure_integer_field_display("token","/table",table,before)
+            listing.assert_not_called()
+
+    def test_final_view_catalog_rejects_deleted_renamed_replaced_and_duplicate_views(self):
+        table="Project Progress Board";fields=self.fields(table)
+        catalog,details=self.views(table,fields)
+        changed=[
+            catalog[1:],
+            [{**catalog[0],"view_name":"renamed"},*catalog[1:]],
+            [{**catalog[0],"view_id":"vewReplacement"},*catalog[1:]],
+            [*catalog,{**catalog[0],"view_id":"vewDuplicate"}],
+        ]
+        for final in changed:
+            with self.subTest(final=final[0]), \
+                 mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+                 mock.patch.object(web,"get_fields",return_value=fields), \
+                 mock.patch.object(web,"list_all",side_effect=[catalog,final]), \
+                 mock.patch.object(web,"api",side_effect=lambda method,url,token,**kw:
+                                   {"view":details[url.rsplit("/",1)[-1]]}), \
+                 mock.patch.object(m,"api") as mutation:
+                with self.assertRaisesRegex(SafeError,
+                        "METRIC_VIEW_CATALOG_READBACK_MISMATCH|DUPLICATE_OR_EMPTY_VIEW_METADATA"):
+                    m.setup_views("token",{table:"/table"})
+                mutation.assert_not_called()
+
+    def test_duplicate_initial_view_names_fail_before_individual_reads(self):
+        table="Project SIF Monitor";fields=self.fields(table)
+        catalog,_=self.views(table,fields)
+        with mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",return_value=[*catalog,catalog[0]]), \
+             mock.patch.object(web,"api") as api:
+            with self.assertRaisesRegex(SafeError,"DUPLICATE_OR_EMPTY_VIEW_METADATA"):
+                m.setup_views("token",{table:"/table"})
+            api.assert_not_called()
+
+    def test_deleted_existing_view_fails_instead_of_recreating_its_id(self):
+        table="Project SIF Monitor";fields=self.fields(table)
+        catalog,_=self.views(table,fields)
+        with mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",return_value=catalog), \
+             mock.patch.object(web,"api",side_effect=SafeError("VIEW_DELETED")) as api:
+            with self.assertRaisesRegex(SafeError,"VIEW_DELETED"):
+                m.setup_views("token",{table:"/table"})
+            api.assert_called_once()
+            self.assertEqual(api.call_args.args[0],"GET")
+
+    def test_missing_view_is_relisted_before_creation(self):
+        table="Project SIF Monitor";fields=self.fields(table)
+        catalog,details=self.views(table,fields)
+        def api(method,url,token,**kwargs):
+            self.assertEqual(method,"GET","concurrently created view must be reused")
+            return {"view":details[url.rsplit("/",1)[-1]]}
+        with mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",side_effect=[catalog[1:],catalog,catalog]) as listing, \
+             mock.patch.object(web,"api",side_effect=api):
+            m.setup_views("token",{table:"/table"})
+            self.assertEqual(listing.call_count,3)
+
+    def test_invisible_created_view_is_not_accepted(self):
+        table="Project SIF Monitor";fields=self.fields(table)
+        with mock.patch.dict(m.VIEW_SPECS,{table:(m.VIEW_SPECS[table][0],)},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",return_value=[]), \
+             mock.patch.object(web,"api",return_value={}) as api:
+            with self.assertRaisesRegex(SafeError,"VIEW_CREATE_NOT_VERIFIED"):
+                m.setup_views("token",{table:"/table"})
+            api.assert_called_once()
+            self.assertEqual(api.call_args.args[0],"POST")
+
+    def test_filtered_view_keeps_owner_condition_and_verifies_patch(self):
+        table="Project Progress Board";fields=self.fields(table)
+        spec=m.VIEW_SPECS[table][2]
+        with mock.patch.dict(m.VIEW_SPECS,{table:(spec,)},clear=True):
+            catalog,details=self.views(table,fields)
+            final=details["vew0"]
+            pending={**final,"view_name":"설정중_"+spec[0],"property":{}}
+            for readback,valid in ((final,True),(pending,False)):
+                with self.subTest(persisted=valid), \
+                     mock.patch.object(web,"get_fields",return_value=fields), \
+                     mock.patch.object(web,"list_all",side_effect=[
+                         [{"view_name":pending["view_name"],"view_id":"vew0"}],catalog]), \
+                     mock.patch.object(web,"api",side_effect=[{"view":pending},{"view":readback}]), \
+                     mock.patch.object(m,"api",return_value={}) as patch:
+                    if valid:
+                        m.setup_views("token",{table:"/table"})
+                    else:
+                        with self.assertRaisesRegex(SafeError,"METRIC_FILTER_READBACK_FAILED"):
+                            m.setup_views("token",{table:"/table"})
+                    patch.assert_called_once()
+                    conditions=patch.call_args.kwargs["data"]["property"]["filter_info"]["conditions"]
+                    self.assertEqual(conditions,final["property"]["filter_info"]["conditions"])
+                    self.assertEqual(len(conditions),2)
 
 
 if __name__=="__main__":

@@ -1,0 +1,80 @@
+name: Feishu Native Overview Dashboard
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/native_overview_dashboard.py'
+      - 'automation/feishu/test_native_overview_dashboard.py'
+      - 'automation/feishu/native_dashboard_cli.py'
+      - 'automation/feishu/native_payment_dashboard_cli.py'
+      - 'automation/feishu/weekly_quote_live_chart.py'
+      - '.github/workflows/feishu-native-overview-dashboard.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/native_overview_dashboard.py'
+      - 'automation/feishu/test_native_overview_dashboard.py'
+      - 'automation/feishu/native_dashboard_cli.py'
+      - 'automation/feishu/native_payment_dashboard_cli.py'
+      - 'automation/feishu/weekly_quote_live_chart.py'
+      - '.github/workflows/feishu-native-overview-dashboard.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only plan/verify, or patch reviewed overview chart configuration
+        type: choice
+        required: true
+        default: plan
+        options: [plan, verify, apply]
+  schedule:
+    # Native charts refresh from their tables. Daily metadata verification does
+    # not rewrite blocks or claim that the source data itself is fresh.
+    - cron: '25 2 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'feishu-native-overview-dashboard' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate overview identity, scopes, no-op reconciliation, and readback
+        run: |
+          python3 -m py_compile automation/feishu/native_overview_dashboard.py
+          python3 -m unittest discover -s automation/feishu -p 'test_native_overview_dashboard.py' -v
+  overview:
+    needs: offline
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_OVERVIEW_MODE: ${{ github.event_name == 'schedule' && 'verify' || inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install official Lark CLI
+        run: npm install --global '@larksuite/cli@1.0.99'
+      - name: Configure ephemeral Feishu app identity
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name css-overview --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use css-overview
+      - name: Verify or patch only the reviewed native overview blocks
+        run: python3 automation/feishu/native_overview_dashboard.py

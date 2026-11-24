@@ -1,7 +1,10 @@
 """Synthetic only: Feishu Report mirror preserves line-level rates across contacts."""
 import copy
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
+from urllib.parse import parse_qs,urlsplit
+
+import sfdc_quote_report_bridge as bridge
 
 from sfdc_quote_report_bridge import (
     build_records,verify_qq_process_report_audit,ReportSourceError,TABLE_PROCESS,TABLE_PRODUCT,TABLE_LINES,
@@ -52,10 +55,20 @@ def data():
     return (lines,LINE_HEAD),(headers,HEAD_HEAD)
 
 
+def batch_response(source,audit,heads):
+    specs=((bridge.LINE_TAB,bridge.SHEET_RANGE_LINES,source),
+           (bridge.AUDIT_TAB,bridge.AUDIT_RANGE,audit),
+           (bridge.HEAD_TAB,bridge.SHEET_RANGE_HEAD,heads))
+    return {"spreadsheetId":bridge.SHEET,"valueRanges":[
+        {"range":"'"+tab+"'!"+cells,"majorDimension":"ROWS",
+         "values":[names]+[[row.get(name,"") for name in names] for row in rows]}
+        for tab,cells,(rows,names) in specs]}
+
+
 class ReportBridgeTests(unittest.TestCase):
-    def _mail_audit(self):
+    def _mail_audit(self,source=None):
         import hashlib,json
-        source,_=data()
+        if source is None:source,_=data()
         lines,headers=source
         digest=hashlib.sha256(json.dumps(
             [headers,[[row.get(h,"") for h in headers] for row in lines]],
@@ -312,6 +325,95 @@ class ReportBridgeTests(unittest.TestCase):
         self.assertEqual(result["readback"],"PASS")
         writer.assert_not_called()
         self.assertEqual(read.call_count,2)
+
+
+class ReportSourceBatchTests(unittest.TestCase):
+    def setUp(self):
+        source,audit=ReportBridgeTests()._mail_audit()
+        self.sources=(source,audit,data()[1])
+        self.response=batch_response(*self.sources)
+
+    def test_one_request_preserves_all_three_sources_and_rendering(self):
+        session=object()
+        with patch.object(bridge,"gs",return_value=self.response) as read:
+            actual=bridge.read_report_sources(session)
+        self.assertEqual(actual,self.sources)
+        read.assert_called_once()
+        self.assertEqual(read.call_args.args[:2],(session,"GET"))
+        url=urlsplit(read.call_args.args[2])
+        self.assertEqual(url.path,"/values:batchGet")
+        self.assertEqual(parse_qs(url.query),{
+            "ranges":["'SFDC Email Quotation Raw'!A1:Y6000",
+                      "'SFDC Email Ingest Audit'!A1:J15",
+                      "'SFDC Quote Export'!A1:O2000"],
+            "majorDimension":["ROWS"],"valueRenderOption":["FORMATTED_VALUE"],
+        })
+
+    def test_grid_clipped_ranges_keep_complete_source_contents(self):
+        for item,end in zip(self.response["valueRanges"],("Y5","J2","O3")):
+            item["range"]=item["range"].split("!")[0]+"!A1:"+end
+        with patch.object(bridge,"gs",return_value=self.response):
+            self.assertEqual(bridge.read_report_sources(object()),self.sources)
+
+    def test_invalid_batch_cannot_reach_feishu_auth(self):
+        cases=[]
+        for values in (None,{},self.response["valueRanges"][:2],
+                       self.response["valueRanges"]+[self.response["valueRanges"][0]]):
+            bad=copy.deepcopy(self.response);bad["valueRanges"]=values
+            cases.append((bad,"REPORT_BATCH_RANGES_INCOMPLETE"))
+        bad=copy.deepcopy(self.response);bad["spreadsheetId"]="another-book"
+        cases.append((bad,"REPORT_BATCH_SPREADSHEET_MISMATCH"))
+        bad=copy.deepcopy(self.response);bad["valueRanges"].reverse()
+        cases.append((bad,"REPORT_BATCH_RANGE_MISMATCH"))
+        for key,value in (("range",None),("range","'Other Source'!A1:Y6000"),
+                          ("range","'SFDC Email Quotation Raw'!A2:Y6000"),
+                          ("range","'SFDC Email Quotation Raw'!A1:Z6000"),
+                          ("range","'SFDC Email Quotation Raw'!A1:Y6001"),
+                          ("majorDimension","COLUMNS")):
+            bad=copy.deepcopy(self.response);bad["valueRanges"][0][key]=value
+            cases.append((bad,"REPORT_BATCH_RANGE_MISMATCH"))
+        for index,(response,code) in enumerate(cases):
+            with self.subTest(case=index):
+                with patch.object(bridge,"google",return_value=object()), \
+                     patch.object(bridge,"gs",return_value=response), \
+                     patch.object(bridge,"auth") as auth:
+                    with self.assertRaisesRegex(ReportSourceError,code):
+                        bridge.execute("sync")
+                    auth.assert_not_called()
+
+    def test_empty_or_duplicate_header_range_keeps_existing_rejection(self):
+        for values,code in (([],"REPORT_TAB_EMPTY"),
+                            ([["key"]],"REPORT_TAB_EMPTY"),
+                            ([["key","key"],["a","b"]],"REPORT_HEADERS_DUPLICATE")):
+            with self.subTest(code=code,rows=len(values)):
+                response=copy.deepcopy(self.response)
+                response["valueRanges"][0]["values"]=values
+                with patch.object(bridge,"gs",return_value=response):
+                    with self.assertRaisesRegex(ReportSourceError,code):
+                        bridge.read_report_sources(object())
+
+    def test_http_error_still_blocks_before_feishu_access(self):
+        session=Mock()
+        session.request.return_value.ok=False
+        session.request.return_value.status_code=429
+        with patch.object(bridge,"google",return_value=session), \
+             patch.object(bridge,"auth") as auth:
+            with self.assertRaisesRegex(ValueError,"SHEETS_HTTP_429"):
+                bridge.execute("sync")
+        session.request.assert_called_once()
+        auth.assert_not_called()
+
+    def test_sync_rechecks_source_hash_after_audit_without_cache(self):
+        changed=copy.deepcopy(self.response)
+        changed["valueRanges"][0]["values"][1][-1]="edited-after-audit"
+        with patch.object(bridge,"google",return_value=object()), \
+             patch.object(bridge,"gs",side_effect=[self.response,changed]) as read, \
+             patch.object(bridge,"auth") as auth:
+            self.assertEqual(bridge.execute("audit")["status"],"PASS")
+            with self.assertRaisesRegex(ReportSourceError,"QUOTE_MAIL_AUDIT_HASH_MISMATCH"):
+                bridge.execute("sync")
+        self.assertEqual(read.call_count,2)
+        auth.assert_not_called()
 
 
 if __name__=="__main__":

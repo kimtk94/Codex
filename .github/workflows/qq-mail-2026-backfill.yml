@@ -5,6 +5,8 @@ on:
       - 'automation/feishu/qq_mail_ingest.py'
       - 'automation/feishu/qq_mail_catchup_drain.py'
       - 'automation/feishu/test_qq_mail_catchup_drain.py'
+      - 'automation/feishu/qq_mail_audit.py'
+      - 'automation/feishu/test_qq_mail_audit.py'
       - '.github/workflows/qq-mail-2026-backfill.yml'
   push:
     branches: [main, feat/qq-backfill-2026-3000-per-run]
@@ -68,6 +70,22 @@ jobs:
           python-version: '3.11'
       - name: Sequential bounded QQ 2026 backlog drain (max 6 x 3000)
         run: python3 automation/feishu/qq_mail_catchup_drain.py
-      - name: Privacy-safe independent Feishu record audit
-        if: ${{ !cancelled() }}
+  mail_audit:
+    needs: [tests, collect_2026]
+    if: ${{ needs.tests.result == 'success' && needs.collect_2026.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    # Historical import can take hours, while immutable ledger verification
+    # deserves its own timeout and result. Import SUCCESS is never audit PASS.
+    timeout-minutes: 30
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Privacy-safe independent Feishu record audit (read only)
         run: python3 automation/feishu/qq_mail_audit.py
