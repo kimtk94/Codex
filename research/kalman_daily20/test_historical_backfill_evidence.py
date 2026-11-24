@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from historical_backfill_evidence import check_target, verify_backfill
+from historical_backfill_evidence import check_backfill_request, check_target, verify_backfill
 from daily20 import market_file, feature_file
 
 
@@ -22,6 +22,22 @@ class HistoricalBackfillContractTests(unittest.TestCase):
             check_target("2026-11-25", asof=date(2026, 11, 24))
         with self.assertRaisesRegex(ValueError, "TARGET_SESSION_NOT_ISO_DATE"):
             check_target("Nov 23 2026", asof=date(2026, 11, 24))
+
+    def test_one_time_gitops_request_is_research_only(self):
+        request = Path('research/kalman_daily20/backfill_requests/2026-11-23.json')
+        if not request.exists():
+            request = Path('backfill_requests/2026-11-23.json')
+        self.assertEqual(check_backfill_request(request, asof=date(2026, 11, 24)),
+                         date(2026, 11, 23))
+        with TemporaryDirectory() as tmp:
+            invalid = Path(tmp) / '2026-11-23.json'
+            invalid.write_text('{"version":"kalman-historical-backfill-request-v1",'
+                               '"session":"2026-11-23",'
+                               '"classification":"RETROSPECTIVE_BACKFILL_NOT_PROSPECTIVE",'
+                               '"research_only":true,"production_writes":false,'
+                               '"forward_events_created":20,"live_execution":false}')
+            with self.assertRaisesRegex(ValueError, "INVALID_RETROSPECTIVE_GITOPS_REQUEST"):
+                check_backfill_request(invalid, asof=date(2026, 11, 24))
 
     def test_all_26_verified_never_forward(self):
         with TemporaryDirectory() as d:
