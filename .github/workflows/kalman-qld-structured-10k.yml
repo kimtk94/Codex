@@ -1,0 +1,117 @@
+name: Kalman QLD 40-Axis Stratified 10k Matched Cash (Research Only)
+
+on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - '.github/workflows/kalman-qld-structured-10k.yml'
+      - 'research/kalman_integrated_regime/structured_10k.py'
+      - 'research/kalman_integrated_regime/structured_report.py'
+      - 'research/kalman_integrated_regime/test_structured_10k.py'
+  pull_request:
+    paths:
+      - '.github/workflows/kalman-qld-structured-10k.yml'
+      - 'research/kalman_integrated_regime/structured_10k.py'
+      - 'research/kalman_integrated_regime/structured_report.py'
+      - 'research/kalman_integrated_regime/test_structured_10k.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qld-structured10k-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated research test dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7'
+      - name: Validate joint filters, size counterfactuals and no-network contracts
+        run: |
+          python -m unittest \
+            research.kalman_integrated_regime.test_structured_10k \
+            research.kalman_integrated_regime.test_joint_policy \
+            research.kalman_integrated_regime.test_joint_report -v
+          python -m compileall -q research/kalman_integrated_regime
+
+  study:
+    needs: contracts
+    if: github.event_name != 'pull_request'
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated historical research dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7' 'requests>=2.31,<3' google-auth google-api-python-client
+      - name: Fetch private Alpaca SIP 15-minute QLD and QQQ once
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_integrated_regime/sip_backfill.py \
+            --start 2024-01-01 --end-exclusive 2026-10-31 \
+            --out "$RUNNER_TEMP/qld_structured"
+      - name: Read private market feature bundle
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_triple_barrier/drive_input.py \
+            --file-id 1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd \
+            --output "$RUNNER_TEMP/qld_structured/market.zip"
+      - name: Run 10000 stratified interacting configurations at native and matched 50-percent cash
+        run: |
+          mkdir -p "$RUNNER_TEMP/qld_structured/shards"
+          for shard in 0 1 2 3; do
+            python -m research.kalman_integrated_regime.structured_10k \
+              --daily "$RUNNER_TEMP/qld_structured/qld_qqq_daily_sip_all_private.csv" \
+              --intraday "$RUNNER_TEMP/qld_structured/qld_qqq_15m_sip_all_private.parquet" \
+              --market-zip "$RUNNER_TEMP/qld_structured/market.zip" \
+              --configs 10000 --shards 4 --shard "$shard" \
+              --seed 20261102 --out "$RUNNER_TEMP/qld_structured/shards" \
+              > "$RUNNER_TEMP/qld_structured/shard_$shard.log" 2>&1 &
+            pids[$shard]=$!
+          done
+          rc=0
+          for shard in 0 1 2 3; do
+            if wait "${pids[$shard]}"; then
+              echo "STRUCTURED_SHARD_$shard"_"PASS"
+              tail -n 1 "$RUNNER_TEMP/qld_structured/shard_$shard.log"
+            else
+              echo "STRUCTURED_SHARD_$shard"_"FAIL"
+              tail -n 30 "$RUNNER_TEMP/qld_structured/shard_$shard.log"
+              rc=1
+            fi
+          done
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+      - name: Validate 10001 paired policy sets and filter-budget outcome tables
+        run: |
+          python -m research.kalman_integrated_regime.structured_report \
+            --source "$RUNNER_TEMP/qld_structured/shards" \
+            --configs 10001 --out "$RUNNER_TEMP/qld_structured/final"
+      - name: Publish only all-policy aggregated results and comparisons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qld-40axis-structured-10000-matched50
+          path: ${{ runner.temp }}/qld_structured/final/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Delete runner-private historical inputs
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/qld_structured/qld_qqq_daily_sip_all_private.csv"
+          rm -f "$RUNNER_TEMP/qld_structured/qld_qqq_15m_sip_all_private.parquet"
+          rm -f "$RUNNER_TEMP/qld_structured/market.zip"
