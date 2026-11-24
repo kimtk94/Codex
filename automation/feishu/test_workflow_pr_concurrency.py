@@ -29,6 +29,7 @@ PRODUCTION_GROUPS = {
     "feishu-x-project-registry.yml": "feishu-x-sam-lineage",
     "lead-outreach-chain.yml": "isolated-lead-feishu-mail-description",
     "sif-evidence-tracker.yml": "sif-evidence-tracker-feishu",
+    "sif-po-issue-diagnosis.yml": "sif-po-issue-diagnosis-readonly",
 }
 
 
