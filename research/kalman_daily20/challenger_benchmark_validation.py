@@ -61,7 +61,7 @@ def replay(p, frames, last):
     dates=names[begin:end+1]
     books={f"{c}_{b}_K1+K3":Book(f"{c}_{b}_K1+K3",names)
            for c in COHORTS for b in COSTS}
-    out={s:dict(equity=[],open_weights=[],close_weights=[],entries=[],exits={}) for s in books}
+    out={s:dict(equity=[],open_weights=[],close_weights=[],entries=[],exits={},exit_net_pnl={}) for s in books}
     prices={s:{"open":[],"close":[]} for s in ETFS}
     clocks,previous={},None
     for i in range(begin,end+1):
@@ -88,6 +88,7 @@ def replay(p, frames, last):
                 key=(e["signal"],e["symbol"])
                 require(key not in o["exits"],"BENCHMARK_DUPLICATE_EXIT")
                 o["exits"][key]=i-begin
+                o["exit_net_pnl"][key]=e["net_pnl"]
         for s in ETFS:
             for k in ("open","close"):
                 prices[s][k].append(bars[s][k])
@@ -97,6 +98,8 @@ def replay(p, frames, last):
         require(not b.slots and sum(map(len,o["entries"]))==len(o["exits"])==b.trades,
                 "BENCHMARK_UNSETTLED_REPLAY")
         require(abs(b.free-CAPITAL-b.pnl)<1e-6,"BENCHMARK_STOCK_LEDGER")
+        require(abs(sum(o["exit_net_pnl"].values())-b.pnl)<1e-6,
+                "BENCHMARK_EXIT_PNL_PARITY")
         o["trades"]=b.trades
         o["equity"]=np.asarray(o["equity"])
     return dates,out,prices
