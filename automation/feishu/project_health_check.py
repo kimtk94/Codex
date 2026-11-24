@@ -48,10 +48,10 @@ SCHEMAS = {
             "Completion Evidence", "Invoice Gross KRW", "Outstanding Balance KRW",
             *EVIDENCE_FIELDS),
     REGISTRY: ("Source Key", "X Project", "H Contract", "AMEA", "AMEA Link State",
-               "Record State"),
+               "Owner Scope", "Record State"),
     LINKS: ("Source Key", "Link Type", "AMEA", "H Contract", "X Project", "SAM",
             "Link State", "Record State"),
-    INVOICE: ("Source Key", "CMS Invoice", "X Project", "AMEA", "Owner Scope",
+    INVOICE: ("Source Key", "CMS Invoice", "X Base", "X Project", "AMEA", "Owner Scope",
               "Invoice Link State", "Invoice Gross KRW Incl VAT",
               "Outstanding Balance KRW", "Record State"),
     PO: ("Project ID", "Contract Source", "Contract Mail Key", "Contract Notice UTC",
@@ -213,6 +213,86 @@ def po_check(direct, related):
     if get(direct, "PO Followup Queue") == "PO_REQUIRED":
         return "TRACKER_REQUEST_REQUIRED"
     return "PO_REVIEW_REQUIRED"
+
+
+# Fixed codes only: never emit provider-controlled labels or identifiers.
+OWNER_SCOPES = {"MY_VERIFIED", "OTHER_SALES", "OWNER_UNVERIFIED"}
+X_LINK_CODES = {"EXACT_LIFECYCLE", "UNIQUE_H_CANDIDATE", "AMBIGUOUS_H",
+                "X_UNMATCHED", "CONFLICT_MULTIPLE_AMEA", "CONFLICT_LIFECYCLE_CSS_H"}
+INVOICE_LINK_CODES = {"EXACT_X_AMEA_CMS", "INVOICE_SOURCE_CONFLICT",
+                      "MULTI_Z_REVIEW", "X_NOT_IN_ONLINE",
+                      "AMEA_X_NOT_VERIFIED", "AMEA_X_CONFLICT"}
+
+
+def safe_code(value, allowed):
+    return value if value in allowed else "UNCLASSIFIED"
+
+
+def owner_scope(row):
+    return safe_code(get(row, "Owner Scope"), OWNER_SCOPES)
+
+
+def board_relation(row, pids):
+    pid = get(row, "AMEA")
+    if pid in pids:
+        return "BOARD_PRESENT"
+    if not pid:
+        return "AMEA_EMPTY"
+    return "AMEA_NOT_ON_BOARD" if AMEA_RE.fullmatch(pid) else "AMEA_FORMAT_REVIEW"
+
+
+def invoice_registry_relation(row, regs, by_base, pids):
+    x, base = get(row, "X Project"), get(row, "X Base")
+    if not x:
+        if not base:
+            return "X_BASE_NOT_OBSERVED"
+        if not X_RE.fullmatch(base) or re.search(r"-Z\d+$", base):
+            return "X_BASE_FORMAT_REVIEW"
+        count = len(by_base.get(base, ()))
+        return ("X_BASE_NOT_IN_CURRENT_REGISTRY" if not count else
+                "X_BASE_MULTIPLE_CURRENT_CANDIDATES" if count > 1 else
+                "X_BASE_ONE_CURRENT_CANDIDATE")
+    if x not in regs:
+        return "X_NOT_IN_CURRENT_REGISTRY"
+    registry_amea = get(regs[x], "AMEA")
+    if registry_amea and get(row, "AMEA") and registry_amea != get(row, "AMEA"):
+        return "X_AMEA_DISAGREEMENT"
+    return "X_WITH_BOARD_AMEA" if registry_amea in pids else "X_WITHOUT_BOARD_AMEA"
+
+
+def orphan_scope_counts(pids, regs, invoices):
+    """Observed Board coverage; not a finding of broken lineage or payment."""
+    by_base = defaultdict(set)
+    for x in regs:
+        by_base[re.sub(r"-Z\d+$", "", x)].add(x)
+    result = {}
+    for kind, records in (("x", regs), ("invoice", invoices)):
+        rows = [r for r in records.values() if get(r, "AMEA") not in pids]
+        groups = {}
+        for scope in ("MY_VERIFIED", "OTHER_SALES", "OWNER_UNVERIFIED", "UNCLASSIFIED"):
+            subset = [r for r in rows if owner_scope(r) == scope]
+            groups[scope] = {
+                "records": len(subset),
+                "distinct_valid_amea": len({get(r, "AMEA") for r in subset
+                                            if AMEA_RE.fullmatch(get(r, "AMEA"))}),
+                "board_relation_counts": dict(Counter(board_relation(r, pids) for r in subset)),
+                "link_state_counts": dict(Counter(safe_code(
+                    get(r, "AMEA Link State" if kind == "x" else "Invoice Link State"),
+                    X_LINK_CODES if kind == "x" else INVOICE_LINK_CODES) for r in subset)),
+            }
+            if kind == "invoice":
+                groups[scope]["registry_relation_counts"] = dict(Counter(
+                    invoice_registry_relation(r, regs, by_base, pids) for r in subset))
+        result[kind] = {
+            "current_records": len(records),
+            "board_present": len(records) - len(rows),
+            "board_absent": len(rows),
+            "owner_scope_counts": dict(Counter(owner_scope(r) for r in records.values())),
+            "board_absent_by_owner_scope": groups,
+        }
+        if sum(v["records"] for v in groups.values()) != len(rows):
+            raise HealthError("HEALTH_ORPHAN_SCOPE_COUNT_MISMATCH")
+    return result
 
 
 def review_health(reasons):
@@ -474,6 +554,7 @@ def assess(tables, manifest, report_audit, now):
                                       "X Registry", "SFDC Quote Export"],
         "unassigned_current_x": sum(get(r, "AMEA") not in pids for r in regs.values()),
         "unassigned_current_invoices": sum(get(r, "AMEA") not in pids for r in invoices.values()),
+        "board_coverage_by_owner": orphan_scope_counts(pids, regs, invoices),
         "mail_without_board_project": sum(get(r, "Project ID") not in pids for r in mails.values()),
         "business_writes": 0,
     }

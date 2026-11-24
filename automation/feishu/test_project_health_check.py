@@ -349,6 +349,88 @@ class SourceMetadataTests(unittest.TestCase):
         self.assertEqual(summary["source_metadata_reason_counts"], {})
 
 
+class OwnerScopeCoverageTests(unittest.TestCase):
+    def test_owner_scope_partitions_and_no_private_identifiers(self):
+        t = fixture()
+        t[h.REGISTRY][0]["Owner Scope"] = "MY_VERIFIED"
+        outside = registry(X2, Q)
+        outside["Owner Scope"] = "OTHER_SALES"
+        t[h.REGISTRY].append(outside)
+        missing = registry("X209SC26000003", "")
+        missing["Owner Scope"] = "private-provider-value"
+        t[h.REGISTRY].append(missing)
+        t[h.INVOICE] = [
+            {"Source Key": "INVOICE:" + CMS, "CMS Invoice": CMS,
+             "AMEA": Q, "X Base": "X209SC26000999", "X Project": "",
+             "Owner Scope": "MY_VERIFIED", "Invoice Link State": "X_NOT_IN_ONLINE",
+             "Record State": "CURRENT"},
+            {"Source Key": "INVOICE:209126000002", "CMS Invoice": "209126000002",
+             "AMEA": Q, "X Base": "X209SC26000001", "X Project": X2,
+             "Owner Scope": "OTHER_SALES", "Invoice Link State": "EXACT_X_AMEA_CMS",
+             "Record State": "CURRENT"},
+            {"Source Key": "INVOICE:209126000003", "CMS Invoice": "209126000003",
+             "AMEA": Q, "Owner Scope": "OWNER_UNVERIFIED",
+             "Invoice Link State": "private-provider-value", "Record State": "CURRENT"},
+        ]
+        before = copy.deepcopy(t)
+        summary, _ = inspect(t)
+        cov = summary["board_coverage_by_owner"]
+        self.assertEqual(summary["unassigned_current_x"], 2)
+        self.assertEqual(summary["unassigned_current_invoices"], 3)
+        self.assertEqual(cov["x"]["board_present"], 1)
+        self.assertEqual(cov["x"]["board_absent_by_owner_scope"]["MY_VERIFIED"]["records"], 0)
+        self.assertEqual(cov["x"]["board_absent_by_owner_scope"]["OTHER_SALES"]["records"], 1)
+        self.assertEqual(cov["x"]["board_absent_by_owner_scope"]["UNCLASSIFIED"]["board_relation_counts"],
+                         {"AMEA_EMPTY": 1})
+        own = cov["invoice"]["board_absent_by_owner_scope"]["MY_VERIFIED"]
+        self.assertEqual(own["distinct_valid_amea"], 1)
+        self.assertEqual(own["registry_relation_counts"], {"X_BASE_NOT_IN_CURRENT_REGISTRY": 1})
+        self.assertEqual(cov["invoice"]["board_absent_by_owner_scope"]["OTHER_SALES"]["registry_relation_counts"],
+                         {"X_WITHOUT_BOARD_AMEA": 1})
+        self.assertEqual(cov["invoice"]["board_absent_by_owner_scope"]["OWNER_UNVERIFIED"]["link_state_counts"],
+                         {"UNCLASSIFIED": 1})
+        self.assertEqual(sum(v["records"] for v in cov["invoice"]["board_absent_by_owner_scope"].values()), 3)
+        self.assertEqual(t, before)
+        for forbidden in (P, Q, X, CMS, "private-provider-value"):
+            self.assertNotIn(forbidden, json.dumps(cov))
+
+    def test_invoice_registry_candidates_are_not_exact_links(self):
+        pids = {P: board()}
+        r = registry()
+        r["Owner Scope"] = "MY_VERIFIED"
+        regs = {X: r}
+        base = "X209SC26000001"
+        invoice = {"AMEA": Q, "X Base": base, "X Project": "", "Owner Scope": "MY_VERIFIED"}
+        def category():
+            out = h.orphan_scope_counts(pids, regs, {CMS: invoice})
+            return out["invoice"]["board_absent_by_owner_scope"]["MY_VERIFIED"]["registry_relation_counts"]
+        self.assertEqual(category(), {"X_BASE_ONE_CURRENT_CANDIDATE": 1})
+        regs[X2] = registry(X2)
+        self.assertEqual(category(), {"X_BASE_MULTIPLE_CURRENT_CANDIDATES": 1})
+        invoice["X Project"] = X
+        self.assertEqual(category(), {"X_AMEA_DISAGREEMENT": 1})
+        invoice["X Project"] = ""
+        invoice["X Base"] = X
+        self.assertEqual(category(), {"X_BASE_FORMAT_REVIEW": 1})
+        invoice["X Base"] = ""
+        self.assertEqual(category(), {"X_BASE_NOT_OBSERVED": 1})
+
+    def test_retained_records_excluded_and_unknown_scope_not_other_sales(self):
+        t = fixture()
+        orphan = registry(X2, Q)
+        orphan["Owner Scope"] = "OWNER_UNVERIFIED"
+        t[h.REGISTRY].append(orphan)
+        retained = registry("X209SC26000003", Q)
+        retained["Record State"] = "SOURCE_NOT_IN_LATEST"
+        retained["Owner Scope"] = "MY_VERIFIED"
+        t[h.REGISTRY].append(retained)
+        cov = inspect(t)[0]["board_coverage_by_owner"]["x"]
+        self.assertEqual(cov["current_records"], 2)
+        self.assertEqual(cov["board_absent"], 1)
+        self.assertEqual(cov["board_absent_by_owner_scope"]["OWNER_UNVERIFIED"]["records"], 1)
+        self.assertEqual(cov["board_absent_by_owner_scope"]["MY_VERIFIED"]["records"], 0)
+
+
 class ReadOnlyBoundaryTests(unittest.TestCase):
     def test_complete_pagination_and_only_get(self):
         pages=iter([{"items":[{"x":1}],"has_more":True,"page_token":"p2","total":2},
