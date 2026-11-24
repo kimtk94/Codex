@@ -8,6 +8,7 @@ on:
       - 'research/kalman_daily20/challenger_forward_producer.py'
       - 'research/kalman_daily20/challenger_benchmark_validation.py'
       - 'research/kalman_daily20/challenger_factor_attribution.py'
+      - 'research/kalman_daily20/challenger_cohort_exclusion.py'
       - 'research/kalman_daily20/challenger_execution_audit.py'
       - 'research/kalman_daily20/challenger_sip_quote_audit.py'
       - 'research/kalman_daily20/challenger_archive_audit.py'
@@ -72,6 +73,8 @@ jobs:
         run: python research/kalman_daily20/challenger_sip_quote_audit.py --self-test
       - name: Validate exposure-aware factor attribution (synthetic only)
         run: python research/kalman_daily20/challenger_factor_attribution.py --self-test
+      - name: Validate fixed cohort exclusion and cash conservation (synthetic only)
+        run: python research/kalman_daily20/challenger_cohort_exclusion.py --self-test
       - name: Fetch pinned historical artifacts (same repository, read only)
         if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
@@ -140,6 +143,24 @@ jobs:
             --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
             --reference "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
             --out "${RUNNER_TEMP}/challenger-factor/factor_attribution.json"
+      - name: Evaluate all fixed admitted-cohort exclusions (no replacement)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/challenger_cohort_exclusion.py \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --reference "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --out "${RUNNER_TEMP}/challenger-exclusion/cohort_exclusion.json"
+      - name: Upload aggregate fixed cohort exclusion diagnostics
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-locked-cohort-exclusion-not-forward
+          path: ${{ runner.temp }}/challenger-exclusion/cohort_exclusion.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Upload aggregate factor attribution only
         if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: actions/upload-artifact@v4
