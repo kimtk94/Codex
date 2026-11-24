@@ -1,6 +1,17 @@
 name: Kalman Daily 20 Research (No Server / No Live)
 on:
   workflow_dispatch:
+    inputs:
+      recovery_session:
+        description: 'Optional explicit pre-open FIRST recovery target XNYS date (not a scheduled run)'
+        required: false
+        type: string
+        default: ''
+      recovery_utc_day:
+        description: 'UTC incident date for explicit recovery; expires that day'
+        required: false
+        type: string
+        default: ''
   push:
     branches: [main]
     paths:
@@ -44,6 +55,21 @@ jobs:
           python-version: '3.11'
       - name: Install minimal test dependencies
         run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<2.4' 'scikit-learn>=1.6,<2' 'exchange-calendars>=4.7' 'pyarrow>=17,<25'
+      - name: Fail closed on expired or mismatched explicit recovery before Drive restore
+        if: github.event_name == 'workflow_dispatch' && (inputs.recovery_session != '' || inputs.recovery_utc_day != '')
+        env:
+          RECOVERY_SESSION: ${{ inputs.recovery_session }}
+          RECOVERY_UTC_DAY: ${{ inputs.recovery_utc_day }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          from datetime import datetime, timezone
+          sys.path.insert(0, 'automation/kalman_schedule')
+          from recovery_dispatch import verify_recovery_clock
+          verify_recovery_clock(os.environ['RECOVERY_SESSION'], os.environ['RECOVERY_UTC_DAY'],
+                                datetime.now(timezone.utc), min_minutes=0)
+          print("EXPLICIT_RECOVERY_CLOCK_ADMITTED_BEFORE_DRIVE_RESTORE")
+          PY
       - name: Offline tests and compilation
         env:
           PYTHONFAULTHANDLER: '1'
@@ -1004,6 +1030,9 @@ jobs:
             --pr-contract
       - name: Audit first prospective NYSE seal readiness against authenticated Drive archive
         if: github.event_name != 'pull_request'
+        env:
+          RECOVERY_SESSION: ${{ inputs.recovery_session }}
+          RECOVERY_UTC_DAY: ${{ inputs.recovery_utc_day }}
         run: |
           python research/kalman_daily20/next_session_two_pass_contract.py \
             --phase pre \
@@ -1022,6 +1051,18 @@ jobs:
           assert not r["price_certified"] and r["no_historical_reseal"]
           assert (r["expected_new_bull"],r["expected_new_bear"]) in ((0,0),(20,40))
           assert r["github_event_origin"]=="${{ github.event_name }}"
+          import os, sys
+          if os.environ.get("RECOVERY_SESSION") or os.environ.get("RECOVERY_UTC_DAY"):
+              from datetime import datetime, timezone
+              sys.path.insert(0, "automation/kalman_schedule")
+              from recovery_dispatch import verify_recovery_clock
+              verify_recovery_clock(os.environ["RECOVERY_SESSION"], os.environ["RECOVERY_UTC_DAY"],
+                                    datetime.now(timezone.utc), min_minutes=0)
+              assert r["github_event_origin"]=="workflow_dispatch" and not r["scheduled_slot"]
+              assert r["session"]==os.environ["RECOVERY_SESSION"]
+              assert r["mode"]=="FIRST_GENUINE_SEAL_EXPECTED"
+              assert (r["expected_new_bull"],r["expected_new_bear"])==(20,40)
+              print("EXPLICIT_RECOVERY_ACTUAL_TIME_FIRST_ONLY_NOT_SCHEDULED",r["session"])
           if r["github_event_origin"]=="push":
               assert r["expected_new_bull"]==r["expected_new_bear"]==0
           if r["scheduled_slot"]=="40 4 * * 2-6":

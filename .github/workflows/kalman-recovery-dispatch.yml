@@ -1,0 +1,74 @@
+name: Kalman Reviewed Actual-Time Recovery Dispatch (Research Only)
+
+on:
+  # A single reviewed, expiring request; no recurring auto-dispatch or cron credit.
+  push:
+    branches: [main]
+    paths:
+      - 'automation/kalman_schedule/recovery_requests/2026-11-24.json'
+  pull_request:
+    paths:
+      - 'automation/kalman_schedule/recovery_dispatch.py'
+      - 'automation/kalman_schedule/test_recovery_dispatch.py'
+      - 'automation/kalman_schedule/recovery_requests/2026-11-24.json'
+      - '.github/workflows/kalman-recovery-dispatch.yml'
+      - '.github/workflows/kalman-daily20.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: kalman-reviewed-recovery-dispatch-${{ github.event_name == 'pull_request' && github.run_id || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install same exchange-calendar dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<2.4' 'exchange-calendars>=4.7'
+      - name: Check expiring request and fail-closed contracts (no dispatch)
+        run: |
+          cd automation/kalman_schedule
+          python -m unittest -v test_recovery_dispatch.py
+          python -m py_compile recovery_dispatch.py
+
+  request-recovery:
+    needs: contracts
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'kimtk94/Codex'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install exchange-calendar dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<2.4' 'exchange-calendars>=4.7'
+      - name: Revalidate schedule absence and exact pre-open clock, then dispatch at most once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python automation/kalman_schedule/recovery_dispatch.py \
+            --execute --out output/kalman_schedule/recovery_dispatch.json
+      - name: Preserve explicit recovery admission or HOLD evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-recovery-dispatch-${{ github.run_id }}
+          path: output/kalman_schedule/recovery_dispatch.json
+          if-no-files-found: warn
+          retention-days: 90
