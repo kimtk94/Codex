@@ -1,0 +1,92 @@
+# Project Health Check
+
+> Deployment: [INTEGRATED_RELEASE.md](INTEGRATED_RELEASE.md) defines the single-candidate alternative to the historical stacked PR sequence below. Review and approve one route only; CI is not live verification.
+
+## Purpose
+
+Cross-check the existing project management board with the current X registry,
+AMEA/H/X/SAM link table, X Invoice Ledger, Contract PO Tracker and Mail Identity
+2026. Read the two existing source-metadata sheets. This is a read-only diagnostic,
+not another canonical writer or a source of customer, financial or delivery truth.
+It adds no Feishu record, view, table, dashboard, or recurring schedule.
+
+## Evidence rules
+
+| Area | Acceptance | Limitation |
+| --- | --- | --- |
+| Board | Canonical AMEA/Source Key; CURRENT_INPUT | Carryover and unclassified records are counted separately, not re-certified. |
+| Quote | Existing PM Quote Link and PM Data Check | No new Quote ID validation, promotion or amount conversion in this audit. |
+| X | Current registry and exact AMEA_X, AMEA_H and H_X agree; H owner and X/H relation are unique | Unique H candidate, conflicting parent or missing registry is review; not proof that every X was discovered. |
+| SAM | Exact observed sample row; unique AMEA and X target; only one officially chained X in scope | Shared or ambiguous samples stay in review, no inferred assignment. |
+| PO | Direct owner-CSS tracker row with original contract key and timestamp; existing manual-file attestation | H/X-related evidence is related-scope only. Notice, downstream inference, or no tracker row cannot certify PO receipt/missing PO. |
+| Mail | Exact project identity, accepted relationship and evidence tier, unique Mail Key | Mail Identity is a derived reference, not a fresh mailbox scan, complete thread, reply status or delivery proof. |
+| Invoice | Only board MY_VERIFIED scope; exact current ledger X/AMEA/CMS links and matching CMS sets; compare VAT-gross and known balance when complete | Blank balance stays unknown; amounts and CMS identifiers are not exported. |
+| Archive | Existing completion and full-payment attestation, no positive current observed balance, compare auto-receipt snapshot dates and gross | A finding is review of stored evidence, never automatic reopening, payment or delivery certification. |
+
+Global orphan counts identify current X and invoice rows without a board AMEA,
+and mail identity rows without a board project. They are not automatically
+assigned by customer names. Findings from the independently refreshed tables
+may reflect timing differences. Reads are sequential/non-atomic.
+
+## Source freshness
+
+The manifest reports source/snapshot date, mirror sync time, schema and row
+count. Check the established Online 48h, Payment 72h/45-day bounds; apply the
+same 72h/45-day limit to Prepayments as a **new advisory policy**, not an SLA.
+A recent mirror does not make an old dated source recent. Do not re-certify
+live source ID/date parity or actual mirror contents from metadata.
+
+SFDC report audit metadata records receipt time and ingest-check time for
+Leads, Opportunities and Quotation. The existing 6-hour banner threshold
+is used as an advisory receipt-age check (not a report delivery promise).
+The stored hash format is checked, but the actual report hash is not
+recomputed and the Quote Export timestamp is not inferred. A weekend may
+legitimately have no new report.
+
+CSS, Lifecycle, PO Tracker, Mail Identity, X Registry and Quote Export source
+freshness remain NOT_ATTESTED in this cross-check. Row Last Sync KST records
+last changes, not last successful independent verification; never use it as
+a freshness timestamp. Audit start and finish are separate from all source
+times. Existing source owners and parity checks remain authoritative.
+
+## Results and operations
+
+- CONFLICT_REVIEW: observed contradiction between projections. Inspect source
+  IDs, scope and timestamps before changing business data.
+- REVIEW: missing/ambiguous evidence, metadata beyond advisory limits or
+  uncertain scope.
+- LIMITED_OBSERVED_CHECKS_PASS: limited observed cross-checks agree; missing
+  mail/PO/sample observations are explicit domain statuses, not negative proof.
+  This is not a health or source completeness certificate.
+- NOT_CURRENT_OR_UNCLASSIFIED: board row excluded from current cross-check.
+
+After the stacked PRs are reviewed and deployed, run **Feishu Project
+Management Center** on main with mode=health. Only its read-only health job
+runs after offline checks. Setup/apply is skipped. There is no additional
+cron. Successful execution reports aggregate counts and source metadata in
+the run log; it does not declare all projects healthy. Schema, duplicate
+keys, incomplete pagination or wrong Base fail closed. Six existing tables
+are read once each, with strict metadata validation. The existing 100-row
+page size is preserved; Mail Identity uses the same 1,000-page (100,000-row)
+ceiling as its existing ingestion owner, while other tables keep the 200-page
+(20,000-row) ceiling. Incomplete, oversized or changing catalogs still fail
+closed; this is not a guarantee of completeness or live runtime. The two
+small metadata ranges are read separately.
+
+In an authorized local environment with existing Feishu and read-only
+Google credentials, run:
+
+    python automation/feishu/project_health_check.py --private-report /absolute/private/path/health.json
+
+The optional local report contains AMEA IDs, fixed evidence labels, counts
+and review reasons. It does not contain names, subjects, mail bodies,
+document references, CMS IDs or monetary values. It must be a new absolute
+path outside the repository; creation is exclusive and uses mode 0600 where
+the OS supports it. It is refused in CI. Do not upload it to public GitHub
+or an unapproved sharing location. Default stdout is aggregate only.
+
+No authenticated production audit was performed in development; PR checks
+exercise synthetic fixtures only. Review actual scope, completeness,
+metadata and exception volumes before proposing persisted Health fields
+or alerts. Future production integration must retain the canonical board's
+single writer and avoid frequent rescans of the full mail projection.

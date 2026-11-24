@@ -30,8 +30,8 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: feishu-automation-run-history
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'feishu-automation-run-history' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   tests:
     runs-on: ubuntu-latest

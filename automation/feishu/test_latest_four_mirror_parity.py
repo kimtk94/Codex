@@ -1,5 +1,5 @@
 """Synthetic, credential-free tests of Feishu mirror and latest source identity."""
-import pathlib,sys,unittest
+import json,pathlib,sys,unittest
 from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).parent))
 from latest_four_mirror_parity import MIRRORS,validate_structure,evaluate,fetch_mirror_snapshot
@@ -24,6 +24,47 @@ class MirrorParityTest(unittest.TestCase):
  def test_actual_four_mirror_panel_positions(self):
   for name,row in headers().items():
    self.assertEqual(validate_structure(name,row),"MIRROR_STRUCTURAL_MATCH",name)
+ def test_outstanding_inserted_column_preserves_exact_name_contract(self):
+  h=headers()["Payment Outstanding"]
+  h.insert(12,"Currency")
+  self.assertEqual(validate_structure("Payment Outstanding",h),"MIRROR_STRUCTURAL_MATCH")
+  self.assertEqual(validate_structure("Payment Outstanding",list(reversed(h))),"MIRROR_STRUCTURAL_MATCH")
+ def test_outstanding_requires_all_exact_payment_and_owner_fields(self):
+  for name in ("Invoice Amount","Balance","CMS Invoice Number","Quotation Number","Sales"):
+   for replacement in ("Unknown column",name.lower()):
+    with self.subTest(name=name,replacement=replacement):
+     h=headers()["Payment Outstanding"]
+     h[h.index(name)]=replacement
+     self.assertEqual(validate_structure("Payment Outstanding",h),"OUTSTANDING_REQUIRED_FIELD_MISSING")
+ def test_outstanding_critical_duplicate_beyond_old_core_is_blocked(self):
+  for label in ("Invoice Amount"," invoice amount ","Invoice Amount [2]","Balance [3]"):
+   with self.subTest(label=label):
+    h=headers()["Payment Outstanding"]+[label]
+    self.assertIn(validate_structure("Payment Outstanding",h),
+      ("CANONICAL_DUPLICATE_FIELD","OUTSTANDING_REQUIRED_FIELD_AMBIGUOUS"))
+ def test_shifted_outstanding_still_blocks_stale_source_identity(self):
+  h=headers();h["Payment Outstanding"].insert(12,"Currency")
+  s=selected();s["Payment Outstanding"]={"sheet_id":"new-tab","date":"2026-11-01"}
+  rows,blocked=evaluate(s,manifest(),h)
+  self.assertEqual(blocked,["Payment Outstanding"])
+  self.assertEqual(rows[0]["checks"],["MIRROR_SOURCE_ID_NOT_LATEST","MIRROR_SOURCE_DATE_NOT_LATEST"])
+  self.assertEqual(rows[0]["latest_source_date"],"2026-11-01")
+  self.assertEqual(rows[0]["mirror_source_date"],"2026-10-26")
+  self.assertEqual(rows[0]["mirror_synced_at"],"2026-10-30T08:54:00+09:00")
+ def test_invalid_metadata_is_not_copied_to_public_diagnostics(self):
+  m=manifest();m[1][1]="PRIVATE_DATE_SENTINEL";m[1][2]="PRIVATE_TIMESTAMP_SENTINEL"
+  rows,blocked=evaluate(selected(),m,headers())
+  self.assertIn("Payment Outstanding",blocked)
+  self.assertIsNone(rows[0]["source_date"])
+  self.assertIsNone(rows[0]["mirror_source_date"])
+  self.assertIsNone(rows[0]["mirror_synced_at"])
+  self.assertNotIn("PRIVATE_",json.dumps(rows))
+ def test_outstanding_width_empty_and_core_duplicate_guards_remain(self):
+  self.assertEqual(validate_structure("Payment Outstanding",headers()["Payment Outstanding"][:16]),"CANONICAL_WIDTH_MISSING")
+  h=headers()["Payment Outstanding"];h[2]=""
+  self.assertEqual(validate_structure("Payment Outstanding",h),"CANONICAL_EMPTY_FIELD")
+  h=headers()["Payment Outstanding"];h[2]=h[3]
+  self.assertEqual(validate_structure("Payment Outstanding",h),"CANONICAL_DUPLICATE_FIELD")
  def test_identical_latest_ids_are_still_raw_unverified(self):
   rows,blocked=evaluate(selected(),manifest(),headers())
   self.assertEqual(blocked,[])
@@ -107,3 +148,4 @@ class MirrorBatchReadTests(unittest.TestCase):
    fetch_mirror_snapshot(client)
 
 if __name__=="__main__":unittest.main()
+

@@ -51,6 +51,69 @@ def unlinked_reason(subject):
     return "OTHER_UNRESOLVED_SUBJECT_ID"
 
 
+def sif_tracker_reconciliation(desired, stored):
+    """Compare exact source IDs and writer-owned evidence; no repair or guesses.
+
+    The mail snapshot and tracker are independently refreshed. Missing and
+    additional keys are observations of this input, not proof of deletion,
+    canceled projects, or an exhaustive mailbox.
+    """
+    expected = {}
+    for row in desired:
+        project = row.get("Project ID")
+        if not project or project in expected:
+            raise SafeError("ISSUE_AUDIT_SIF_DESIRED_KEY_INVALID")
+        expected[project] = row
+    by_key = defaultdict(list)
+    invalid = 0
+    for record in stored:
+        fields = record.get("fields") or {}
+        project = plain_field(fields.get("Project ID")).strip()
+        # No case folding, suffix stripping, parent expansion or subject/body
+        # parsing of stored keys. Only exact source-owned identifier forms.
+        if not project or project != project.upper() or not any(
+            pattern.fullmatch(project) for pattern in (po.AMEA, po.H_PROJECT, po.X_PROJECT)
+        ):
+            invalid += 1
+            continue
+        by_key[project].append(fields)
+    expected_ids, stored_ids = set(expected), set(by_key)
+    shared = expected_ids & stored_ids
+    duplicates = {key for key, rows in by_key.items() if len(rows) != 1}
+    check_fields = tuple(k for k in sif.FIELDS if k not in {"Project ID", "Last Sync UTC"})
+    mismatch_counts = Counter()
+    mismatch_projects = 0
+    compared = shared - duplicates
+    for key in compared:
+        actual = by_key[key][0]
+        mismatches = [field for field in check_fields
+                      if plain_field(actual.get(field)) != str(expected[key].get(field, ""))]
+        mismatch_projects += bool(mismatches)
+        mismatch_counts.update(mismatches)
+    missing, extra = expected_ids - stored_ids, stored_ids - expected_ids
+    if invalid or duplicates:
+        state = "KEY_CONFLICT_REVIEW"
+    elif missing or extra:
+        state = "SET_DIFFERENCE_REVIEW"
+    elif mismatch_projects:
+        state = "FIELD_DIFFERENCE_REVIEW"
+    else:
+        state = "MATCHED_OBSERVED_INPUT"
+    return {
+        "sif_tracker_key_consistency": state,
+        "sif_tracker_unique_valid_keys": len(stored_ids),
+        "sif_shared_project_keys": len(shared),
+        "sif_missing_from_tracker": len(missing),
+        "sif_tracker_extra_unobserved_keys": len(extra),
+        "sif_tracker_invalid_key_rows": invalid,
+        "sif_tracker_duplicate_keys": len(duplicates),
+        "sif_tracker_duplicate_extra_rows": sum(len(by_key[k])-1 for k in duplicates),
+        "sif_tracker_evidence_compared_projects": len(compared),
+        "sif_tracker_evidence_mismatch_projects": mismatch_projects,
+        "sif_tracker_evidence_mismatch_fields": dict(sorted(mismatch_counts.items())),
+    }
+
+
 def compute(source_rows, po_tracker_rows=None, sif_tracker_rows=None):
     po_tracker_rows = po_tracker_rows or []
     sif_tracker_rows = sif_tracker_rows or []
@@ -123,6 +186,7 @@ def compute(source_rows, po_tracker_rows=None, sif_tracker_rows=None):
         "sif_source_projects": len(desired_sif),
         "sif_tracker_rows": len(sif_tracker_rows),
         "sif_tracker_count_mismatch": len(desired_sif) != len(sif_tracker_rows),
+        **sif_tracker_reconciliation(desired_sif, sif_tracker_rows),
     }
     if sum(sif_status.values()) != len(desired_sif):
         raise SafeError("ISSUE_AUDIT_SIF_INTEGRITY_FAILED")

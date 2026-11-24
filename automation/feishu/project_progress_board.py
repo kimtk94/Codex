@@ -8,6 +8,7 @@ misrepresented as a verified Salesforce quotation name.
 import collections
 import re
 from project_settlement import completion_evidence, finalize
+from project_data_checks import ProjectEvidence
 
 
 def value(row, key):
@@ -15,7 +16,7 @@ def value(row, key):
 
 
 def percent(raw):
-    s = str(raw or "").strip().rstrip("%").replace(",", "")
+    s = str("" if raw is None else raw).strip().rstrip("%").replace(",", "")
     if not s:
         return None
     try:
@@ -57,6 +58,17 @@ def progress_phase(stage):
     billing-only milestone to physical production evidence.
     """
     t = str(stage or "").strip().lower()
+    # Explicit Online-Project statuses: Data QC is not Sample QC, and
+    # demultiplexing/BI analysis belong after sequencing.
+    online_phases = {
+        "extraction": "02 샘플/QC",
+        "lib prep": "03 라이브러리", "lib qc": "03 라이브러리",
+        "add-seq": "04 시퀀싱",
+        "demultiplexing": "05 데이터/리포트", "data qc": "05 데이터/리포트",
+        "bi analysis": "05 데이터/리포트",
+    }
+    if t in online_phases:
+        return online_phases[t]
     if re.search(r"data ready|download|final report|result release|report ready|data deliver", t):
         return "05 데이터/리포트"
     if re.search(r"sequenc|nova\s*seq|sequence\s*run|production", t):
@@ -90,6 +102,7 @@ def prepare_project_board(sources, project_rows):
     life_index = exact_records(sources.get("BI Project Lifecycle Overview", []), "AMEA")
     prepay_quotation = exact_records(sources.get("Feishu Latest Prepayments", []), "Quotation Number")
     prepay_x = exact_records(sources.get("Feishu Latest Prepayments", []), "Project Number")
+    checks = ProjectEvidence(sources)
     output = []
 
     for row in project_rows:
@@ -188,7 +201,9 @@ def prepare_project_board(sources, project_rows):
         }
         if pct is not None:
             result["Progress %"] = pct
-        output.append(finalize(result))
+        result = finalize(result)
+        result.update(checks.assess(result, progress_phase))
+        output.append(result)
     if len(output) != len({x["Source Key"] for x in output}):
         raise ValueError("DUPLICATE_BOARD_SOURCE_KEY")
     return output

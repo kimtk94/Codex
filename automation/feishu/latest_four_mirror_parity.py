@@ -6,10 +6,12 @@ Never log cell data or private labels.
 import datetime as dt
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
 from zoneinfo import ZoneInfo
+from latest_payment_bridge import REQUIRED_OUT
 
 BOOK="1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
 MIRRORS={
@@ -29,6 +31,22 @@ def validate_structure(fmt,header):
  core=[norm(v) for v in header[:width]]
  if any(not v for v in core):return "CANONICAL_EMPTY_FIELD"
  if len(set(core))!=len(core):return "CANONICAL_DUPLICATE_FIELD"
+ if fmt=="Payment Outstanding":
+  # The flat ledger is consumed by exact field name, not column number.
+  # Keep every payment/ownership key mandatory after harmless column inserts.
+  # Receipt and eTax panels below still require their fixed positions.
+  required=REQUIRED_OUT|set(expected.values())
+  all_fields=[norm(v) for v in header]
+  nonempty=[v for v in all_fields if v]
+  if len(set(nonempty))!=len(nonempty):return "CANONICAL_DUPLICATE_FIELD"
+  for name in sorted(required):
+   # shape() suffixes repeated source headers with [2], [3], ... . Those
+   # alternatives remain ambiguous even when the first spelling is present.
+   candidates=[v for v in all_fields if
+    re.sub(r"\s*\[\d+\]$","",v)==norm(name)]
+   if len(candidates)>1:return "OUTSTANDING_REQUIRED_FIELD_AMBIGUOUS"
+   if name not in header:return "OUTSTANDING_REQUIRED_FIELD_MISSING"
+  return "MIRROR_STRUCTURAL_MATCH"
  for pos,name in expected.items():
   if core[pos-1]!=norm(name):return "CRITICAL_FIELD_MISMATCH_AT_COL_"+str(pos)
  return "MIRROR_STRUCTURAL_MATCH"
@@ -42,10 +60,21 @@ def manifest_map(rows):
   name=str(r[0])
   if name in found:raise RuntimeError("SOURCE_MANIFEST_DUPLICATE_FORMAT")
   found[name]={"date":str(r[1]) if len(r)>1 else "",
+   "synced_at":str(r[2]) if len(r)>2 else "",
    "id":str(r[3]) if len(r)>3 else "",
    "rows":str(r[4]) if len(r)>4 else "",
    "schema":str(r[5]) if len(r)>5 else ""}
  return found
+
+def safe_date(value):
+ try:return dt.date.fromisoformat(value).isoformat()
+ except (TypeError,ValueError):return None
+
+def safe_timestamp(value):
+ try:
+  parsed=dt.datetime.fromisoformat(value)
+  return parsed.isoformat() if parsed.tzinfo is not None else None
+ except (TypeError,ValueError):return None
 
 def evaluate(selected,manifest_rows,headers):
  manifest=manifest_map(manifest_rows)
@@ -65,7 +94,10 @@ def evaluate(selected,manifest_rows,headers):
   if structure!="MIRROR_STRUCTURAL_MATCH":problems.append(structure)
   if problems:blocked.append(fmt)
   reports.append({"format":fmt,"status":"MIRROR_PARITY_BLOCKED" if problems else "MIRROR_MATCH_RAW_UNVERIFIED",
-    "checks":problems,"source_date":meta.get("date",""),
+    "checks":problems,"source_date":safe_date(meta.get("date")),
+    "latest_source_date":safe_date(live.get("date")),
+    "mirror_source_date":safe_date(meta.get("date")),
+    "mirror_synced_at":safe_timestamp(meta.get("synced_at")),
     "row_count":int(meta["rows"]) if meta.get("rows","").isdigit() else None,
     "core_columns":width})
  return reports,blocked
@@ -127,3 +159,4 @@ if __name__=="__main__":
   reason=str(exc) if isinstance(exc,RuntimeError) else type(exc).__name__
   print("FEISHU_MIRROR_PARITY_FAILED: "+reason[:200],file=sys.stderr)
   sys.exit(1)
+

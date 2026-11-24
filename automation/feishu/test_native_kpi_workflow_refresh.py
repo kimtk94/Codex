@@ -3,6 +3,8 @@
 import pathlib
 import unittest
 
+from test_workflow_pr_concurrency import context, evaluate, read_workflow
+
 WF=pathlib.Path(__file__).resolve().parents[2]/".github/workflows/feishu-native-kpi-dashboard.yml"
 
 
@@ -14,7 +16,9 @@ class RevenueCardTriggerTests(unittest.TestCase):
         self.assertIn("types: [completed]",source)
         self.assertIn("github.event.workflow_run.conclusion == 'success'",source)
         self.assertIn("(github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'apply'",source)
-        self.assertIn("cancel-in-progress: false",source)
+        workflow=read_workflow(WF.name)
+        policy=workflow["concurrency"]["cancel-in-progress"]
+        self.assertIs(evaluate(policy,context(workflow["name"],"workflow_run")),False)
 
 
 if __name__=="__main__":

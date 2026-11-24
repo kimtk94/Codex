@@ -17,7 +17,7 @@ import re
 import sys
 import urllib.parse as up
 
-from sfdc_command_queue import auth, path, pages, call, google, gs
+from sfdc_command_queue import auth, path, pages, call, google, gs, SHEET
 
 HEAD_TAB="SFDC Quote Export"
 LINE_TAB="SFDC Email Quotation Raw"
@@ -56,9 +56,7 @@ def checksum(value):
     return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
 
 
-def spreadsheet_values(session,tab,range_):
-    addr=up.quote("'"+tab+"'!"+range_,safe="")
-    response=gs(session,"GET","/values/"+addr)
+def _spreadsheet_rows(response):
     matrix=response.get("values",[])
     if len(matrix)<2:raise ReportSourceError("REPORT_TAB_EMPTY")
     heads=matrix[0]
@@ -66,6 +64,48 @@ def spreadsheet_values(session,tab,range_):
         raise ReportSourceError("REPORT_HEADERS_DUPLICATE")
     return [dict(zip(heads,row+[""]*(len(heads)-len(row))))
             for row in matrix[1:] if isinstance(row,list) and any(str(v).strip() for v in row)],heads
+
+
+def spreadsheet_values(session,tab,range_):
+    addr=up.quote("'"+tab+"'!"+range_,safe="")
+    return _spreadsheet_rows(gs(session,"GET","/values/"+addr))
+
+
+def _matches_source_range(actual,tab,cells):
+    if not isinstance(actual,str):return False
+    title,separator,address=actual.rpartition("!")
+    if not separator or title not in (tab,"'"+tab.replace("'","''")+"'"):
+        return False
+    bounds=re.fullmatch(r"A1:([A-Z]+)([1-9][0-9]*)",address)
+    expected=re.fullmatch(r"A1:([A-Z]+)([1-9][0-9]*)",cells)
+    if not bounds or not expected:return False
+    column=lambda value:sum((ord(c)-64)*26**i for i,c in enumerate(reversed(value)))
+    # Staging grids are sized to their rows, below these fixed read limits.
+    # Allow smaller extents; the raw report still has receipt digest/count checks.
+    return (column(bounds[1])<=column(expected[1])
+            and int(bounds[2])<=int(expected[2]))
+
+
+def read_report_sources(session):
+    """Read all three full sources per phase; do not cache between audit/sync."""
+    specs=((LINE_TAB,SHEET_RANGE_LINES),(AUDIT_TAB,AUDIT_RANGE),
+           (HEAD_TAB,SHEET_RANGE_HEAD))
+    query=up.urlencode([("ranges","'"+tab.replace("'","''")+"'!"+cells)
+                       for tab,cells in specs]+
+                      [("majorDimension","ROWS"),("valueRenderOption","FORMATTED_VALUE")])
+    response=gs(session,"GET","/values:batchGet?"+query)
+    if not isinstance(response,dict) or response.get("spreadsheetId")!=SHEET:
+        raise ReportSourceError("REPORT_BATCH_SPREADSHEET_MISMATCH")
+    values=response.get("valueRanges")
+    if not isinstance(values,list) or len(values)!=len(specs):
+        raise ReportSourceError("REPORT_BATCH_RANGES_INCOMPLETE")
+    # batchGet returns ValueRanges in request order. Verify each source binding
+    # before decoding; a partial or reordered response must not reach a writer.
+    for (tab,cells),item in zip(specs,values):
+        if (not isinstance(item,dict) or item.get("majorDimension")!="ROWS"
+                or not _matches_source_range(item.get("range"),tab,cells)):
+            raise ReportSourceError("REPORT_BATCH_RANGE_MISMATCH")
+    return tuple(_spreadsheet_rows(item) for item in values)
 
 
 
@@ -294,10 +334,8 @@ def build_records(source_lines,source_headers,now=None,verified_evidence=None):
 
 def load_source():
     s=google()
-    lines=spreadsheet_values(s,LINE_TAB,SHEET_RANGE_LINES)
-    audit=spreadsheet_values(s,AUDIT_TAB,AUDIT_RANGE)
+    lines,audit,heads=read_report_sources(s)
     evidence=verify_qq_process_report_audit(lines,audit)
-    heads=spreadsheet_values(s,HEAD_TAB,SHEET_RANGE_HEAD)
     return build_records(lines,heads,verified_evidence=evidence)
 
 

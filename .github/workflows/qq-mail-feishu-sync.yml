@@ -28,8 +28,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: qq-feishu-mail-ingest
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'qq-feishu-mail-ingest' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -69,6 +69,23 @@ jobs:
         run: test -n "$FEISHU_BASE_APP_TOKEN"
       - name: Import QQ mail to isolated sales Base
         run: python3 automation/feishu/qq_mail_ingest.py
+  mail_audit:
+    needs: [test, feishu]
+    if: ${{ needs.test.result == 'success' && needs.feishu.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    # Full-ledger verification may take longer than a mail-only import.
+    # Isolate retries/timeouts from the ingest job; never infer audit PASS
+    # from the importer exit status.
+    timeout-minutes: 30
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Independently audit stored mail counts and integrity (read only)
-        if: ${{ !cancelled() }}
         run: python3 automation/feishu/qq_mail_audit.py

@@ -19,7 +19,12 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from qq_mail_ingest import auth, api, list_all, SafeError
 from project_progress_board import prepare_project_board
-from project_settlement import EVIDENCE_FIELDS, finalize, counts
+from project_center_rules import SIGNAL_FIELDS, derive_signals
+from project_data_checks import DATA_FIELDS, COVERAGE, CURRENT, carryover_fields, AMEA_RE
+from project_settlement import (
+    EVIDENCE_FIELDS, SOURCE_RECEIPT, SOURCE_RECHECK_STATUS,
+    manual_receipt, finalize, counts,
+)
 from latest_payment_bridge import build_payment_evidence
 from quote_process_amount import weekly_calculations
 from approval_mail_weekly_bridge import supplement as reconcile_mail_approvals
@@ -36,6 +41,12 @@ CSS_SHEET = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
 UNIFIED_SHEET = "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
 KST = ZoneInfo("Asia/Seoul")
 D = decimal.Decimal
+
+# User-managed workbench fields are provisioned in Feishu and never written by
+# source syncs, even if a future projector accidentally includes them.
+PROJECT_MANAGEMENT_FIELDS=frozenset({
+    "관리 담당", "관리 우선순위", "관리 상태", "다음 확인일", "관리 메모",
+})
 
 # All other fields remain Feishu text to preserve audit/evidence labels.
 SCHEMAS = {
@@ -63,6 +74,7 @@ SCHEMAS = {
         ("Receipt Source Snapshot Date", 1),
         ("Outstanding Source Snapshot Date", 1),
         ("Last Sync KST", 1),
+        *((name, 1) for name in (*SIGNAL_FIELDS, *DATA_FIELDS)),
     ],
     "Monthly Tax Invoice": [
         ("Source Key", 1), ("Month", 1), ("Invoice Count", 2),
@@ -747,6 +759,7 @@ COUNT_FIELD_FORMATS={
 def ensure_integer_field_display(token,path,table,fields):
     targets=COUNT_FIELD_FORMATS.get(table,set())
     by_name={row.get("field_name"):row for row in fields}
+    changed=False
     for name in sorted(targets):
         item=by_name.get(name)
         if not item or item.get("type")!=2 or not item.get("field_id"):
@@ -765,8 +778,11 @@ def ensure_integer_field_display(token,path,table,fields):
         if updated.get("field_name")!=name or (
                 updated.get("property") or {}).get("formatter")!="0":
             raise SafeError("METRIC_NUMERIC_FORMAT_UPDATE_UNVERIFIED")
+        changed=True
         print("METRIC_INTEGER_FIELD_FORMAT_SET="+table+":"+name)
-    if not targets:return
+    # The supplied fields are from this run's live schema read. Re-read only
+    # after a PUT; unchanged formatters were already checked above.
+    if not changed:return
     verified={r.get("field_name"):r for r in
               list_all(path+"/fields",token,"metric_integer_format_readback")}
     if any((verified.get(name,{}).get("property") or {}).get("formatter")!="0"
@@ -774,10 +790,12 @@ def ensure_integer_field_display(token,path,table,fields):
         raise SafeError("METRIC_INTEGER_FIELD_FORMAT_READBACK_FAILED")
 
 
-def ensure_tables(token,root):
+def ensure_tables(token,root,scope="all"):
     catalog=table_catalog(token,root)
     paths={}
     for name,spec in SCHEMAS.items():
+        if scope=="quote" and name=="Project Progress Board":
+            spec=[item for item in spec if item[0] not in (*SIGNAL_FIELDS, *DATA_FIELDS)]
         ids=catalog.get(name,[])
         if len(ids)>1:raise SafeError("DUPLICATE_METRIC_TABLE_"+name.replace(" ","_"))
         if not ids:
@@ -793,10 +811,16 @@ def ensure_tables(token,root):
         p=table_path(root,ids[0])
         fields=list_all(p+"/fields",token,"metric_schema")
         names={f.get("field_name"):f.get("type") for f in fields}
+        if scope!="quote" and name=="Project Progress Board":
+            for field_name in (*SIGNAL_FIELDS, *DATA_FIELDS):
+                matches=[f for f in fields if f.get("field_name")==field_name]
+                if len(matches)>1 or (matches and matches[0].get("type")!=1):
+                    raise SafeError("PROJECT_SIGNAL_SCHEMA_REVIEW_REQUIRED")
+        schema_changed=False
         allowed={
             "Project Display Name","Completion Evidence",
             "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW","Invoice Gross M KRW",
-            "Outstanding Balance KRW","Outstanding Balance M KRW",*EVIDENCE_FIELDS,
+            "Outstanding Balance KRW","Outstanding Balance M KRW",*EVIDENCE_FIELDS,*SIGNAL_FIELDS,*DATA_FIELDS,
         }
         for field_name,field_type in spec:
             if field_name in names:
@@ -820,10 +844,14 @@ def ensure_tables(token,root):
                 api("POST",p+"/fields",token,
                     data={"field_name":field_name,"type":field_type},
                     action="metric_project_payment_field_add")
+                schema_changed=True
                 print("METRIC_PAYMENT_FIELD_CREATED="+field_name)
             else:
                 raise SafeError("METRIC_SCHEMA_UNEXPECTED_MISSING_FIELD")
-        fields=list_all(p+"/fields",token,"metric_schema_readback")
+        # The first live listing verifies an unchanged schema. A field create
+        # still requires a fresh listing before any records can be written.
+        if schema_changed:
+            fields=list_all(p+"/fields",token,"metric_schema_readback")
         names={f.get("field_name"):f.get("type") for f in fields}
         if any(names.get(f)!=t for f,t in spec):
             raise SafeError("METRIC_SCHEMA_MISMATCH_"+name.replace(" ","_"))
@@ -879,28 +907,58 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
         indexed[key]=rec
     creates=[];updates=[];unchanged=0
     final_rows=[]
+    carryover_rows=[]
     payment_matches=payment_matches or {}
     billing_context=billing_context or {}
+    desired_keys={r["Source Key"] for r in desired}
+    if len(desired_keys)!=len(desired):
+        raise SafeError("PROJECT_BOARD_DUPLICATE_DESIRED_KEY")
+    coverage_checked=bool(desired) and all(
+        r.get(COVERAGE)==CURRENT and AMEA_RE.fullmatch(str(r.get("AMEA") or ""))
+        and r["Source Key"]=="PROJECT:"+r["AMEA"] for r in desired)
     for raw in desired:
         row=dict(raw)
         key=row["Source Key"]
         old=indexed.get(key)
         original=old.get("fields") or {} if old else {}
+        if row.get(COVERAGE)==CURRENT:
+            # A previous numeric value must not survive an explicit unknown
+            # progress in a new snapshot. Zero is a real value.
+            row.setdefault("Progress %",None)
         if "Completion Evidence" in row:
             pid=raw_value(row.get("AMEA")).upper()
             proof=payment_matches.get(pid)
-            billing=billing_context.get(pid)
+            billing=billing_context.get(pid) or {}
+            # Missing current amounts are unknown, not the previous snapshot's
+            # zero/positive balance. Clear display values together with KRW.
+            row.update({name:None for name in (
+                "Invoice Gross KRW","Invoice Gross M KRW",
+                "Outstanding Balance KRW","Outstanding Balance M KRW",
+            )})
+            row["Payment Owner Scope"]="OWNER_UNVERIFIED"
             if billing:
                 row.update(billing)
-            # Never overwrite a manually verified bank/ERP receipt with an
-            # automatically matched spreadsheet receipt.
-            manual=(raw_value(original.get("Receipt Verification Status"))=="VERIFIED"
-                    and raw_value(original.get("Receipt Source")) in
-                        {"BANK_RECEIPT","ERP_CASH_RECEIPT"})
-            evidence=original if manual else (proof or original)
+            # Bank/ERP evidence is user-owned, including incomplete drafts.
+            # A spreadsheet match must not replace it while review is pending.
+            manual=manual_receipt(original)
+            evidence=original if manual else (proof or {})
             if proof and not manual:
                 row.update(proof)
+            elif not manual and raw_value(original.get("Receipt Source")).strip()==SOURCE_RECEIPT:
+                # Keep the historical invoice/reference/amount/date for audit,
+                # but revoke automatic verification when this run has no match.
+                row["Receipt Verification Status"]=SOURCE_RECHECK_STATUS
+                evidence={**original,"Receipt Verification Status":SOURCE_RECHECK_STATUS}
+            elif not manual:
+                # Partial/unverified evidence remains visible for human review.
+                evidence=original
             row=finalize(row,evidence)
+            row.update(derive_signals(row))
+            if manual:
+                # Invoice number and snapshot dates also belong to the manual
+                # attestation. Current billing may inform review, not replace it.
+                for name in EVIDENCE_FIELDS:
+                    row.pop(name,None)
         # Derive display-only M KRW; do not alter CMS/Receipt evidence.
         for raw_name,display_name in (
             ("Invoice Gross KRW","Invoice Gross M KRW"),
@@ -908,6 +966,8 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
         ):
             if raw_name in row and row[raw_name] is not None and row[raw_name]!="":
                 row[display_name]=scaled_m_krw(row[raw_name])
+        for name in PROJECT_MANAGEMENT_FIELDS:
+            row.pop(name,None)
         final_rows.append(row)
         if old and equivalent(original,row):
             unchanged+=1
@@ -919,6 +979,23 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
             updates.append({"record_id":rid,"fields":fields})
         else:
             creates.append({"fields":fields})
+    # Absent from this run's input does not mean absent from the live source.
+    # Preserve all business values, manual notes, and the old sync timestamp.
+    if coverage_checked:
+        for key,old in indexed.items():
+            if key in desired_keys:
+                continue
+            original=old.get("fields") or {}
+            pid=raw_value(original.get("AMEA")).strip().upper()
+            if not AMEA_RE.fullmatch(pid) or key!="PROJECT:"+pid:
+                continue
+            fields=carryover_fields()
+            carryover_rows.append({"Source Key":key,**fields})
+            if not equivalent(original,fields):
+                rid=old.get("record_id")
+                if not rid:raise SafeError("PROJECT_BOARD_MISSING_RECORD_ID")
+                updates.append({"record_id":rid,"fields":fields})
+        print("PROJECT_BOARD_CARRYOVER_REVIEW="+str(len(carryover_rows)))
     for verb,records in (("batch_create",creates),("batch_update",updates)):
         for start in range(0,len(records),25):
             chunk=records[start:start+25]
@@ -944,7 +1021,7 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
         if not key:continue
         if key in got:raise SafeError("PROJECT_BOARD_READBACK_DUPLICATE")
         got[key]=record.get("fields") or {}
-    for item in final_rows:
+    for item in [*final_rows,*carryover_rows]:
         if item["Source Key"] not in got or not equivalent(got[item["Source Key"]],item):
             raise SafeError("PROJECT_BOARD_READBACK_MISMATCH")
     print("PROJECT_BOARD_SYNC_PASS desired="+str(len(desired))+
@@ -1020,6 +1097,10 @@ VIEW_SPECS = {
         ("결제 완료 · 보관", "Workflow Lane", "PAID_ARCHIVED", "Payment Owner Scope", "MY_VERIFIED"),
         ("Prepayment · SIF 면제", "SIF State", "WAIVED_PREPAYMENT"),
         ("Quote 원문 검토", "Quote Match State", "CSS_ORIGINAL_UNVERIFIED"),
+        ("04 위험 검토", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Risk", "HIGH"),
+        ("05 연결 충돌", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Data Check", "CONFLICT"),
+        ("06 연결 확인", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Data Check", "REVIEW"),
+        ("07 이전 원본 보존", "Workflow Lane", "PRODUCTION_ACTIVE", "PM Source Coverage", "CARRYOVER_REVIEW"),
     ),
     "Project SIF Monitor": (
         ("프로젝트 진행 · SIF", None, None),
@@ -1042,9 +1123,9 @@ VIEW_SPECS = {
 }
 
 
-def setup_views(token, paths):
+def setup_views(token, paths, scope="all"):
     # All URLs are base-local and require Feishu sign-in.
-    from setup_sales_web import resolve_view, get_view, field_map
+    from setup_sales_web import resolve_view, get_view, field_map, list_views
     def matches(view, expected):
         info=((view.get("property") or {}).get("filter_info") or {})
         conditions=info.get("conditions") or []
@@ -1061,11 +1142,23 @@ def setup_views(token, paths):
     for table, specs in VIEW_SPECS.items():
         path = paths[table]
         fields = field_map(token, path)
+        # Reuse only this table's current validated name/ID listing. Every
+        # target still gets an individual read and the final catalog is checked.
+        known_views = list_views(token, path)
+        resolved_views = {}
         for spec in specs:
             name=spec[0]
+            if scope=="quote" and table=="Project Progress Board" and name in {
+                    "04 위험 검토","05 연결 충돌","06 연결 확인","07 이전 원본 보존"}:
+                continue
             pairs=list(zip(spec[1::2],spec[2::2]))
             filtered=bool(pairs and pairs[0][0])
-            view_id, _ = resolve_view(token, path, name, filtered)
+            pending_name = "설정중_" + name if filtered else name
+            view_id = known_views.get(name) or known_views.get(pending_name)
+            if not view_id:
+                # Re-list immediately before creating: another writer may have
+                # supplied the missing view since the initial table listing.
+                view_id, _ = resolve_view(token, path, name, filtered)
             view = get_view(token, path, view_id)
             if filtered:
                 expected=[]
@@ -1086,11 +1179,17 @@ def setup_views(token, paths):
                         raise SafeError("METRIC_FILTER_READBACK_FAILED")
             elif view.get("view_name")!=name:
                 raise SafeError("METRIC_VIEW_READBACK_FAILED")
+            resolved_views[name] = view_id
             table_id=path.rsplit("/",1)[-1]
             url="https://ocnz4cb25scn.feishu.cn/base/"+EXPECTED_BASE
             url+="?table="+urllib.parse.quote(table_id,safe="")
             url+="&view="+urllib.parse.quote(view_id,safe="")
             print("METRIC_WEB_VIEW="+name+" URL="+url)
+        # Catch duplicate names, deletion, rename or ID replacement during this
+        # table's pass, including partially completed view creation/renaming.
+        verified_views = list_views(token, path)
+        if any(verified_views.get(name)!=vid for name,vid in resolved_views.items()):
+            raise SafeError("METRIC_VIEW_CATALOG_READBACK_MISMATCH")
 
 def main():
     if os.environ.get("FEISHU_BASE_APP_TOKEN")!=EXPECTED_BASE:
@@ -1145,14 +1244,14 @@ def main():
         print("METRIC_PLAN_PASS scope="+scope+" writes=0")
         return
     token,root=auth()
-    paths=ensure_tables(token,root)
+    paths=ensure_tables(token,root,scope=scope)
     if scope!="operations":
         existing_review=board_list_with_retry(
             token,paths[QUOTE_REVIEW_TABLE],"weekly_review_existing")
         overrides=quote_manual_overrides(existing_review)
         review=build_quote_review(sources,overrides,now=dt.datetime.now(KST))
         output["Weekly Quote KPI"]=weekly_rows(sources,review=review)
-    setup_views(token,paths)
+    setup_views(token,paths,scope=scope)
     if scope!="operations":
         review_flags=sync_quote_review(
             token,paths[QUOTE_REVIEW_TABLE],review,existing_review,timestamp())
