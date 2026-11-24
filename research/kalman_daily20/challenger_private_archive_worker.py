@@ -153,6 +153,7 @@ def readback(service,c,item,file_id):
     # Recheck metadata after download to detect ordinary concurrent changes.
     end=service.files().get(fileId=file_id,fields=FIELDS,supportsAllDrives=True).execute()
     require(f==end,"WORKER_CONCURRENT_CHANGE")
+    owner_only(service,file_id,c)
     return dict(role=item["role"],name=item["name"],drive_file_id=file_id,
                 size=len(raw),sha256=sha(raw),created_utc=f["createdTime"],
                 modified_utc=f["modifiedTime"])
@@ -180,7 +181,7 @@ def durable_new(path,obj):
 
 def create_only(service,c,item,state,media_factory):
     matches=list_matches(service,c,item["name"])
-    path=state/(item["sha256"]+".intent.json")
+    path=state/(sha(item["name"].encode())+".intent.json")
     expected=dict(folder_id=c["folder_id"],account_permission_id=c["account_permission_id"],
                   name=item["name"],sha256=item["sha256"],size=len(item["raw"]))
     if path.exists():
@@ -328,6 +329,14 @@ def self_test():
             raise AssertionError("TEST_TIMEOUT_NOT_DETECTED")
         r=process(f,c,items,state,True,lambda x:x)
         require(r["files"][0]["action"]=="REUSED" and f.generated==f.creates==1,"TEST_IDEMPOTENT")
+        f.rows["id2"]=f.rows["id1"]
+        try:
+            process(f,c,items,state,True,lambda x:x)
+        except ValueError as exc:
+            require(str(exc)=="ARCHIVE_WORKER_DUPLICATE_NAME_HOLD","TEST_DUPLICATE_VETO")
+        else:
+            raise AssertionError("TEST_DUPLICATE_NOT_BLOCKED")
+        del f.rows["id2"]
         f.rows["id1"]=(f.rows["id1"][0],b"changed")
         for reason in ("WORKER_READBACK_MISMATCH","WORKER_WRONG_ACCOUNT","WORKER_PERMISSION_NOT_OWNER_ONLY"):
             f.wrong=reason=="WORKER_WRONG_ACCOUNT"
@@ -346,6 +355,7 @@ def main():
     a=argparse.ArgumentParser(description=__doc__)
     a.add_argument("--self-test",action="store_true")
     a.add_argument("--mode",choices=("plan","archive"),default="plan")
+    a.add_argument("--verify-inputs-only",action="store_true")
     for k in ("config","config-sha256","handoff","handoff-sha256","rehearsal",
               "rehearsal-sha256","commit","state-dir"):
         a.add_argument("--"+k)
@@ -354,15 +364,19 @@ def main():
     if x.self_test:
         self_test()
         return
+    require(all([x.handoff,x.handoff_sha256,x.rehearsal,x.rehearsal_sha256,x.commit,x.run]),
+            "WORKER_INPUT_ARGUMENTS")
+    items=inputs(x.handoff,x.handoff_sha256,x.rehearsal,x.rehearsal_sha256,x.run,x.commit)
+    if x.verify_inputs_only:
+        print(json.dumps(dict(status="ARCHIVE_INPUTS_VERIFIED_NO_DRIVE_NOT_FORWARD",
+                              files=len(items),approved_live=False,forward_signals_created=0)))
+        return
     require(not os.environ.get("GITHUB_ACTIONS"),"WORKER_PUBLIC_RUNNER_FORBIDDEN")
-    require(all([x.config,x.config_sha256,x.handoff,x.handoff_sha256,
-                 x.rehearsal,x.rehearsal_sha256,x.commit,x.state_dir,x.run]),
-            "WORKER_ARGUMENTS")
+    require(all([x.config,x.config_sha256,x.state_dir]),"WORKER_PRIVATE_ARGUMENTS")
     c=parse(pinned(private_file(x.config),x.config_sha256))
     require(set(c)=={"account_label","account_email","account_permission_id","folder_id","parent_id"}
             and c["account_label"]=="Taehoon"
             and all(isinstance(v,str) and v.strip() for v in c.values()),"WORKER_PRIVATE_CONFIG")
-    items=inputs(x.handoff,x.handoff_sha256,x.rehearsal,x.rehearsal_sha256,x.run,x.commit)
     state=Path(x.state_dir)
     state.mkdir(mode=0o700,parents=True,exist_ok=True)
     require(not state.is_symlink() and state.stat().st_mode&0o077==0,"WORKER_PRIVATE_STATE")
