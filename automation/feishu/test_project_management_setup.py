@@ -284,7 +284,7 @@ class ProjectManagementSetupTests(unittest.TestCase):
         self.assertIn("default: plan", header)
         for event in ("schedule", "push", "workflow_run"):
             self.assertNotIn("  " + event + ":", header)
-        self.assertIn("if: ${{ github.event_name == 'workflow_dispatch' && needs.offline.result == 'success' }}", text)
+        self.assertIn("if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.offline.result == 'success' }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
         self.assertIn('project_management_setup.py --mode "$SETUP_MODE"', text)
 
