@@ -228,6 +228,12 @@ def reconcile(mode="plan", expected_id="", runner=cli):
     created_ids = {}
     for target in missing:
         current = inventory(runner, "+dashboard-block-list", ident)
+        # Confirm prior writes before creating another block. An invisible
+        # write may be partially committed; stop rather than accumulating more.
+        if not set(created_ids.values()).issubset(current) or not set(rows).issubset(current):
+            raise RuntimeError("PROJECT_CENTER_READBACK_FAILED")
+        if any(current[bid].get("name") != name for name, bid in created_ids.items()):
+            raise RuntimeError("PROJECT_CENTER_READBACK_FAILED")
         if any(r.get("name") == target["name"] for r in current.values()):
             raise RuntimeError("PROJECT_CENTER_CONCURRENT_CREATE_REVIEW")
         args = ["+dashboard-block-create", "--base-token", BASE, "--dashboard-id", ident,

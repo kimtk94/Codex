@@ -191,6 +191,7 @@ class PageTests(unittest.TestCase):
         cli.ignore_create = True
         with self.assertRaisesRegex(RuntimeError, "READBACK_FAILED"):
             page.reconcile("apply", runner=cli)
+        self.assertEqual(len(cli.writes), 2)  # page and only the first block
 
     def test_recovery_preserves_layout(self):
         cli = FakeCLI()
