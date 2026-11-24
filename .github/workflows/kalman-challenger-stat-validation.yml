@@ -6,6 +6,7 @@ on:
       - 'research/kalman_daily20/challenger_overfit_validation.py'
       - 'research/kalman_daily20/challenger_prequential.py'
       - 'research/kalman_daily20/challenger_forward_producer.py'
+      - 'research/kalman_daily20/challenger_archive_audit.py'
       - 'research/kalman_daily20/challenger_prequential_protocol.json'
       - '.github/workflows/kalman-challenger-stat-validation.yml'
   workflow_dispatch:
@@ -40,6 +41,8 @@ jobs:
 
       - name: Validate cash ledger and RR2 contracts (synthetic only)
         run: python research/kalman_daily20/challenger_forward_producer.py --self-test
+      - name: Validate archive and handoff contracts (synthetic only)
+        run: python research/kalman_daily20/challenger_archive_audit.py --self-test
       - name: Fetch pinned historical artifacts (same repository, read only)
         if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
@@ -49,6 +52,24 @@ jobs:
           gh api repos/kimtk94/Codex/actions/artifacts/14914498151/zip > "${RUNNER_TEMP}/challenger-data.zip"
           gh api repos/kimtk94/Codex/actions/artifacts/14915426739/zip > "${RUNNER_TEMP}/challenger-research.zip"
           printf '%s  %s\n' 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf "${RUNNER_TEMP}/challenger-data.zip" c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f "${RUNNER_TEMP}/challenger-research.zip" | sha256sum -c -
+      - name: Verify original archive identities and bytes (GitHub only)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/archive-audit"
+          ln "${RUNNER_TEMP}/challenger-data.zip" "${RUNNER_TEMP}/archive-audit/source_data.zip"
+          ln "${RUNNER_TEMP}/challenger-research.zip" "${RUNNER_TEMP}/archive-audit/source_research.zip"
+          gh api repos/kimtk94/Codex/actions/artifacts/14926365571/zip > "${RUNNER_TEMP}/archive-audit/historical_rehearsal.zip"
+          while read -r role artifact; do
+            gh api "repos/kimtk94/Codex/actions/artifacts/${artifact}" > "${RUNNER_TEMP}/archive-audit/${role}.json"
+          done <<'ARTIFACTS'
+          source_data 14914498151
+          source_research 14915426739
+          historical_rehearsal 14926365571
+          ARTIFACTS
+          python research/kalman_daily20/challenger_archive_audit.py --github-dir "${RUNNER_TEMP}/archive-audit" --meta-dir "${RUNNER_TEMP}/archive-audit" --out "${RUNNER_TEMP}/challenger-audit-report/github_archive_audit.json"
       - name: Rehearse frozen historical data (never produce prospective events)
         if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         run: |
@@ -57,6 +78,7 @@ jobs:
             --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
             --source-id 'run-45383657032-artifacts-14914498151-14915426739' --out "${RUNNER_TEMP}/challenger-rehearsal"
       - name: Upload aggregate rehearsal report only
+        id: rehearsal
         if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: actions/upload-artifact@v4
         with:
@@ -64,3 +86,34 @@ jobs:
           path: ${{ runner.temp }}/challenger-rehearsal/historical_rehearsal.json
           if-no-files-found: error
           retention-days: 21
+
+      - name: Read back new rehearsal and prepare private archive handoff
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REHEARSAL_ARTIFACT: ${{ steps.rehearsal.outputs.artifact-id }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REHEARSAL_ARTIFACT" =~ ^[0-9]+$ ]]
+          for attempt in 1 2 3 4 5; do
+            if gh api "repos/kimtk94/Codex/actions/artifacts/${REHEARSAL_ARTIFACT}" > "${RUNNER_TEMP}/handoff-meta.json" &&
+               gh api "repos/kimtk94/Codex/actions/artifacts/${REHEARSAL_ARTIFACT}/zip" > "${RUNNER_TEMP}/handoff.zip"; then
+              break
+            fi
+            if [[ "$attempt" == 5 ]]; then exit 1; fi
+            sleep 3
+          done
+          python research/kalman_daily20/challenger_archive_audit.py \
+            --handoff-report "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --handoff-meta "${RUNNER_TEMP}/handoff-meta.json" --handoff-zip "${RUNNER_TEMP}/handoff.zip" \
+            --expected-run "$GITHUB_RUN_ID" --expected-commit "$EXPECTED_HEAD" \
+            --out "${RUNNER_TEMP}/challenger-audit-report/archive_handoff.json"
+      - name: Publish sanitized archive audit and handoff (no Drive credentials or IDs)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-archive-audit-and-handoff-not-forward
+          path: ${{ runner.temp }}/challenger-audit-report/
+          if-no-files-found: error
+          retention-days: 90
