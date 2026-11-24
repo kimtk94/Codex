@@ -96,46 +96,13 @@ jobs:
           print('MARKET_STATUS',r['status'])
           print('FRED_COMPLETENESS',r['macro_completeness'])
           if r['macro_completeness']!='FRED_READY_CURRENT_REVISED':
-              print('::warning::FRED latest revisions not fully updated; market data still saved but macro not PIT-ready')
+              print('::warning::FRED latest revisions not fully updated; market candidate is temporary; macro is not PIT-ready')
           PY
-      - name: Record candidate bundle fingerprint without replacing original Drive ZIP
+      - name: Verify candidate bundle and record HOLD metadata (no Drive replacement)
         run: |
-          python - <<'PY'
-          import hashlib, json, os, zipfile
-          from pathlib import Path
-          bundle=Path(os.environ["RUNNER_TEMP"])/"kalman_market_research.zip"
-          with zipfile.ZipFile(bundle) as archive:
-              assert archive.testzip() is None
-              manifest=json.loads(archive.read("manifest.json"))
-              assert manifest["production_writes"] is False
-              assert manifest["status"]=="RESEARCH_ONLY_VALIDATED"
-              assert manifest["market_assets"]==manifest["feature_assets"]==19
-              members=manifest["members"]
-              paths=[m["path"] for m in members]
-              assert len(paths)==len(set(paths))
-              assert set(paths)==set(archive.namelist())-{"manifest.json","readiness.json"}
-              for member in members:
-                  content=archive.read(member["path"])
-                  assert len(content)==member["bytes"]
-                  assert hashlib.sha256(content).hexdigest()==member["sha256"]
-          report={
-              "status":"CANDIDATE_METADATA_ONLY_RESEARCH_HOLD",
-              "bundle_sha256":hashlib.sha256(bundle.read_bytes()).hexdigest(),
-              "bundle_bytes":bundle.stat().st_size,
-              "manifest_members_verified":len(members),
-              "market_assets":manifest["market_assets"],
-              "feature_assets":manifest["feature_assets"],
-              "fred_series_success":manifest["fred_series_success"],
-              "macro_completeness":manifest["macro_completeness"],
-              "canonical_drive_zip_replaced":False,
-              "private_candidate_archive_persisted":False,
-              "ready_for_pit_training":False,
-              "reason":"PENDING_SOURCE_BASIS_QC_AND_APPROVED_VERSIONED_PRIVATE_TARGET",
-          }
-          path=Path("outputs/kalman_market_refresh/candidate_status.json")
-          path.write_text(json.dumps(report,indent=2)+"\n")
-          print(json.dumps(report))
-          PY
+          python research/kalman_market_refresh/refresh_ci.py candidate \
+            --file "$RUNNER_TEMP/kalman_market_research.zip" \
+            --status outputs/kalman_market_refresh/candidate_status.json
       - name: Upload metadata only, never publish price snapshots to Actions
         if: always()
         uses: actions/upload-artifact@v4
