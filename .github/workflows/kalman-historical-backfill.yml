@@ -104,6 +104,8 @@ jobs:
             --universe output/daily20/universe-derived.json \
             --market output/daily20/market \
             --features output/daily20/features \
+            --prior-archive output/daily20/private-prior-data.zip \
+            --refresh-report output/daily20/market/refresh_mode.json \
             --out output/daily20/historical_backfill/report.json
       - name: Preserve reconstructed prices/features and evidence as a new versioned artifact
         if: always()
