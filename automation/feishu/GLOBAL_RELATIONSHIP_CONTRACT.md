@@ -107,6 +107,48 @@ Default workflow output is aggregate only. No credentials or write
 permissions are added. Canonical mail, full historical invoice sources
 and native Feishu record reconciliation still require separate audits.
 
+## Phase 3: mail relationship evidence
+
+The 2026-11-25 connector read inspected the full allocated Canonical Mail
+Ledger A:B key range (108,522 grid rows, eleven bounded windows). Actual
+keyed rows 53,522, unique keys 53,522, no source-without-key or duplicate
+key observed. All Emails legacy 41,005, CSS Git Ingest staging 12,517.
+The last keyed row was 53,523. The grid size is not the mail count.
+Structured fields R:T and AA over the populated extent returned 22,272
+mail rows with valid AMEA (2,061 distinct), 10,599 H (1,077 distinct),
+8,607 SAM (1,203 distinct), 22,488 any of those fields, no structured CMS.
+Two H cells had unparsed/partial values. Repeated AMEA source reads showed
+869 non-mail AMEA, 745 intersection, 1,316 mail-only, 124 non-mail-only,
+2,185 union. These are literal source references, not unique real-world
+messages, verified delivery, or complete project histories. Structured
+invoice field absence does not establish absence of invoice mail.
+
+The new global_mail_relationship_coverage module compares the canonical
+ledger with QQ Mail Intake, CRM Filtered Mail Intake, Mail Identity 2026,
+Contract PO Tracker and SIF Evidence Tracker. The QQ key is SHA256 of exact
+folder|UIDVALIDITY|UID, which can be independently reconstructed from the
+canonical staging tuple only. Legacy keys retain their original source
+identity; CRM keys are separately namespaced. Message-ID-only matches,
+thread links, participant emails, subject identifiers and multi-project
+references remain evidence candidates, not automatic assignments. Same
+Message-ID across folders is not deletion or deduplication authority.
+Structured and subject references are counted separately; suffixes remain
+intact, generic numbers are not treated as CMS invoice numbers. Contract,
+PO and SIF mail references are checked against their named source, not
+treated as file or payment proof.
+
+The manual workflow now accepts scope=project (default) or scope=mail.
+Mail runs only on main after offline tests, with existing source credentials,
+a GET-only Feishu business API wrapper and read-only Sheets credentials.
+It scans the full key/source grid in bounded pages and necessary fields of
+the populated keyed extent, verifies keys during payload read and rechecks
+grid metadata. This is not a transactional snapshot or a proof that no
+unkeyed payload exists beyond the key extent. Feishu pagination is bounded
+and strict. No mail bodies/attachments, customer names, IDs or addresses
+are exported to logs. No source writes, new table, mail send, recurring
+schedule, or source cutover. Live QQ/CRM comparison requires the approved
+main dispatch; the prior actual counts came from the Sheets connector.
+
 ## Remaining phases
 
 1. Run the global source audit and reconcile results to native Feishu
