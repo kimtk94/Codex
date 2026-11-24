@@ -78,3 +78,7 @@ workflow 2개는 각각 원본 변경과 concurrency 변경을 합쳤다. 이번
 관련 문서: [Architecture](ARCHITECTURE.md), [Project Management](PROJECT_MANAGEMENT.md),
 [Project Center](PROJECT_CENTER.md), [Data Contract](PROJECT_DATA_CONTRACT.md),
 [Health Check](PROJECT_HEALTH_CHECK.md).
+
+## Additional pre-deployment diagnostic refinement
+
+SIF/PO issue diagnosis now distinguishes exact SIF tracker key-set differences, invalid or duplicate keys, and field-level evidence drift on unambiguous shared keys. The existing count-only warning is retained for compatibility. Source-owned SIF notice fields are compared without Last Sync UTC. Independently refreshed source and tracker snapshots can differ legitimately; additional keys are unobserved in this input, not certified historical or safe to remove. The read-only diagnostic emits fixed field names and counts only, does not link ambiguous notices, and never edits the tracker. The existing workflow and schedule are unchanged; the enhanced check requires deployment before an authenticated run can report the new categories.

@@ -100,6 +100,53 @@ class IssueAuditTests(unittest.TestCase):
         self.assertTrue(res["tracker_sync_consistency"]["sif_tracker_count_mismatch"])
         self.assertEqual(res["writes"], 0)
 
+    def test_sif_equal_counts_do_not_prove_equal_project_keys(self):
+        source = {"QQ Mail Intake": [rec("Contract Ready AMEA2026042239")],
+                  "CRM Filtered Mail Intake": []}
+        result = d.compute(source, sif_tracker_rows=[
+            {"fields": {"Project ID": "AMEA2026042240"}}])
+        c = result["tracker_sync_consistency"]
+        self.assertFalse(c["sif_tracker_count_mismatch"])
+        self.assertEqual(c["sif_tracker_key_consistency"], "SET_DIFFERENCE_REVIEW")
+        self.assertEqual(c["sif_missing_from_tracker"], 1)
+        self.assertEqual(c["sif_tracker_extra_unobserved_keys"], 1)
+        self.assertEqual(c["sif_shared_project_keys"], 0)
+        self.assertNotIn("AMEA2026042240", json.dumps(result))
+
+    def test_sif_matching_key_and_evidence_ignore_write_timestamp(self):
+        expected = {k: "" for k in d.sif.FIELDS}
+        expected.update({"Project ID":"AMEA2026042239", "SIF Status":"SIF_APPROVED_NOTICE",
+                         "SIF Mail Key":"synthetic", "Last Sync UTC":"new"})
+        stored = {**expected, "Last Sync UTC":"old"}
+        actual = [{"fields": stored}]
+        c = d.sif_tracker_reconciliation([expected],actual)
+        self.assertEqual(c["sif_tracker_key_consistency"],"MATCHED_OBSERVED_INPUT")
+        self.assertEqual(c["sif_tracker_evidence_mismatch_projects"],0)
+        self.assertEqual(c["sif_tracker_evidence_compared_projects"],1)
+        stored["SIF Status"]="SIF_REQUESTED"
+        stored["SIF Mail Key"]="different"
+        c = d.sif_tracker_reconciliation([expected],actual)
+        self.assertEqual(c["sif_tracker_key_consistency"],"FIELD_DIFFERENCE_REVIEW")
+        self.assertEqual(c["sif_tracker_evidence_mismatch_projects"],1)
+        self.assertEqual(c["sif_tracker_evidence_mismatch_fields"],
+                         {"SIF Mail Key":1,"SIF Status":1})
+        self.assertNotIn("different",json.dumps(c))
+
+    def test_sif_duplicate_and_invalid_keys_excluded_from_evidence_comparison(self):
+        expected = {"Project ID":"AMEA2026042239", "SIF Status":"SIF_APPROVED_NOTICE"}
+        rows = [{"fields":dict(expected)}, {"fields":dict(expected)},
+                {"fields":{"Project ID":"amea2026042239"}},
+                {"fields":{"Project ID":""}},
+                {"fields":{"Project ID":"AMEA2026042239-1"}}]
+        c = d.sif_tracker_reconciliation([expected],rows)
+        self.assertEqual(c["sif_tracker_key_consistency"],"KEY_CONFLICT_REVIEW")
+        self.assertEqual(c["sif_tracker_duplicate_keys"],1)
+        self.assertEqual(c["sif_tracker_duplicate_extra_rows"],1)
+        self.assertEqual(c["sif_tracker_invalid_key_rows"],2)
+        self.assertEqual(c["sif_tracker_evidence_compared_projects"],0)
+        self.assertEqual(c["sif_tracker_extra_unobserved_keys"],1)
+        self.assertEqual(c["sif_missing_from_tracker"],0)
+
     def test_duplicate_po_tracker_project_fails_closed(self):
         source = {"QQ Mail Intake": [], "CRM Filtered Mail Intake": []}
         tracker = [{"fields": {"Project ID": "AMEA2026042239"}}] * 2
