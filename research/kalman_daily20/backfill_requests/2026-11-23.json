@@ -1,0 +1,11 @@
+{
+  "version": "kalman-historical-backfill-request-v1",
+  "session": "2026-11-23",
+  "classification": "RETROSPECTIVE_BACKFILL_NOT_PROSPECTIVE",
+  "research_only": true,
+  "production_writes": false,
+  "forward_events_created": 0,
+  "live_execution": false,
+  "reason": "2026-11-24 scheduled first-seal, replay and both watchdog events absent; recover price/feature history only and retain forward-seal HOLD",
+  "incident_issue": "https://github.com/kimtk94/Codex/issues/1045"
+}

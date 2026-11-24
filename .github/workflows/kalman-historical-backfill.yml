@@ -1,0 +1,138 @@
+name: Kalman Historical Data Backfill (Research Only / GitOps)
+
+on:
+  workflow_dispatch:
+    inputs:
+      session:
+        description: 'Completed XNYS session to backfill, YYYY-MM-DD (not a forward first seal)'
+        required: true
+        type: string
+        default: '2026-11-23'
+  # One-time read-only data recovery request materialized by a reviewed main merge.
+  # This is NOT a schedule substitute and never writes to canonical Drive/journals.
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_daily20/backfill_requests/2026-11-23.json'
+  pull_request:
+    paths:
+      - '.github/workflows/kalman-historical-backfill.yml'
+      - 'research/kalman_daily20/historical_backfill_evidence.py'
+      - 'research/kalman_daily20/test_historical_backfill_evidence.py'
+      - 'research/kalman_daily20/backfill_requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-historical-backfill-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offline contract dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<2.4' 'pyarrow>=17,<25' 'exchange-calendars>=4.7'
+      - name: Validate retrospective classification and session guards
+        run: |
+          cd research/kalman_daily20
+          python -m unittest -v test_historical_backfill_evidence.py
+          python -m py_compile historical_backfill_evidence.py
+
+  data-only-backfill:
+    needs: offline-contracts
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing market/TA-Lib + pinned Drive restoration dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r kalman-toss-gateway/engine/market_data/requirements.txt
+          python -m pip install --disable-pip-version-check 'exchange-calendars>=4.7' google-auth google-api-python-client
+      - name: Require completed XNYS session and resolve exclusive end
+        env:
+          TARGET_SESSION: ${{ inputs.session }}
+          TRIGGER_EVENT: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import timedelta
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'research/kalman_daily20')
+          from historical_backfill_evidence import check_backfill_request, check_target
+          if os.environ['TRIGGER_EVENT'] == 'push':
+              day = check_backfill_request(
+                  'research/kalman_daily20/backfill_requests/2026-11-23.json'
+              )
+          elif os.environ['TRIGGER_EVENT'] == 'workflow_dispatch':
+              day = check_target(os.environ['TARGET_SESSION'])
+          else:
+              raise ValueError('UNSUPPORTED_BACKFILL_TRIGGER')
+          with Path(os.environ['GITHUB_ENV']).open('a') as f:
+              f.write('BACKFILL_SESSION=' + str(day) + '\n')
+              f.write('BACKFILL_END_EXCLUSIVE=' + str(day + timedelta(days=1)) + '\n')
+          print('HISTORICAL_DATA_ONLY_TARGET', day)
+          PY
+      - name: Generate canonical research universe
+        run: python research/kalman_daily20/daily20.py universe --out output/daily20/universe-derived.json
+      - name: Restore and verify pinned prior Drive price ZIP (never replace it)
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_daily20/refresh_incremental.py \
+            --universe output/daily20/universe-derived.json \
+            --output-dir output/daily20/market \
+            --end-date "$BACKFILL_END_EXCLUSIVE" \
+            --restore-only \
+            --archive-output output/daily20/private-prior-data.zip
+      - name: Reconcile overlap and fill absent raw daily sessions (no journal writer)
+        working-directory: kalman-toss-gateway
+        run: |
+          python ../research/kalman_daily20/refresh_incremental.py \
+            --universe ../output/daily20/universe-derived.json \
+            --output-dir ../output/daily20/market \
+            --end-date "$BACKFILL_END_EXCLUSIVE" \
+            --cache-file ../output/daily20/private-prior-data.zip
+      - name: Rebuild technical features without historical signal generation
+        working-directory: kalman-toss-gateway
+        run: |
+          python -m engine.features_v2_002.cli \
+            --input-dir ../output/daily20/market/raw/yfinance \
+            --output-dir ../output/daily20/features
+      - name: Verify all 26 target bars and features; label as retrospective
+        run: |
+          python research/kalman_daily20/historical_backfill_evidence.py \
+            --session "$BACKFILL_SESSION" \
+            --universe output/daily20/universe-derived.json \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --prior-archive output/daily20/private-prior-data.zip \
+            --refresh-report output/daily20/market/refresh_mode.json \
+            --out output/daily20/historical_backfill/report.json
+      - name: Preserve reconstructed prices/features and evidence as a new versioned artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-historical-backfill-${{ env.BACKFILL_SESSION }}-${{ github.run_id }}
+          path: |
+            output/daily20/universe-derived.json
+            output/daily20/market/raw/yfinance/*.parquet
+            output/daily20/market/refresh_mode.json
+            output/daily20/market/market_data_v2_run_status.json
+            output/daily20/features/talib/*.parquet
+            output/daily20/historical_backfill/report.json
+          if-no-files-found: warn
+          retention-days: 30
