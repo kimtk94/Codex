@@ -35,6 +35,26 @@ def check_target(session: str, *, asof=None) -> date:
     return day
 
 
+REQUEST_VERSION = "kalman-historical-backfill-request-v1"
+
+
+def check_backfill_request(path, *, asof=None):
+    """Accept only an explicit one-time, research-only request tied to its filename."""
+    p = Path(path)
+    request = json.loads(p.read_text())
+    if (request.get("version") != REQUEST_VERSION
+            or request.get("classification") != "RETROSPECTIVE_BACKFILL_NOT_PROSPECTIVE"
+            or request.get("research_only") is not True
+            or request.get("production_writes") is not False
+            or request.get("forward_events_created") != 0
+            or request.get("live_execution") is not False):
+        raise ValueError("INVALID_RETROSPECTIVE_GITOPS_REQUEST")
+    session = request.get("session")
+    if session != p.stem:
+        raise ValueError("BACKFILL_REQUEST_FILENAME_SESSION_MISMATCH")
+    return check_target(session, asof=asof)
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with Path(path).open("rb") as src:
