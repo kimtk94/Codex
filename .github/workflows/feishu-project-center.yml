@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/project_center_rules.py'
+      - 'automation/feishu/project_health_check.py'
+      - 'automation/feishu/test_project_health_check.py'
+      - 'automation/feishu/contract_po_tracker.py'
+      - 'automation/feishu/project_settlement.py'
       - 'automation/feishu/project_data_checks.py'
       - 'automation/feishu/project_progress_board.py'
       - 'automation/feishu/test_project_data_checks.py'
@@ -20,11 +24,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'plan/verify read only; apply creates missing page components only'
+        description: 'plan/verify/health read only; apply creates missing page components only'
         required: true
         default: plan
         type: choice
-        options: [plan, verify, apply]
+        options: [plan, verify, apply, health]
       expected_dashboard_id:
         description: 'Reviewed page ID from plan (required for apply to an existing page)'
         required: false
@@ -50,6 +54,7 @@ jobs:
       - name: Test project center, source-owned writes and metadata boundaries
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_project_center.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_project_health_check.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_data_checks.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_progress_board.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
@@ -59,7 +64,7 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_native_payment_dashboard.py' -v
   setup:
     needs: offline
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.offline.result == 'success' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode != 'health' && needs.offline.result == 'success' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 20
@@ -87,3 +92,26 @@ jobs:
           lark-cli profile use project-center
       - name: Inspect or provision the separate native page
         run: python3 automation/feishu/native_project_center.py --mode "$CENTER_MODE" --expected-dashboard-id "$EXPECTED_DASHBOARD_ID"
+
+  health:
+    needs: offline
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'health' && needs.offline.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Google client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Audit existing project projections and source metadata
+        run: python3 automation/feishu/project_health_check.py
