@@ -37,6 +37,11 @@ CMS_RE = re.compile(r"\d{10,15}\Z")
 MAIL_RE = re.compile(r"[0-9a-f]{64}\Z")
 MINE = "MY_VERIFIED"
 CURRENT_RECORD = "CURRENT"
+PAGE_SIZE = 100
+DEFAULT_MAX_PAGES = 200
+# Match the existing mail owner list_all() ceiling, rather than truncate
+# the full identity ledger. Other tables keep the tighter bound.
+MAIL_MAX_PAGES = 1000
 SCHEMAS = {
     BOARD: ("Source Key", "AMEA", COVERAGE, "PM Data Check", "PM Quote Link",
             "PM X Link", "Workflow Lane", "Payment Owner Scope", "Payment State",
@@ -445,18 +450,22 @@ def assess(tables, manifest, report_audit, now):
     return summary, details
 
 
-def strict_pages(api, token, path, action, max_pages=200):
+def strict_pages(api, token, path, action, max_pages=DEFAULT_MAX_PAGES):
     """Complete bounded reads, refusing malformed pages/cursor cycles."""
     rows, cursor, seen, total = [], "", set(), None
     for _ in range(max_pages):
-        qs = urllib.parse.urlencode({"page_size": 100, **({"page_token": cursor} if cursor else {})})
+        qs = urllib.parse.urlencode({"page_size": PAGE_SIZE, **({"page_token": cursor} if cursor else {})})
         data = api("GET", path + "?" + qs, token, action=action)
         if not isinstance(data, dict) or not isinstance(data.get("items"), list) or type(data.get("has_more")) is not bool:
+            raise HealthError("HEALTH_PAGE_SCHEMA")
+        if len(data["items"]) > PAGE_SIZE or any(not isinstance(row, dict) for row in data["items"]):
             raise HealthError("HEALTH_PAGE_SCHEMA")
         if "total" in data:
             n = data["total"]
             if type(n) is not int or n < 0 or (total is not None and n != total):
                 raise HealthError("HEALTH_PAGE_TOTAL_CHANGED")
+            if n > max_pages * PAGE_SIZE:
+                raise HealthError("HEALTH_PAGE_BOUND_EXCEEDED")
             total = n
         rows.extend(data["items"])
         if data["has_more"] is False:
@@ -485,7 +494,8 @@ def read_tables(api, token, root):
         if any(len(fields.get(k, [])) != 1 or fields[k][0].get("type") !=
                (2 if k in NUMERIC_FIELDS else 1) for k in required):
             raise HealthError("HEALTH_FIELD_SCHEMA_UNVERIFIED")
-        records = strict_pages(api, token, path+"/records", "health_records")
+        records = strict_pages(api, token, path+"/records", "health_records",
+                               max_pages=MAIL_MAX_PAGES if name == MAIL else DEFAULT_MAX_PAGES)
         index(records, "record_id")
         selected = []
         for record in records:

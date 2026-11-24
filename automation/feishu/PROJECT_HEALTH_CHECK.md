@@ -66,8 +66,12 @@ runs after offline checks. Setup/apply is skipped. There is no additional
 cron. Successful execution reports aggregate counts and source metadata in
 the run log; it does not declare all projects healthy. Schema, duplicate
 keys, incomplete pagination or wrong Base fail closed. Six existing tables
-are read once each, with strict metadata validation and a 20,000-row/table
-bound. The two small metadata ranges are read separately.
+are read once each, with strict metadata validation. The existing 100-row
+page size is preserved; Mail Identity uses the same 1,000-page (100,000-row)
+ceiling as its existing ingestion owner, while other tables keep the 200-page
+(20,000-row) ceiling. Incomplete, oversized or changing catalogs still fail
+closed; this is not a guarantee of completeness or live runtime. The two
+small metadata ranges are read separately.
 
 In an authorized local environment with existing Feishu and read-only
 Google credentials, run:

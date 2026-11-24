@@ -296,6 +296,55 @@ class ReadOnlyBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(h.HealthError,"COUNT_MISMATCH"):
             h.strict_pages(incomplete,"token","/records","test")
 
+    def test_declared_total_over_bound_stops_immediately(self):
+        calls = []
+        def api(method, path, token, action):
+            calls.append(method)
+            return {"items": [{}], "has_more": True, "page_token": "next",
+                    "total": h.DEFAULT_MAX_PAGES * h.PAGE_SIZE + 1}
+        with self.assertRaisesRegex(h.HealthError, "BOUND_EXCEEDED"):
+            h.strict_pages(api, "token", "/records", "test")
+        self.assertEqual(calls, ["GET"])
+
+    def test_large_mail_identity_is_read_in_full_not_truncated(self):
+        # Synthetic ledger above the old 20,000-row ceiling; no real mail.
+        import urllib.parse
+        total = 31500
+        source = fixture()
+        ids = {name:(h.PROJECT_BOARD if name==h.BOARD else "tblTest"+str(i))
+               for i,name in enumerate(h.SCHEMAS)}
+        calls = []
+        def api(method, path, token, action):
+            self.assertEqual(method,"GET")
+            p, query = path.split("?", 1)
+            params = urllib.parse.parse_qs(query)
+            if p == "/root/tables":
+                rows = [{"name":n, "table_id":tid} for n,tid in ids.items()]
+            else:
+                name = next(n for n,tid in ids.items() if "/"+tid+"/" in p)
+                if p.endswith("/fields"):
+                    rows = [{"field_name":k,"type":2 if k in h.NUMERIC_FIELDS else 1}
+                            for k in h.SCHEMAS[name]]
+                elif name == h.MAIL:
+                    calls.append(method)
+                    start = int(params.get("page_token", ["0"])[0])
+                    size = int(params["page_size"][0])
+                    self.assertEqual(size, h.PAGE_SIZE)
+                    end = min(start + size, total)
+                    rows = [{"record_id":"rec"+str(i),
+                             "fields":{"Mail Key":format(i,"064x"),"Project ID":P}}
+                            for i in range(start,end)]
+                    return {"items":rows,"has_more":end<total,
+                            "page_token":str(end),"total":total}
+                else:
+                    rows = [{"record_id":"rec"+str(i),"fields":r}
+                            for i,r in enumerate(source[name])]
+            return {"items":rows,"has_more":False,"total":len(rows)}
+        data = h.read_tables(api,"token","/root")
+        self.assertEqual(len(data[h.MAIL]),total)
+        self.assertEqual(len(calls),315)
+        self.assertEqual(data[h.MAIL][-1]["Mail Key"],format(total-1,"064x"))
+
     def test_catalog_schema_and_record_boundaries(self):
         names={name:(h.PROJECT_BOARD if name==h.BOARD else "tblTest"+str(i))
                for i,name in enumerate(h.SCHEMAS)}
