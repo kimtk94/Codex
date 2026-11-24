@@ -1,4 +1,4 @@
-name: Kalman Historical Data Backfill (Research Only / Manual)
+name: Kalman Historical Data Backfill (Research Only / GitOps)
 
 on:
   workflow_dispatch:
@@ -8,11 +8,18 @@ on:
         required: true
         type: string
         default: '2026-11-23'
+  # One-time read-only data recovery request materialized by a reviewed main merge.
+  # This is NOT a schedule substitute and never writes to canonical Drive/journals.
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_daily20/backfill_requests/2026-11-23.json'
   pull_request:
     paths:
       - '.github/workflows/kalman-historical-backfill.yml'
       - 'research/kalman_daily20/historical_backfill_evidence.py'
       - 'research/kalman_daily20/test_historical_backfill_evidence.py'
+      - 'research/kalman_daily20/backfill_requests/*.json'
 
 permissions:
   contents: read
@@ -40,7 +47,7 @@ jobs:
 
   data-only-backfill:
     needs: offline-contracts
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 90
@@ -56,6 +63,7 @@ jobs:
       - name: Require completed XNYS session and resolve exclusive end
         env:
           TARGET_SESSION: ${{ inputs.session }}
+          TRIGGER_EVENT: ${{ github.event_name }}
         run: |
           python - <<'PY'
           import os
@@ -63,8 +71,15 @@ jobs:
           from pathlib import Path
           import sys
           sys.path.insert(0, 'research/kalman_daily20')
-          from historical_backfill_evidence import check_target
-          day = check_target(os.environ['TARGET_SESSION'])
+          from historical_backfill_evidence import check_backfill_request, check_target
+          if os.environ['TRIGGER_EVENT'] == 'push':
+              day = check_backfill_request(
+                  'research/kalman_daily20/backfill_requests/2026-11-23.json'
+              )
+          elif os.environ['TRIGGER_EVENT'] == 'workflow_dispatch':
+              day = check_target(os.environ['TARGET_SESSION'])
+          else:
+              raise ValueError('UNSUPPORTED_BACKFILL_TRIGGER')
           with Path(os.environ['GITHUB_ENV']).open('a') as f:
               f.write('BACKFILL_SESSION=' + str(day) + '\n')
               f.write('BACKFILL_END_EXCLUSIVE=' + str(day + timedelta(days=1)) + '\n')
@@ -111,7 +126,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kalman-historical-backfill-${{ inputs.session }}-${{ github.run_id }}
+          name: kalman-historical-backfill-${{ env.BACKFILL_SESSION }}-${{ github.run_id }}
           path: |
             output/daily20/universe-derived.json
             output/daily20/market/raw/yfinance/*.parquet
