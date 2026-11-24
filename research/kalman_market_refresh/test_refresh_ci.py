@@ -30,12 +30,12 @@ class RefreshContracts(unittest.TestCase):
         self.assertEqual(len(df),28)
         with self.assertRaises(ValueError):clean_fred_csv(b'DATE,VALUE\n2026-01-01,3\n2026-01-01,4\n')
 
-    def make_state(self,root):
+    def make_state(self,root,session=None):
         root=Path(root);md=root/'market';fd=root/'features';frd=root/'fred'
         (md/'raw'/'yfinance').mkdir(parents=True)
         (fd/'talib').mkdir(parents=True)
         frd.mkdir(parents=True)
-        now=pd.Timestamp(last_completed_nyse_session())
+        now=pd.Timestamp(session if session is not None else last_completed_nyse_session())
         dates=pd.date_range(now-pd.Timedelta(days=120),now,freq='D')
         srcs={};assets={}
         for k in NEEDED:
@@ -84,7 +84,7 @@ class RefreshContracts(unittest.TestCase):
         self.assertEqual(last_completed_nyse_session('2026-10-30T17:09:00Z'),'2026-10-29')
         self.assertEqual(last_completed_nyse_session('2026-10-31T01:28:00Z'),'2026-10-30')
         with tempfile.TemporaryDirectory() as root:
-            md,fd,frd=self.make_state(root)
+            md,fd,frd=self.make_state(root,session='2026-10-30')
             # When that day's US market is not closed, a daily Yahoo candle is not final.
             before=verified_status(md,fd,frd,now_utc='2026-10-30T17:09:00Z')
             self.assertEqual(before['status'],'BLOCKED')
