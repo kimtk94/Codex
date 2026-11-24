@@ -215,6 +215,12 @@ def po_check(direct, related):
     return "PO_REVIEW_REQUIRED"
 
 
+def review_health(reasons):
+    if any(reason.startswith("CONFLICT_") for reason in reasons):
+        return "CONFLICT_REVIEW"
+    return "REVIEW" if reasons else "LIMITED_OBSERVED_CHECKS_PASS"
+
+
 def assess(tables, manifest, report_audit, now):
     """Cross-check stored projections. Results are advisory and non-atomic."""
     boards = index(tables[BOARD], "Source Key")
@@ -278,9 +284,15 @@ def assess(tables, manifest, report_audit, now):
         lane = get(b, "Workflow Lane")
         if coverage != CURRENT or lane not in LANES:
             details.append({"amea": pid, "health": "NOT_CURRENT_OR_UNCLASSIFIED",
-                            "reasons": ["BOARD_NOT_CURRENT_OR_UNCLASSIFIED"]})
+                            "reasons": ["BOARD_NOT_CURRENT_OR_UNCLASSIFIED"],
+                            "projection_health": "NOT_CURRENT_OR_UNCLASSIFIED",
+                            "projection_reasons": ["BOARD_NOT_CURRENT_OR_UNCLASSIFIED"],
+                            "source_metadata_status": "NOT_ASSESSED",
+                            "source_metadata_reasons": [],
+                            "review_basis": "NOT_ASSESSED"})
             continue
         reasons = set()
+        metadata_reasons = set()
         data_check = get(b, "PM Data Check")
         quote = get(b, "PM Quote Link")
         if data_check == "CONFLICT" or quote.startswith("CONFLICT_"):
@@ -404,41 +416,59 @@ def assess(tables, manifest, report_audit, now):
                 elif board_gross is not None and amount(b, "Verified Invoice KRW") != board_gross:
                     reasons.add("CONFLICT_ARCHIVE_RECEIPT_GROSS")
                 if get(b, "Receipt Source") == "FEISHU_LATEST_PAYMENT_RECEIPT":
-                    if any(get(b, field) != source[name].get("manifest_source_date")
-                           or source[name]["state"] != "WITHIN_METADATA_LIMIT"
-                           for field, name in (
-                               ("Receipt Source Snapshot Date", "Payment Receipt"),
-                               ("Outstanding Source Snapshot Date", "Payment Outstanding"))):
-                        reasons.add("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT")
+                    for field, name in (
+                            ("Receipt Source Snapshot Date", "Payment Receipt"),
+                            ("Outstanding Source Snapshot Date", "Payment Outstanding")):
+                        observed_date = source[name].get("manifest_source_date")
+                        if observed_date and get(b, field) != observed_date:
+                            reasons.add("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT")
+                        if not observed_date or source[name]["state"] != "WITHIN_METADATA_LIMIT":
+                            metadata_reasons.add("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT")
             payment_state = ("EXACT_OBSERVED_INVOICE_SET" if full and not any(
-                "INVOICE" in r or "ARCHIVE" in r for r in reasons)
+                "INVOICE" in r or "ARCHIVE" in r for r in reasons | metadata_reasons)
                 else "INVOICE_OR_RECEIPT_REVIEW")
         elif lane == "PAYMENT_FOLLOWUP":
             reasons.add("REVIEW_PAYMENT_OWNER_SCOPE")
-        # Source metadata is reported separately from cross-table evidence.
-        # Never mark all rows fresh simply because their projections agree.
+        # Metadata warnings are an independent axis: a shared stale report
+        # must not masquerade as hundreds of separate project defects.
+        # Keep the original combined health conservative for compatibility.
         if source["Online-Project"]["state"] != "WITHIN_METADATA_LIMIT":
-            reasons.add("REVIEW_ONLINE_MIRROR_METADATA")
+            metadata_reasons.add("REVIEW_ONLINE_MIRROR_METADATA")
         if get(b, "Payment Owner Scope") == MINE and any(
                 source[name]["state"] != "WITHIN_METADATA_LIMIT"
                 for name in ("Payment Outstanding", "Payment Receipt", "eTax Invoice")):
-            reasons.add("REVIEW_FINANCE_MIRROR_METADATA")
+            metadata_reasons.add("REVIEW_FINANCE_MIRROR_METADATA")
         if source["Prepayments"]["state"] != "WITHIN_METADATA_LIMIT":
-            reasons.add("REVIEW_PREPAYMENT_MIRROR_METADATA")
+            metadata_reasons.add("REVIEW_PREPAYMENT_MIRROR_METADATA")
         if reports["Quotation"]["state"] != "RECEIPT_WITHIN_6H":
-            reasons.add("REVIEW_QUOTE_REPORT_RECEIPT_METADATA")
-        health = ("CONFLICT_REVIEW" if any(r.startswith("CONFLICT_") for r in reasons)
-                  else "REVIEW" if reasons else "LIMITED_OBSERVED_CHECKS_PASS")
-        details.append({"amea": pid, "health": health, "x_chain": x_state,
+            metadata_reasons.add("REVIEW_QUOTE_REPORT_RECEIPT_METADATA")
+        combined = reasons | metadata_reasons
+        basis = ("BOTH" if reasons and metadata_reasons else
+                 "PROJECT_ONLY" if reasons else
+                 "SOURCE_METADATA_ONLY" if metadata_reasons else
+                 "NO_OBSERVED_REVIEW")
+        details.append({"amea": pid, "health": review_health(combined),
+                        "projection_health": review_health(reasons),
+                        "projection_reasons": sorted(reasons),
+                        "source_metadata_status": ("ADVISORY_REVIEW" if metadata_reasons
+                                                   else "WITHIN_CHECKED_METADATA_LIMITS"),
+                        "source_metadata_reasons": sorted(metadata_reasons),
+                        "review_basis": basis,
+                        "x_chain": x_state,
                         "x_exact_count": len(exact_x), "sam_chain": sam_state,
                         "sam_exact_count": len(sam_exact), "po": po_state,
                         "mail": mail_state, "mail_exact_count": mail_exact,
-                        "invoice": payment_state, "reasons": sorted(reasons)})
+                        "invoice": payment_state, "reasons": sorted(combined)})
     summary = {
         "checked_at_kst": now.astimezone(KST).isoformat(),
         "mode": "READ_ONLY_NON_ATOMIC_PROJECTION_AUDIT",
         "project_counts": dict(Counter(d["health"] for d in details)),
         "reason_counts": dict(Counter(r for d in details for r in d["reasons"])),
+        "projection_counts": dict(Counter(d["projection_health"] for d in details)),
+        "projection_reason_counts": dict(Counter(r for d in details for r in d["projection_reasons"])),
+        "source_metadata_project_counts": dict(Counter(d["source_metadata_status"] for d in details)),
+        "source_metadata_reason_counts": dict(Counter(r for d in details for r in d["source_metadata_reasons"])),
+        "review_basis_counts": dict(Counter(d["review_basis"] for d in details)),
         "mirror_metadata": source, "sfdc_receipt_metadata": reports,
         "source_freshness_unattested": ["CSS", "Lifecycle", "PO Tracker", "Mail Identity",
                                       "X Registry", "SFDC Quote Export"],

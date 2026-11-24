@@ -51,6 +51,36 @@ times. Existing source owners and parity checks remain authoritative.
 
 ## Results and operations
 
+### Independent review axes
+
+The 2026-11-24 23:37 KST read-only audit returned 405/405 combined REVIEW
+rows, including a shared Quotation report receipt-age warning (approximately
+6.6 hours since the scheduled 17:00 report). The warning is advisory; it is
+not evidence that a new report is overdue or that all 405 projects are wrong.
+Keep the six-hour threshold unchanged until a separate schedule-aware source
+contract is approved.
+
+The original `health`, `reasons`, `project_counts` and `reason_counts`
+remain conservative combined fields. Use `projection_health`,
+`projection_reasons`, `projection_counts` and `projection_reason_counts`
+to prioritize individual observed connection/evidence reviews independently
+of the shared source metadata. Use `source_metadata_status`,
+`source_metadata_reasons` and corresponding aggregate counts for the scoped
+advisory source warnings. `review_basis_counts` partitions all board rows
+into BOTH, PROJECT_ONLY, SOURCE_METADATA_ONLY, NO_OBSERVED_REVIEW and
+NOT_ASSESSED. Carryover/unclassified rows are not newly checked.
+
+A matching archived receipt snapshot with unavailable or stale source
+metadata remains a source warning; an observed different snapshot date is
+also a project review. The conservative combined archive and invoice review
+remain in effect. No receipt, PO, delivery, amount, owner or relationship
+decision is changed. A limited projection pass and within-limit metadata
+do not establish live source completeness or current project correctness.
+All existing unattested-source labels remain visible. Counts can overlap
+between diagnostic codes; the review-basis partition cannot.
+
+### Combined health labels
+
 - CONFLICT_REVIEW: observed contradiction between projections. Inspect source
   IDs, scope and timestamps before changing business data.
 - REVIEW: missing/ambiguous evidence, metadata beyond advisory limits or

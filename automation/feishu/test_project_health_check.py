@@ -103,6 +103,9 @@ class CrosswalkTests(unittest.TestCase):
         before=copy.deepcopy(t)
         summary, rows=inspect(t)
         self.assertEqual(rows[0]["health"],"LIMITED_OBSERVED_CHECKS_PASS")
+        self.assertEqual(rows[0]["projection_health"],"LIMITED_OBSERVED_CHECKS_PASS")
+        self.assertEqual(rows[0]["source_metadata_status"],"WITHIN_CHECKED_METADATA_LIMITS")
+        self.assertEqual(rows[0]["review_basis"],"NO_OBSERVED_REVIEW")
         self.assertEqual(rows[0]["x_chain"],"EXACT_OBSERVED_CHAIN")
         self.assertEqual(rows[0]["sam_exact_count"],1)
         self.assertEqual(rows[0]["mail_exact_count"],1)
@@ -274,7 +277,76 @@ class SourceMetadataTests(unittest.TestCase):
         self.assertEqual(meta["state"],"RECEIPT_AGE_OVER_6H")
         self.assertEqual(meta["quote_export_time"],"NOT_ATTESTED")
         self.assertEqual(meta["report_hash"],"NOT_RECOMPUTED")
-        self.assertIn("REVIEW_QUOTE_REPORT_RECEIPT_METADATA",inspect(r=r)[1][0]["reasons"])
+        summary, rows = inspect(r=r)
+        row = rows[0]
+        warning = "REVIEW_QUOTE_REPORT_RECEIPT_METADATA"
+        self.assertIn(warning, row["reasons"])
+        self.assertIn(warning, row["source_metadata_reasons"])
+        self.assertNotIn(warning, row["projection_reasons"])
+        self.assertEqual(row["health"], "REVIEW")
+        self.assertEqual(row["projection_health"], "LIMITED_OBSERVED_CHECKS_PASS")
+        self.assertEqual(row["source_metadata_status"], "ADVISORY_REVIEW")
+        self.assertEqual(summary["review_basis_counts"], {"SOURCE_METADATA_ONLY": 1})
+
+    def test_shared_report_warning_does_not_hide_project_review_or_carryover(self):
+        t = fixture()
+        t[h.BOARD].extend([board(Q), board("AMEA2026000003", **{h.COVERAGE: "CARRYOVER_REVIEW"})])
+        r = reports()
+        r[-1]["Source Received KST"] = "2026-11-23 10:00:00 KST"
+        summary, rows = inspect(t, r=r)
+        self.assertEqual(summary["project_counts"], {"REVIEW": 2, "NOT_CURRENT_OR_UNCLASSIFIED": 1})
+        self.assertEqual(summary["projection_counts"], {"LIMITED_OBSERVED_CHECKS_PASS": 1,
+                         "REVIEW": 1, "NOT_CURRENT_OR_UNCLASSIFIED": 1})
+        self.assertEqual(summary["review_basis_counts"], {"SOURCE_METADATA_ONLY": 1,
+                         "BOTH": 1, "NOT_ASSESSED": 1})
+        self.assertEqual(summary["source_metadata_reason_counts"], {"REVIEW_QUOTE_REPORT_RECEIPT_METADATA": 2})
+        self.assertIn("REVIEW_X_CHAIN", rows[1]["projection_reasons"])
+        self.assertEqual(rows[2]["source_metadata_status"], "NOT_ASSESSED")
+        self.assertEqual(sum(summary["review_basis_counts"].values()), len(t[h.BOARD]))
+
+    def test_source_review_does_not_downgrade_conflict(self):
+        t = fixture()
+        t[h.PO] = [direct_po(**{"Submission Inference": "CONFLICT_REVIEW"})]
+        summary, rows = inspect(t, m=[])
+        row = rows[0]
+        self.assertEqual(row["health"], "CONFLICT_REVIEW")
+        self.assertEqual(row["projection_health"], "CONFLICT_REVIEW")
+        self.assertEqual(row["review_basis"], "BOTH")
+        self.assertIn("CONFLICT_PO_NOTICE", row["projection_reasons"])
+        self.assertIn("REVIEW_ONLINE_MIRROR_METADATA", row["source_metadata_reasons"])
+
+    def test_finance_metadata_scope_and_other_source_warnings(self):
+        m = [row for row in manifest() if row["Source"] not in {"Payment Outstanding", "Prepayments"}]
+        row = inspect(m=m)[1][0]
+        self.assertNotIn("REVIEW_FINANCE_MIRROR_METADATA", row["source_metadata_reasons"])
+        self.assertIn("REVIEW_PREPAYMENT_MIRROR_METADATA", row["source_metadata_reasons"])
+        t = fixture()
+        payment(t)
+        row = inspect(t, m=m)[1][0]
+        self.assertIn("REVIEW_FINANCE_MIRROR_METADATA", row["source_metadata_reasons"])
+        self.assertNotIn("REVIEW_FINANCE_MIRROR_METADATA", row["projection_reasons"])
+
+    def test_archive_missing_metadata_and_observed_snapshot_mismatch_are_separate(self):
+        t = fixture()
+        payment(t, "PAID_ARCHIVED")
+        m = [row for row in manifest() if row["Source"] != "Payment Receipt"]
+        row = inspect(t, m=m)[1][0]
+        self.assertIn("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT", row["source_metadata_reasons"])
+        self.assertNotIn("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT", row["projection_reasons"])
+        self.assertEqual(row["invoice"], "INVOICE_OR_RECEIPT_REVIEW")
+        t[h.BOARD][0]["Outstanding Source Snapshot Date"] = "2026-11-20"
+        row = inspect(t, m=m)[1][0]
+        self.assertIn("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT", row["projection_reasons"])
+        self.assertIn("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT", row["source_metadata_reasons"])
+        self.assertEqual(row["reasons"].count("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT"), 1)
+
+    def test_project_only_without_global_metadata_warning(self):
+        t = fixture()
+        t[h.LINKS] = []
+        summary, rows = inspect(t)
+        self.assertEqual(rows[0]["review_basis"], "PROJECT_ONLY")
+        self.assertEqual(summary["projection_counts"], {"REVIEW": 1})
+        self.assertEqual(summary["source_metadata_reason_counts"], {})
 
 
 class ReadOnlyBoundaryTests(unittest.TestCase):
