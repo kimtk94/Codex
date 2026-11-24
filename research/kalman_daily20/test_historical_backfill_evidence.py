@@ -29,19 +29,20 @@ class HistoricalBackfillContractTests(unittest.TestCase):
             market, features = root / "market", root / "features"
             symbols = [f"EX{i:02}" for i in range(26)]
             for symbol in symbols:
+                sessions = pd.bdate_range(end="2026-11-23", periods=260)
                 rows = pd.DataFrame({
-                    "timestamp": ["2026-11-20", "2026-11-23"],
-                    "open": [10., 11.], "high": [11., 12.],
-                    "low": [9., 10.], "close": [10.5, 11.5],
-                    "volume": [100, 110]
+                    "timestamp": sessions,
+                    "open": 11., "high": 12.,
+                    "low": 10., "close": 11.5,
+                    "volume": 110,
                 })
                 raw = market_file(market, symbol)
                 raw.parent.mkdir(parents=True, exist_ok=True)
                 rows.to_parquet(raw, index=False)
                 feat = feature_file(features, symbol)
                 feat.parent.mkdir(parents=True, exist_ok=True)
-                pd.DataFrame({"timestamp": ["2026-11-20", "2026-11-23"],
-                              "rsi": [50, 52]}).to_parquet(feat, index=False)
+                pd.DataFrame({"timestamp": sessions,
+                              "talib_v2_rsi14": 52.}).to_parquet(feat, index=False)
             universe = {"research_only": True, "assets": [
                 {"provider_symbol": symbol} for symbol in symbols]}
             out = verify_backfill(universe, market, features,
@@ -59,6 +60,25 @@ class HistoricalBackfillContractTests(unittest.TestCase):
                                   "2026-11-23", asof=date(2026, 11, 24))
             self.assertEqual(bad["status"], "DATA_BACKFILL_HOLD")
             self.assertEqual(bad["assets_verified"], 25)
+
+            # A same-length feature file with divergent trading dates is unsafe.
+            altered = pd.DataFrame({"timestamp": sessions,
+                                    "talib_v2_rsi14": 52.})
+            altered.loc[40, "timestamp"] = pd.Timestamp("2020-01-02")
+            altered.to_parquet(feature_file(features, symbols[0]), index=False)
+            mismatch = verify_backfill(universe, market, features,
+                                       "2026-11-23", asof=date(2026, 11, 24))
+            self.assertEqual(mismatch["status"], "DATA_BACKFILL_HOLD")
+            self.assertEqual(mismatch["assets_verified"], 25)
+            self.assertIn("PRICE_FEATURE_DATES_MISMATCH",
+                          mismatch["errors"][0]["error"])
+
+    def test_duplicate_universe_rejected(self):
+        universe = {"research_only": True, "assets": [
+            {"provider_symbol": "SPY"} for _ in range(26)]}
+        with self.assertRaisesRegex(ValueError, "BACKFILL_DUPLICATE_SYMBOLS"):
+            verify_backfill(universe, ".", ".", "2026-11-23",
+                            asof=date(2026, 11, 24))
 
 
 if __name__ == "__main__":
