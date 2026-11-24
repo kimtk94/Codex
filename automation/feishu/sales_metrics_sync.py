@@ -19,7 +19,10 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from qq_mail_ingest import auth, api, list_all, SafeError
 from project_progress_board import prepare_project_board
-from project_settlement import EVIDENCE_FIELDS, finalize, counts
+from project_settlement import (
+    EVIDENCE_FIELDS, SOURCE_RECEIPT, SOURCE_RECHECK_STATUS,
+    manual_receipt, finalize, counts,
+)
 from latest_payment_bridge import build_payment_evidence
 from quote_process_amount import weekly_calculations
 from approval_mail_weekly_bridge import supplement as reconcile_mail_approvals
@@ -36,6 +39,12 @@ CSS_SHEET = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
 UNIFIED_SHEET = "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
 KST = ZoneInfo("Asia/Seoul")
 D = decimal.Decimal
+
+# User-managed workbench fields are provisioned in Feishu and never written by
+# source syncs, even if a future projector accidentally includes them.
+PROJECT_MANAGEMENT_FIELDS=frozenset({
+    "관리 담당", "관리 우선순위", "관리 상태", "다음 확인일", "관리 메모",
+})
 
 # All other fields remain Feishu text to preserve audit/evidence labels.
 SCHEMAS = {
@@ -898,18 +907,36 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
         if "Completion Evidence" in row:
             pid=raw_value(row.get("AMEA")).upper()
             proof=payment_matches.get(pid)
-            billing=billing_context.get(pid)
+            billing=billing_context.get(pid) or {}
+            # Missing current amounts are unknown, not the previous snapshot's
+            # zero/positive balance. Clear display values together with KRW.
+            row.update({name:None for name in (
+                "Invoice Gross KRW","Invoice Gross M KRW",
+                "Outstanding Balance KRW","Outstanding Balance M KRW",
+            )})
+            row["Payment Owner Scope"]="OWNER_UNVERIFIED"
             if billing:
                 row.update(billing)
-            # Never overwrite a manually verified bank/ERP receipt with an
-            # automatically matched spreadsheet receipt.
-            manual=(raw_value(original.get("Receipt Verification Status"))=="VERIFIED"
-                    and raw_value(original.get("Receipt Source")) in
-                        {"BANK_RECEIPT","ERP_CASH_RECEIPT"})
-            evidence=original if manual else (proof or original)
+            # Bank/ERP evidence is user-owned, including incomplete drafts.
+            # A spreadsheet match must not replace it while review is pending.
+            manual=manual_receipt(original)
+            evidence=original if manual else (proof or {})
             if proof and not manual:
                 row.update(proof)
+            elif not manual and raw_value(original.get("Receipt Source")).strip()==SOURCE_RECEIPT:
+                # Keep the historical invoice/reference/amount/date for audit,
+                # but revoke automatic verification when this run has no match.
+                row["Receipt Verification Status"]=SOURCE_RECHECK_STATUS
+                evidence={**original,"Receipt Verification Status":SOURCE_RECHECK_STATUS}
+            elif not manual:
+                # Partial/unverified evidence remains visible for human review.
+                evidence=original
             row=finalize(row,evidence)
+            if manual:
+                # Invoice number and snapshot dates also belong to the manual
+                # attestation. Current billing may inform review, not replace it.
+                for name in EVIDENCE_FIELDS:
+                    row.pop(name,None)
         # Derive display-only M KRW; do not alter CMS/Receipt evidence.
         for raw_name,display_name in (
             ("Invoice Gross KRW","Invoice Gross M KRW"),
@@ -917,6 +944,8 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
         ):
             if raw_name in row and row[raw_name] is not None and row[raw_name]!="":
                 row[display_name]=scaled_m_krw(row[raw_name])
+        for name in PROJECT_MANAGEMENT_FIELDS:
+            row.pop(name,None)
         final_rows.append(row)
         if old and equivalent(original,row):
             unchanged+=1

@@ -8,6 +8,14 @@ source-owned data to the sales workspace.
 Start with [the architecture and operating guide](ARCHITECTURE.md) for ownership,
 data flow, execution locks, validation boundaries, and efficiency work.
 
+For the integrated dashboard and the manual project workbench, see the
+[project management operating guide](PROJECT_MANAGEMENT.md). It records the
+UI configuration separately from code deployment, explains which fields people
+own, and identifies the metadata-only verification and explicit repair workflows.
+The 2026-11-24 UI setup includes the six-chart overview and all four management
+views. UI completion and deployment of the proposed owner workflows are tracked
+separately in that guide.
+
 ## Main entry points
 
 | Responsibility | Workflow | Implementation |

@@ -655,6 +655,245 @@ class MetricsTests(unittest.TestCase):
                                     {"Verified Quote Value K USD":None}))
 
 
+class ProjectPaymentWriteTests(unittest.TestCase):
+    PID="AMEA2026100751"
+    MANAGEMENT={
+        "관리 담당":[{"id":"ou_manual_owner"}],
+        "관리 우선순위":"높음", "관리 상태":"대기",
+        "다음 확인일":1795474800000, "관리 메모":"고객 확인 후 다음 일정 합의",
+    }
+
+    def row(self,completion="CSS_EXPLICIT_FINAL_HANDOFF"):
+        return {"Source Key":"PROJECT:"+self.PID,"AMEA":self.PID,
+                "Completion Evidence":completion,"Next Action":"샘플 진행 확인"}
+
+    def current(self,balance="0",receipt_amount="1100000"):
+        import test_latest_payment_bridge as fixture
+        matches,billing,_=m.build_payment_evidence(
+            fixture.sources(outs=[fixture.out(balance=balance)],
+                            rec=[fixture.receipt(amount=receipt_amount)]),
+            fixture.manifest(),fixture.NOW)
+        return matches,billing
+
+    def previous(self,manual_source=None):
+        matches,billing=self.current()
+        evidence=copy.deepcopy(matches[self.PID])
+        evidence.update({"Receipt Source Snapshot Date":"2026-10-01",
+                         "Outstanding Source Snapshot Date":"2026-10-02"})
+        if manual_source:
+            evidence.update({"Receipt Source":manual_source,
+                "Receipt Verification Status":"VERIFIED",
+                "Bank Receipt Reference":"independent-bank-reference",
+                "Receipt Verified By":"independent-reviewer"})
+        return {**self.row(),**billing[self.PID],**evidence,
+                "Outstanding Balance M KRW":0,"Invoice Gross M KRW":1.1,
+                "Workflow Lane":"PAID_ARCHIVED",
+                "Payment State":"PAID_VERIFIED" if manual_source else "PAID_SOURCE_MATCHED"}
+
+    def sync(self,old,desired=None,matches=None,billing=None,tamper=None):
+        records=[] if old is None else [{"record_id":"r1","fields":copy.deepcopy(old)}]
+        writes=[]
+        reads=[]
+        def listing(path,token,action):
+            reads.append(action)
+            result=copy.deepcopy(records)
+            if action=="project_board_readback" and tamper:
+                tamper(result)
+            return result
+        def api(method,path,token,data,action):
+            self.assertEqual(method,"POST")
+            writes.append(copy.deepcopy(data["records"]))
+            for incoming in data["records"]:
+                if path.endswith("batch_create"):
+                    records.append({"record_id":"r"+str(len(records)+1),
+                                    "fields":copy.deepcopy(incoming["fields"])})
+                else:
+                    record=next(r for r in records if r["record_id"]==incoming["record_id"])
+                    record["fields"].update(copy.deepcopy(incoming["fields"]))
+            return {"records":copy.deepcopy(data["records"])}
+        with mock.patch.object(m,"list_all",side_effect=listing), \
+             mock.patch.object(m,"api",side_effect=api), \
+             mock.patch.object(m,"timestamp",return_value="2026-11-07T09:00:00+09:00"):
+            result=m.sync_board_table("token","/table",[desired or self.row()],matches,billing)
+        return records[0]["fields"],writes,result,reads
+
+    def test_positive_current_balance_reopens_old_auto_archive(self):
+        previous=self.previous()
+        matches,billing=self.current(balance="1100000")
+        self.assertEqual(matches,{})
+        stored,writes,result,reads=self.sync(previous,matches=matches,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+        self.assertEqual(stored["Payment State"],"SOURCE_RECEIPT_RECHECK_REQUIRED")
+        self.assertEqual(stored["Receipt Verification Status"],"SOURCE_RECHECK_REQUIRED")
+        self.assertEqual(stored["Outstanding Balance KRW"],1100000)
+        self.assertEqual(stored["Outstanding Balance M KRW"],1.1)
+        for field in ("Bank Receipt Reference","Verified Received KRW",
+                      "Receipt Verified At","Receipt Source Snapshot Date"):
+            self.assertEqual(stored[field],previous[field])
+        self.assertEqual(result,(0,1,0))
+        self.assertEqual(reads,["project_board_existing","project_board_readback"])
+
+    def test_absent_current_auto_match_never_uses_stored_proof(self):
+        for balance in ("0","",None):
+            with self.subTest(balance=balance):
+                matches,billing=self.current(balance=balance or "",receipt_amount="500000")
+                self.assertEqual(matches,{})
+                if balance is None:
+                    billing={}
+                previous=self.previous()
+                # Feishu rich-text values/whitespace must not bypass invalidation.
+                previous["Receipt Source"]=[{"text":" "+m.SOURCE_RECEIPT+" "}]
+                stored,_,_,_=self.sync(previous,matches=matches,billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+                self.assertEqual(stored["Payment State"],"SOURCE_RECEIPT_RECHECK_REQUIRED")
+                if balance!="0":
+                    self.assertIsNone(stored["Outstanding Balance KRW"])
+                    self.assertIsNone(stored["Outstanding Balance M KRW"])
+                if balance is None:
+                    self.assertIsNone(stored["Invoice Gross KRW"])
+                    self.assertIsNone(stored["Invoice Gross M KRW"])
+                    self.assertEqual(stored["Payment Owner Scope"],"OWNER_UNVERIFIED")
+
+    def test_current_exact_receipt_restores_archive_and_clears_stale_balance(self):
+        previous=self.previous()
+        previous.update({"Receipt Verification Status":"SOURCE_RECHECK_REQUIRED",
+                         "Outstanding Balance KRW":1100000,"Outstanding Balance M KRW":1.1})
+        matches,billing=self.current(balance="")
+        stored,_,_,_=self.sync(previous,matches=matches,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PAID_ARCHIVED")
+        self.assertEqual(stored["Payment State"],"PAID_SOURCE_MATCHED")
+        self.assertEqual(stored["Receipt Verification Status"],"SOURCE_EXACT_VERIFIED")
+        self.assertIsNone(stored["Outstanding Balance KRW"])
+        self.assertIsNone(stored["Outstanding Balance M KRW"])
+
+    def test_positive_balance_blocks_even_a_supplied_current_receipt(self):
+        matches,_=self.current()
+        _,billing=self.current(balance="1100000")
+        stored,_,_,_=self.sync(None,matches=matches,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+        self.assertEqual(stored["Payment State"],"RECEIPT_OUTSTANDING_REVIEW")
+
+    def test_partial_subproject_completion_does_not_archive_with_receipt(self):
+        matches,billing=self.current()
+        stored,_,_,_=self.sync(self.previous(),
+            desired=self.row("PARTIAL_SUBPROJECT_COMPLETION_REVIEW"),
+            matches=matches,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PRODUCTION_ACTIVE")
+        self.assertIn("전체 종료 전환 보류",stored["Next Action"])
+
+    def test_bank_and_erp_conflicts_preserve_all_manual_evidence(self):
+        for source in ("BANK_RECEIPT","ERP_CASH_RECEIPT"):
+            with self.subTest(source=source):
+                previous=self.previous(source)
+                _,billing=self.current(balance="1100000")
+                billing[self.PID]["Payment Invoice No"]="209126000992"
+                stored,writes,_,_=self.sync(previous,billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+                self.assertEqual(stored["Payment State"],"MANUAL_RECEIPT_OUTSTANDING_REVIEW")
+                self.assertIn("수동 입금 증빙 보존",stored["Next Action"])
+                for field in m.EVIDENCE_FIELDS:
+                    self.assertEqual(stored[field],previous[field])
+                self.assertTrue(set(m.EVIDENCE_FIELDS).isdisjoint(writes[0][0]["fields"]))
+
+    def test_manual_verification_does_not_require_automatic_source_match(self):
+        for balance in ("0",""):
+            with self.subTest(balance=balance):
+                previous=self.previous("BANK_RECEIPT")
+                _,billing=self.current(balance=balance)
+                stored,_,_,_=self.sync(previous,matches={},billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAID_ARCHIVED")
+                self.assertEqual(stored["Payment State"],"PAID_VERIFIED")
+
+    def test_older_manual_attestation_cannot_close_new_invoice_scope(self):
+        for changed in ({"Payment Invoice No":"209126000992"},
+                        {"Invoice Gross KRW":2200000}):
+            with self.subTest(changed=changed):
+                previous=self.previous("ERP_CASH_RECEIPT")
+                _,billing=self.current()
+                billing[self.PID].update(changed)
+                stored,_,_,_=self.sync(previous,billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+                self.assertEqual(stored["Payment State"],"MANUAL_RECEIPT_INVOICE_REVIEW")
+                for field in m.EVIDENCE_FIELDS:
+                    self.assertEqual(stored[field],previous[field])
+
+    def test_manual_invoice_order_alone_is_not_a_scope_conflict(self):
+        previous=self.previous("BANK_RECEIPT")
+        previous["Payment Invoice No"]="209126000991;209126000992"
+        _,billing=self.current()
+        billing[self.PID]["Payment Invoice No"]="209126000992; 209126000991"
+        stored,_,_,_=self.sync(previous,billing=billing)
+        self.assertEqual(stored["Workflow Lane"],"PAID_ARCHIVED")
+        self.assertEqual(stored["Payment State"],"PAID_VERIFIED")
+
+    def test_auto_receipt_never_replaces_complete_or_incomplete_manual_proof(self):
+        for amount in (1100000,500000):
+            with self.subTest(received=amount):
+                previous=self.previous("BANK_RECEIPT")
+                previous["Verified Received KRW"]=amount
+                matches,billing=self.current()
+                stored,writes,_,_=self.sync(previous,matches=matches,billing=billing)
+                expected="PAID_VERIFIED" if amount==1100000 else "PAYMENT_EVIDENCE_REVIEW"
+                self.assertEqual(stored["Payment State"],expected)
+                for field in m.EVIDENCE_FIELDS:
+                    self.assertEqual(stored[field],previous[field])
+                self.assertTrue(set(m.EVIDENCE_FIELDS).isdisjoint(writes[0][0]["fields"]))
+
+    def test_unverified_bank_and_erp_drafts_are_not_replaced_by_auto_proof(self):
+        for source,status in (("BANK_RECEIPT","PENDING"),("ERP_CASH_RECEIPT","")):
+            with self.subTest(source=source,status=status):
+                previous=self.previous(source)
+                previous["Receipt Verification Status"]=status
+                matches,billing=self.current()
+                stored,writes,_,_=self.sync(previous,matches=matches,billing=billing)
+                self.assertEqual(stored["Workflow Lane"],"PAYMENT_FOLLOWUP")
+                self.assertEqual(stored["Payment State"],"PAYMENT_EVIDENCE_REVIEW")
+                for field in m.EVIDENCE_FIELDS:
+                    self.assertEqual(stored[field],previous[field])
+                self.assertTrue(set(m.EVIDENCE_FIELDS).isdisjoint(writes[0][0]["fields"]))
+
+    def test_five_manual_workbench_fields_never_enter_record_payload(self):
+        self.assertEqual(set(self.MANAGEMENT),m.PROJECT_MANAGEMENT_FIELDS)
+        for existing in (False,True):
+            with self.subTest(existing=existing):
+                previous={**self.previous(),**self.MANAGEMENT} if existing else None
+                injected={name:"unexpected source-owned value" for name in self.MANAGEMENT}
+                desired={**self.row(),**injected}
+                matches,billing=self.current()
+                matches[self.PID].update(injected)
+                billing[self.PID].update(injected)
+                billing[self.PID]["Payment Owner Scope"]="OTHER_SALES"
+                stored,writes,_,_=self.sync(previous,desired,matches,billing)
+                for batch in writes:
+                    for record in batch:
+                        self.assertTrue(set(self.MANAGEMENT).isdisjoint(record["fields"]))
+                for name,value in self.MANAGEMENT.items():
+                    if existing:
+                        self.assertEqual(stored[name],value)
+                    else:
+                        self.assertNotIn(name,stored)
+                self.assertEqual(stored["Payment Owner Scope"],"OTHER_SALES")
+                self.assertEqual(desired,{**self.row(),**injected})
+
+    def test_manual_only_edit_and_reopened_archive_are_idempotent(self):
+        _,billing=self.current(balance="1100000")
+        stored,_,_,_=self.sync(self.previous(),billing=billing)
+        stored.update(self.MANAGEMENT)
+        stored["관리 메모"]="사용자가 후속 메모를 수정함"
+        again,writes,result,reads=self.sync(stored,billing=billing)
+        self.assertEqual(result,(0,0,1))
+        self.assertEqual(writes,[])
+        self.assertEqual(reads,["project_board_existing"])
+        self.assertEqual(again["관리 메모"],stored["관리 메모"])
+
+    def test_reopened_payment_state_requires_successful_readback(self):
+        _,billing=self.current(balance="1100000")
+        def stale_readback(records):
+            records[0]["fields"]["Workflow Lane"]="PAID_ARCHIVED"
+        with self.assertRaisesRegex(SafeError,"PROJECT_BOARD_READBACK_MISMATCH"):
+            self.sync(self.previous(),billing=billing,tamper=stale_readback)
+
+
 class MetadataTests(unittest.TestCase):
     @staticmethod
     def fields(table):
