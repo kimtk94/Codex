@@ -6,6 +6,7 @@ on:
       - 'research/kalman_daily20/challenger_overfit_validation.py'
       - 'research/kalman_daily20/challenger_prequential.py'
       - 'research/kalman_daily20/challenger_forward_producer.py'
+      - 'research/kalman_daily20/challenger_benchmark_validation.py'
       - 'research/kalman_daily20/challenger_archive_audit.py'
       - 'research/kalman_daily20/challenger_private_archive_worker.py'
       - 'research/kalman_daily20/challenger_prequential_protocol.json'
@@ -60,6 +61,8 @@ jobs:
             --handoff "${RUNNER_TEMP}/worker-handoff.zip" \
             --handoff-sha256 aa3d925378eb4a7a1148cc44d419edfc162cbe45151cdae4f4819eb3b1d397f5 \
             --run 45407879115 --commit 373261a0f4375e0b56002b69f68589fe8e557a09
+      - name: Validate exposure and risk matched benchmark contracts (synthetic only)
+        run: python research/kalman_daily20/challenger_benchmark_validation.py --self-test
       - name: Fetch pinned historical artifacts (same repository, read only)
         if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
@@ -94,6 +97,22 @@ jobs:
             --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
             --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
             --source-id 'run-45383657032-artifacts-14914498151-14915426739' --out "${RUNNER_TEMP}/challenger-rehearsal"
+      - name: Evaluate frozen strategies against exposure risk and timing matched benchmarks
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          python research/kalman_daily20/challenger_benchmark_validation.py \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --reference "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --out "${RUNNER_TEMP}/challenger-benchmark/benchmark_validation.json"
+      - name: Upload aggregate benchmark report only
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-matched-benchmark-validation-not-forward
+          path: ${{ runner.temp }}/challenger-benchmark/benchmark_validation.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Upload aggregate rehearsal report only
         id: rehearsal
         if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
