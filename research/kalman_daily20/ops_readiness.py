@@ -24,6 +24,7 @@ MANDATORY_DIAGNOSTICS = (
     "DAILY20_FORWARD_SHADOW", "DAILY20_STABILITY",
 )
 DIAG_START = re.compile(r'\{"(DAILY20_[A-Z_]+)"\s*:')
+OOS_SCORE_LINE = re.compile(r"^(?:\S+\s+)?DAILY20_OOS\s+\d+ trades (\d+) research-only scores\s*$", re.MULTILINE)
 DRIVE_READBACK = re.compile(r'"DAILY20_DRIVE_READBACK".*?"status"\s*:\s*"READBACK_VERIFIED"')
 DRIVE_SESSION = re.compile(r'"DAILY20_DRIVE_READBACK".*?"session"\s*:\s*"(\d{4}-\d{2}-\d{2})"')
 
@@ -116,8 +117,15 @@ def make_scorecard(run: dict, jobs: list[dict], research_log: str,
         problems.append("ASSET_COUNT_NOT_26")
     if source.get("required") != 26:
         problems.append("SOURCE_TARGET_COUNT_NOT_26")
-    if forward.get("signals") != 20:
+    # The forward journal grows by 20 events per admitted session; it is
+    # not the count of current model scores. Read the actual training output.
+    score_matches = OOS_SCORE_LINE.findall(research_log)
+    score_count = int(score_matches[0]) if len(score_matches) == 1 else None
+    if score_count != 20:
         problems.append("RESEARCH_SCORE_COUNT_NOT_20")
+    journal_count = forward.get("signals")
+    if type(journal_count) is not int or journal_count < 20 or journal_count % 20:
+        problems.append("FORWARD_JOURNAL_COUNT_INVALID")
     if not isinstance(portfolio, dict) or portfolio.get("scenarios") != 16:
         problems.append("PORTFOLIO_SCENARIOS_NOT_16")
 
@@ -200,7 +208,8 @@ def make_scorecard(run: dict, jobs: list[dict], research_log: str,
         "source_certified": source.get("verified"),
         "source_required": source.get("required"),
         "source_status": source.get("status"),
-        "research_scores": forward.get("signals"),
+        "research_scores": score_count,
+        "forward_journal_signals": journal_count,
         "portfolio_scenarios": portfolio.get("scenarios") if isinstance(portfolio, dict) else None,
         "forward_replay_drift": forward.get("frozen_replay_drift"),
         "forward_settled": forward.get("settled"),
@@ -272,7 +281,7 @@ def render_md(card: dict) -> str:
         f"- Source session: {card['source_session']}",
         f"- Operational pipeline: **{card['operational_status']}**",
         f"- Research approval: **{card['research_status']}** (never auto-promote)",
-        f"- Assets: {card['total_assets']}/26; score signals: {card['research_scores']}/20",
+        f"- Assets: {card['total_assets']}/26; current scores: {card['research_scores']}/20; cumulative Bull journal: {card['forward_journal_signals']}",
         f"- Independent regular-close source: {card['source_certified']}/{card['source_required']}",
         f"- Frozen replay drift: {card['forward_replay_drift']}; stability: {card['stability_status']}",
         f"- Drive readback: {card['drive_readback_verified']} ({card['drive_readback_session']})",
