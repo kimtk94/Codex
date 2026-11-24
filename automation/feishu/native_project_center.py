@@ -12,6 +12,7 @@ from native_dashboard_cli import BASE, TABLE, cli, collect, validate_dashboard_l
 from native_overview_dashboard import (
     SOURCE_TABLE_IDS, block_id, config_patch, encoded, verify_source_schema,
 )
+from project_data_checks import COVERAGE, CURRENT, CARRYOVER
 
 TABLE_ID = SOURCE_TABLE_IDS[TABLE]
 
@@ -26,10 +27,14 @@ def cond(field, value=None, operator="is"):
     return item
 
 
-def scope(lane, *conditions):
+def scope(lane, *conditions, coverage=CURRENT):
     base = [cond("Workflow Lane", lane)]
     if lane in {PAYMENT, ARCHIVE}:
         base.append(cond("Payment Owner Scope", "MY_VERIFIED"))
+    # Current input membership is not a source-freshness certificate. Retained
+    # rows stay visible in dedicated counts and old views, never in current KPI.
+    if coverage is not None:
+        base.append(cond(COVERAGE, coverage))
     return {"conjunction": "and", "conditions": [*base, *conditions]}
 
 
@@ -61,6 +66,7 @@ def navigation_note():
         "**업무:** Project Progress Board의 01 오늘 확인 · 00 관리 작업대 · "
         "02 관리 칸반 · 03 확인 일정\n"
         "**위험:** 04 위험 검토 · PM Risk / PM Issue / PM Recommended Action\n"
+        "**데이터:** 05 연결 충돌 · 06 연결 확인 · 07 이전 원본 보존\n"
         "**상세:** 진행 중 프로젝트 · 완료 · 결제 관리 · 결제 완료 · 보관"
     )
 
@@ -85,14 +91,24 @@ def build_specs():
         }, 6, 23, 6, 7),
         count("위험 신호 미계산", scope(ACTIVE, cond("PM Risk", operator="isEmpty")), 0, 30),
         count("내 담당 결제 위험 HIGH", scope(PAYMENT, cond("PM Risk", "HIGH")), 3, 30),
-        count("내 담당 입금 검증 보관", scope(ARCHIVE), 6, 30),
+        count("내 담당 입금 검증 보관 기록", scope(ARCHIVE, coverage=None), 6, 30),
+        count("진행 기록 미분류", scope(ACTIVE, cond(COVERAGE, operator="isEmpty"), coverage=None), 9, 30),
+        distribution("현재 입력 연결 검토", "PM Data Check", scope(ACTIVE), 0, 34, "pie"),
+        distribution("현재 입력 상태 근거", "PM Status Check", scope(ACTIVE), 6, 34),
+        count("진행 이전 원본 보존", scope(ACTIVE, coverage=CARRYOVER), 0, 41),
+        count("내 담당 결제 이전 원본 보존", scope(PAYMENT, coverage=CARRYOVER), 3, 41),
+        count("내 담당 결제 기록 미분류",
+              scope(PAYMENT, cond(COVERAGE, operator="isEmpty"), coverage=None), 6, 41),
         spec("해석 및 범위", "text", {"text": (
-            "보드상 상태 및 마지막 분류 기준입니다. 이전 보존 행도 남을 수 있으므로 "
-            "원본 최신성은 별도 점검하세요. HIGH는 확인 이슈의 조치 우선순위이며 "
+            "진행·결제 지표는 마지막 동기화 입력에 포함된 행만 집계합니다. "
+            "보존·미분류 기록과 보관 이력은 별도로 표시하며 입력 포함은 원본 최신성 인증이 아닙니다. "
+            "CHECKED는 제한된 Quote ID/Lifecycle 검토 통과이며 H·SAM·메일·결제 전체 검증이 아닙니다. "
+            "HANDOFF_SIGNAL_ONLY는 결과 또는 정산 준비 신호이며 고객 전달 증명이 아닙니다. "
+            "HIGH는 확인 이슈의 조치 우선순위이며 "
             "납기 초과 판정이 아닙니다. MONITOR도 정상 납기를 보장하지 않습니다. "
             "UNKNOWN·미계산은 검토 대상입니다. 결제는 원천 내 담당 일치 건만 표시하며 "
             "미확인 잔액은 0원 확정이 아닙니다. 오늘 확인과 일정은 사람이 입력한 확인일 기준입니다."
-        )}, 0, 34, 12, 4),
+        )}, 0, 45, 12, 6),
     ]
     validate_dashboard_layout(
         [(r["name"], r["type"], r["data_config"]) for r in items],
