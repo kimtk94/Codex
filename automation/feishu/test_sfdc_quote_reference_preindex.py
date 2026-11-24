@@ -2,8 +2,10 @@ import copy
 import unittest
 from unittest.mock import patch
 from sfdc_quote_reference_preindex import (
-  preclassify,execute,TABLE_CLASS,TABLE_REFERENCE,ReportSourceError,
+  preclassify,execute,load_source,TABLE_CLASS,TABLE_REFERENCE,ReportSourceError,
 )
+import sfdc_quote_report_bridge as bridge
+import test_sfdc_quote_report_bridge as report_tests
 from test_sfdc_quote_report_bridge import data
 from sfdc_quote_report_bridge import build_records
 
@@ -94,6 +96,35 @@ class ReferenceIndexTests(unittest.TestCase):
                 result=execute("audit")
         self.assertEqual(result["status"],"PASS")
         self.assertEqual(result["feishu_writes"],0)
+        auth.assert_not_called()
+
+
+    def test_batched_source_keeps_verified_reference_classification(self):
+        lines,_,_=self.input()
+        raw=(lines,list(lines[0]))
+        _,audit=report_tests.ReportBridgeTests()._mail_audit(raw)
+        heads=data()[1]
+        proof=bridge.verify_qq_process_report_audit(raw,audit)
+        normalized=build_records(raw,heads,verified_evidence=proof)
+        expected=preclassify(lines,normalized,proof)
+        response=report_tests.batch_response(raw,audit,heads)
+        with patch("sfdc_quote_reference_preindex.google",return_value=object()), \
+             patch.object(bridge,"gs",return_value=response) as read:
+            actual=load_source()
+        self.assertEqual(actual,expected)
+        read.assert_called_once()
+
+    def test_batched_source_hash_mismatch_blocks_preindex_writer(self):
+        lines,_,_=self.input()
+        raw=(lines,list(lines[0]))
+        _,audit=report_tests.ReportBridgeTests()._mail_audit(raw)
+        response=report_tests.batch_response(raw,audit,data()[1])
+        response["valueRanges"][0]["values"][1][-1]="edited-source"
+        with patch("sfdc_quote_reference_preindex.google",return_value=object()), \
+             patch.object(bridge,"gs",return_value=response), \
+             patch("sfdc_quote_reference_preindex.auth") as auth:
+            with self.assertRaisesRegex(ReportSourceError,"QUOTE_MAIL_AUDIT_HASH_MISMATCH"):
+                execute("sync")
         auth.assert_not_called()
 
 

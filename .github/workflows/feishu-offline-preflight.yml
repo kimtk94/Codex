@@ -8,6 +8,11 @@ on:
     paths:
       - 'integrations/feishu/**'
       - '.github/workflows/feishu-offline-preflight.yml'
+      - '.github/workflows/feishu-*.yml'
+      - '.github/workflows/qq-mail-feishu-sync.yml'
+      - '.github/workflows/lead-outreach-chain.yml'
+      - '.github/workflows/sif-evidence-tracker.yml'
+      - 'automation/feishu/test_workflow_pr_concurrency.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,3 +29,5 @@ jobs:
           FEISHU_APP_ID: ""
           FEISHU_APP_SECRET: ""
         run: python3 -m unittest discover -s integrations/feishu -p 'test_*.py' -v
+      - name: Verify PR isolation and unchanged production concurrency
+        run: python3 -m unittest discover -s automation/feishu -p 'test_workflow_pr_concurrency.py' -v

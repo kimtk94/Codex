@@ -747,6 +747,7 @@ COUNT_FIELD_FORMATS={
 def ensure_integer_field_display(token,path,table,fields):
     targets=COUNT_FIELD_FORMATS.get(table,set())
     by_name={row.get("field_name"):row for row in fields}
+    changed=False
     for name in sorted(targets):
         item=by_name.get(name)
         if not item or item.get("type")!=2 or not item.get("field_id"):
@@ -765,8 +766,11 @@ def ensure_integer_field_display(token,path,table,fields):
         if updated.get("field_name")!=name or (
                 updated.get("property") or {}).get("formatter")!="0":
             raise SafeError("METRIC_NUMERIC_FORMAT_UPDATE_UNVERIFIED")
+        changed=True
         print("METRIC_INTEGER_FIELD_FORMAT_SET="+table+":"+name)
-    if not targets:return
+    # The supplied fields are from this run's live schema read. Re-read only
+    # after a PUT; unchanged formatters were already checked above.
+    if not changed:return
     verified={r.get("field_name"):r for r in
               list_all(path+"/fields",token,"metric_integer_format_readback")}
     if any((verified.get(name,{}).get("property") or {}).get("formatter")!="0"
@@ -793,6 +797,7 @@ def ensure_tables(token,root):
         p=table_path(root,ids[0])
         fields=list_all(p+"/fields",token,"metric_schema")
         names={f.get("field_name"):f.get("type") for f in fields}
+        schema_changed=False
         allowed={
             "Project Display Name","Completion Evidence",
             "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW","Invoice Gross M KRW",
@@ -820,10 +825,14 @@ def ensure_tables(token,root):
                 api("POST",p+"/fields",token,
                     data={"field_name":field_name,"type":field_type},
                     action="metric_project_payment_field_add")
+                schema_changed=True
                 print("METRIC_PAYMENT_FIELD_CREATED="+field_name)
             else:
                 raise SafeError("METRIC_SCHEMA_UNEXPECTED_MISSING_FIELD")
-        fields=list_all(p+"/fields",token,"metric_schema_readback")
+        # The first live listing verifies an unchanged schema. A field create
+        # still requires a fresh listing before any records can be written.
+        if schema_changed:
+            fields=list_all(p+"/fields",token,"metric_schema_readback")
         names={f.get("field_name"):f.get("type") for f in fields}
         if any(names.get(f)!=t for f,t in spec):
             raise SafeError("METRIC_SCHEMA_MISMATCH_"+name.replace(" ","_"))
@@ -1044,7 +1053,7 @@ VIEW_SPECS = {
 
 def setup_views(token, paths):
     # All URLs are base-local and require Feishu sign-in.
-    from setup_sales_web import resolve_view, get_view, field_map
+    from setup_sales_web import resolve_view, get_view, field_map, list_views
     def matches(view, expected):
         info=((view.get("property") or {}).get("filter_info") or {})
         conditions=info.get("conditions") or []
@@ -1061,11 +1070,20 @@ def setup_views(token, paths):
     for table, specs in VIEW_SPECS.items():
         path = paths[table]
         fields = field_map(token, path)
+        # Reuse only this table's current validated name/ID listing. Every
+        # target still gets an individual read and the final catalog is checked.
+        known_views = list_views(token, path)
+        resolved_views = {}
         for spec in specs:
             name=spec[0]
             pairs=list(zip(spec[1::2],spec[2::2]))
             filtered=bool(pairs and pairs[0][0])
-            view_id, _ = resolve_view(token, path, name, filtered)
+            pending_name = "설정중_" + name if filtered else name
+            view_id = known_views.get(name) or known_views.get(pending_name)
+            if not view_id:
+                # Re-list immediately before creating: another writer may have
+                # supplied the missing view since the initial table listing.
+                view_id, _ = resolve_view(token, path, name, filtered)
             view = get_view(token, path, view_id)
             if filtered:
                 expected=[]
@@ -1086,11 +1104,17 @@ def setup_views(token, paths):
                         raise SafeError("METRIC_FILTER_READBACK_FAILED")
             elif view.get("view_name")!=name:
                 raise SafeError("METRIC_VIEW_READBACK_FAILED")
+            resolved_views[name] = view_id
             table_id=path.rsplit("/",1)[-1]
             url="https://ocnz4cb25scn.feishu.cn/base/"+EXPECTED_BASE
             url+="?table="+urllib.parse.quote(table_id,safe="")
             url+="&view="+urllib.parse.quote(view_id,safe="")
             print("METRIC_WEB_VIEW="+name+" URL="+url)
+        # Catch duplicate names, deletion, rename or ID replacement during this
+        # table's pass, including partially completed view creation/renaming.
+        verified_views = list_views(token, path)
+        if any(verified_views.get(name)!=vid for name,vid in resolved_views.items()):
+            raise SafeError("METRIC_VIEW_CATALOG_READBACK_MISMATCH")
 
 def main():
     if os.environ.get("FEISHU_BASE_APP_TOKEN")!=EXPECTED_BASE:

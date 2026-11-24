@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Source evidence and numeric correctness tests for Feishu KPI pages."""
+import copy
 import unittest
 from unittest import mock
 
 import sales_metrics_sync as m
+import setup_sales_web as web
 from qq_mail_ingest import SafeError
 
 
@@ -651,6 +653,219 @@ class MetricsTests(unittest.TestCase):
                                      {"Verified Quote Value K USD":None}))
         self.assertTrue(m.equivalent({"Verified Quote Value K USD":None},
                                     {"Verified Quote Value K USD":None}))
+
+
+class MetadataTests(unittest.TestCase):
+    @staticmethod
+    def fields(table):
+        return [{"field_name":name,"type":kind,"field_id":"fld"+str(i),
+                 "property":{"formatter":"0" if name in
+                     m.COUNT_FIELD_FORMATS.get(table,set()) else "0.00"}}
+                for i,(name,kind) in enumerate(m.SCHEMAS[table])]
+
+    @staticmethod
+    def views(table,fields):
+        ids={row["field_name"]:row["field_id"] for row in fields}
+        catalog=[];details={}
+        for i,spec in enumerate(m.VIEW_SPECS[table]):
+            vid="vew"+str(i)
+            row={"view_name":spec[0],"view_id":vid}
+            catalog.append(row)
+            conditions=[{"field_id":ids[name],"operator":"is",
+                         "value":m.json.dumps([value])}
+                        for name,value in zip(spec[1::2],spec[2::2]) if name]
+            details[vid]={**row,"property":{"filter_info":{
+                "conjunction":"and","conditions":conditions}}}
+        return catalog,details
+
+    def test_one_page_steady_state_uses_42_metadata_reads_without_writes(self):
+        """One-page lists: 61 prior requests become 42; pagination is extra."""
+        root="/base";catalog=[];responses={};details={};reads=[]
+        for i,table in enumerate(m.SCHEMAS):
+            tid="tbl"+str(i);path=root+"/tables/"+tid
+            catalog.append({"name":table,"table_id":tid})
+            fields=self.fields(table)
+            views,by_id=self.views(table,fields)
+            responses[path+"/fields"]=fields
+            responses[path+"/views"]=views
+            details.update({path+"/views/"+vid:view for vid,view in by_id.items()})
+        responses[root+"/tables"]=catalog
+        def listing(url,token,action):
+            reads.append((action,url))
+            return copy.deepcopy(responses[url])
+        def api(method,url,token,**kwargs):
+            self.assertEqual(method,"GET","unchanged metadata must not be written")
+            reads.append((method,url))
+            return {"view":copy.deepcopy(details[url])}
+        with mock.patch.object(m,"list_all",side_effect=listing), \
+             mock.patch.object(web,"list_all",side_effect=listing), \
+             mock.patch.object(web,"get_fields",side_effect=lambda token,path:
+                               listing(path+"/fields",token,"view_fields")), \
+             mock.patch.object(m,"api",side_effect=api), \
+             mock.patch.object(web,"api",side_effect=api):
+            paths=m.ensure_tables("token",root)
+            m.setup_views("token",paths)
+        self.assertEqual(set(paths),set(m.SCHEMAS))
+        self.assertEqual(len(reads),42)
+        self.assertEqual(sum(url.endswith("/views") for _,url in reads),10)
+        self.assertEqual(sum(action=="GET" for action,_ in reads),21)
+
+    def test_field_creation_requires_fresh_schema_readback(self):
+        table="Monthly Tax Invoice";complete=self.fields(table)
+        before=[row for row in complete if row["field_name"]!="Net Revenue M KRW"]
+        for readback,valid in ((complete,True),(before,False)):
+            with self.subTest(persisted=valid), \
+                 mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+                 mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
+                 mock.patch.object(m,"list_all",side_effect=[before,readback]) as listing, \
+                 mock.patch.object(m,"api",return_value={}) as api:
+                if valid:
+                    m.ensure_tables("token","/base")
+                else:
+                    with self.assertRaisesRegex(SafeError,"METRIC_SCHEMA_MISMATCH"):
+                        m.ensure_tables("token","/base")
+                self.assertEqual(listing.call_count,2)
+                api.assert_called_once()
+                self.assertEqual(api.call_args.args[0],"POST")
+
+    def test_wrong_schema_type_stops_before_mutation(self):
+        table="Monthly Tax Invoice";fields=self.fields(table)
+        fields[0]["type"]=2
+        with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+             mock.patch.object(m,"table_catalog",return_value={table:["tbl1"]}), \
+             mock.patch.object(m,"list_all",return_value=fields), \
+             mock.patch.object(m,"api") as api:
+            with self.assertRaisesRegex(SafeError,"METRIC_SCHEMA_TYPE_MISMATCH"):
+                m.ensure_tables("token","/base")
+            api.assert_not_called()
+
+    def test_invisible_created_table_is_not_accepted(self):
+        table="Project SIF Monitor"
+        with mock.patch.dict(m.SCHEMAS,{table:m.SCHEMAS[table]},clear=True), \
+             mock.patch.object(m,"table_catalog",return_value={}) as catalog, \
+             mock.patch.object(m,"api",return_value={"table_id":"tbl1"}), \
+             mock.patch.object(m,"list_all") as fields:
+            with self.assertRaisesRegex(SafeError,"METRIC_TABLE_CREATE_READBACK_FAILED"):
+                m.ensure_tables("token","/base")
+            self.assertEqual(catalog.call_count,2)
+            fields.assert_not_called()
+
+    def test_unchanged_integer_formats_validate_initial_live_fields(self):
+        table="Weekly Quote KPI";fields=self.fields(table)
+        with mock.patch.object(m,"api") as api,mock.patch.object(m,"list_all") as listing:
+            m.ensure_integer_field_display("token","/table",table,fields)
+            api.assert_not_called();listing.assert_not_called()
+            broken=[row for row in fields if row["field_name"]!="Approved Quote Count"]
+            with self.assertRaisesRegex(SafeError,"METRIC_NUMERIC_FORMAT_SOURCE_MISSING"):
+                m.ensure_integer_field_display("token","/table",table,broken)
+
+    def test_formatter_put_still_requires_successful_response_and_readback(self):
+        table="Monthly Tax Invoice";before=self.fields(table)
+        before[2]["property"]={"formatter":"0.0"}
+        response={"field":{"field_name":"Invoice Count","property":{"formatter":"0"}}}
+        with mock.patch.object(m,"api",return_value=response), \
+             mock.patch.object(m,"list_all",return_value=before) as listing:
+            with self.assertRaisesRegex(SafeError,"METRIC_INTEGER_FIELD_FORMAT_READBACK_FAILED"):
+                m.ensure_integer_field_display("token","/table",table,before)
+            listing.assert_called_once()
+        with mock.patch.object(m,"api",return_value={}), \
+             mock.patch.object(m,"list_all") as listing:
+            with self.assertRaisesRegex(SafeError,"METRIC_NUMERIC_FORMAT_UPDATE_UNVERIFIED"):
+                m.ensure_integer_field_display("token","/table",table,before)
+            listing.assert_not_called()
+
+    def test_final_view_catalog_rejects_deleted_renamed_replaced_and_duplicate_views(self):
+        table="Project Progress Board";fields=self.fields(table)
+        catalog,details=self.views(table,fields)
+        changed=[
+            catalog[1:],
+            [{**catalog[0],"view_name":"renamed"},*catalog[1:]],
+            [{**catalog[0],"view_id":"vewReplacement"},*catalog[1:]],
+            [*catalog,{**catalog[0],"view_id":"vewDuplicate"}],
+        ]
+        for final in changed:
+            with self.subTest(final=final[0]), \
+                 mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+                 mock.patch.object(web,"get_fields",return_value=fields), \
+                 mock.patch.object(web,"list_all",side_effect=[catalog,final]), \
+                 mock.patch.object(web,"api",side_effect=lambda method,url,token,**kw:
+                                   {"view":details[url.rsplit("/",1)[-1]]}), \
+                 mock.patch.object(m,"api") as mutation:
+                with self.assertRaisesRegex(SafeError,
+                        "METRIC_VIEW_CATALOG_READBACK_MISMATCH|DUPLICATE_OR_EMPTY_VIEW_METADATA"):
+                    m.setup_views("token",{table:"/table"})
+                mutation.assert_not_called()
+
+    def test_duplicate_initial_view_names_fail_before_individual_reads(self):
+        table="Project SIF Monitor";fields=self.fields(table)
+        catalog,_=self.views(table,fields)
+        with mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",return_value=[*catalog,catalog[0]]), \
+             mock.patch.object(web,"api") as api:
+            with self.assertRaisesRegex(SafeError,"DUPLICATE_OR_EMPTY_VIEW_METADATA"):
+                m.setup_views("token",{table:"/table"})
+            api.assert_not_called()
+
+    def test_deleted_existing_view_fails_instead_of_recreating_its_id(self):
+        table="Project SIF Monitor";fields=self.fields(table)
+        catalog,_=self.views(table,fields)
+        with mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",return_value=catalog), \
+             mock.patch.object(web,"api",side_effect=SafeError("VIEW_DELETED")) as api:
+            with self.assertRaisesRegex(SafeError,"VIEW_DELETED"):
+                m.setup_views("token",{table:"/table"})
+            api.assert_called_once()
+            self.assertEqual(api.call_args.args[0],"GET")
+
+    def test_missing_view_is_relisted_before_creation(self):
+        table="Project SIF Monitor";fields=self.fields(table)
+        catalog,details=self.views(table,fields)
+        def api(method,url,token,**kwargs):
+            self.assertEqual(method,"GET","concurrently created view must be reused")
+            return {"view":details[url.rsplit("/",1)[-1]]}
+        with mock.patch.dict(m.VIEW_SPECS,{table:m.VIEW_SPECS[table]},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",side_effect=[catalog[1:],catalog,catalog]) as listing, \
+             mock.patch.object(web,"api",side_effect=api):
+            m.setup_views("token",{table:"/table"})
+            self.assertEqual(listing.call_count,3)
+
+    def test_invisible_created_view_is_not_accepted(self):
+        table="Project SIF Monitor";fields=self.fields(table)
+        with mock.patch.dict(m.VIEW_SPECS,{table:(m.VIEW_SPECS[table][0],)},clear=True), \
+             mock.patch.object(web,"get_fields",return_value=fields), \
+             mock.patch.object(web,"list_all",return_value=[]), \
+             mock.patch.object(web,"api",return_value={}) as api:
+            with self.assertRaisesRegex(SafeError,"VIEW_CREATE_NOT_VERIFIED"):
+                m.setup_views("token",{table:"/table"})
+            api.assert_called_once()
+            self.assertEqual(api.call_args.args[0],"POST")
+
+    def test_filtered_view_keeps_owner_condition_and_verifies_patch(self):
+        table="Project Progress Board";fields=self.fields(table)
+        spec=m.VIEW_SPECS[table][2]
+        with mock.patch.dict(m.VIEW_SPECS,{table:(spec,)},clear=True):
+            catalog,details=self.views(table,fields)
+            final=details["vew0"]
+            pending={**final,"view_name":"설정중_"+spec[0],"property":{}}
+            for readback,valid in ((final,True),(pending,False)):
+                with self.subTest(persisted=valid), \
+                     mock.patch.object(web,"get_fields",return_value=fields), \
+                     mock.patch.object(web,"list_all",side_effect=[
+                         [{"view_name":pending["view_name"],"view_id":"vew0"}],catalog]), \
+                     mock.patch.object(web,"api",side_effect=[{"view":pending},{"view":readback}]), \
+                     mock.patch.object(m,"api",return_value={}) as patch:
+                    if valid:
+                        m.setup_views("token",{table:"/table"})
+                    else:
+                        with self.assertRaisesRegex(SafeError,"METRIC_FILTER_READBACK_FAILED"):
+                            m.setup_views("token",{table:"/table"})
+                    patch.assert_called_once()
+                    conditions=patch.call_args.kwargs["data"]["property"]["filter_info"]["conditions"]
+                    self.assertEqual(conditions,final["property"]["filter_info"]["conditions"])
+                    self.assertEqual(len(conditions),2)
 
 
 if __name__=="__main__":
