@@ -7,6 +7,7 @@ on:
       - 'research/kalman_daily20/challenger_prequential.py'
       - 'research/kalman_daily20/challenger_forward_producer.py'
       - 'research/kalman_daily20/challenger_archive_audit.py'
+      - 'research/kalman_daily20/challenger_private_archive_worker.py'
       - 'research/kalman_daily20/challenger_prequential_protocol.json'
       - '.github/workflows/kalman-challenger-stat-validation.yml'
   workflow_dispatch:
@@ -43,6 +44,22 @@ jobs:
         run: python research/kalman_daily20/challenger_forward_producer.py --self-test
       - name: Validate archive and handoff contracts (synthetic only)
         run: python research/kalman_daily20/challenger_archive_audit.py --self-test
+      - name: Validate private archive worker with fake provider (no credentials)
+        run: python research/kalman_daily20/challenger_private_archive_worker.py --self-test
+      - name: Validate actual previous handoff inputs without contacting Drive
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/kimtk94/Codex/actions/artifacts/14925618540/zip > "${RUNNER_TEMP}/worker-rehearsal.zip"
+          gh api repos/kimtk94/Codex/actions/artifacts/14926472628/zip > "${RUNNER_TEMP}/worker-handoff.zip"
+          python research/kalman_daily20/challenger_private_archive_worker.py --verify-inputs-only \
+            --rehearsal "${RUNNER_TEMP}/worker-rehearsal.zip" \
+            --rehearsal-sha256 f53adabd142cc3bd2c28443f902ac352ee22be2897f072928f6470ac20520117 \
+            --handoff "${RUNNER_TEMP}/worker-handoff.zip" \
+            --handoff-sha256 aa3d925378eb4a7a1148cc44d419edfc162cbe45151cdae4f4819eb3b1d397f5 \
+            --run 45407879115 --commit 373261a0f4375e0b56002b69f68589fe8e557a09
       - name: Fetch pinned historical artifacts (same repository, read only)
         if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
