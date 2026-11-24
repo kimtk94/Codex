@@ -1,0 +1,64 @@
+name: Kalman Scheduled Delivery Cross-Check (Read Only)
+
+on:
+  # Not dependent on a successful Daily20 or watchdog invocation.
+  # The generic operations monitor ran on the incident date.
+  workflow_run:
+    workflows: [Automation Progress Incident Watch]
+    types: [completed]
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'automation/kalman_schedule/**'
+      - '.github/workflows/kalman-schedule-delivery-audit.yml'
+  pull_request:
+    paths:
+      - 'automation/kalman_schedule/**'
+      - '.github/workflows/kalman-schedule-delivery-audit.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    # workflow_run checks only default-branch scheduled operations events.
+    # It never checks out the upstream triggering workflow's commit/artifacts.
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'schedule') || (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Falsify delivery classifier offline
+        run: |
+          cd automation/kalman_schedule
+          python -m unittest -v test_schedule_delivery_audit.py
+          python -m py_compile schedule_delivery_audit.py
+      - name: Read-only live evidence smoke (PR, may observe known operational HOLD)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python automation/kalman_schedule/schedule_delivery_audit.py \
+            --report-only --out output/kalman_schedule/delivery_report.json
+      - name: Audit exact scheduled run delivery and workflow enabled states
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python automation/kalman_schedule/schedule_delivery_audit.py \
+            --out output/kalman_schedule/delivery_report.json
+      - name: Preserve delivery evidence even when the schedules are missing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-schedule-delivery-${{ github.run_id }}
+          path: output/kalman_schedule/delivery_report.json
+          if-no-files-found: warn
+          retention-days: 90
