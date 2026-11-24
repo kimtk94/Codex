@@ -16,9 +16,8 @@ import re
 import sys
 
 from sfdc_quote_report_bridge import (
-    ReportSourceError, LINE_TAB, SHEET_RANGE_LINES, AUDIT_TAB, AUDIT_RANGE,
-    HEAD_TAB, SHEET_RANGE_HEAD, checksum, canonical, google,
-    spreadsheet_values, verify_qq_process_report_audit, build_records,
+    ReportSourceError, checksum, canonical, google,
+    read_report_sources, verify_qq_process_report_audit, build_records,
     SCHEMAS, ensure_table, sync_one, auth
 )
 
@@ -185,10 +184,8 @@ def preclassify(raw_rows,original,verified_mail):
 
 def load_source():
     session=google()
-    raw=spreadsheet_values(session,LINE_TAB,SHEET_RANGE_LINES)
-    audit=spreadsheet_values(session,AUDIT_TAB,AUDIT_RANGE)
+    raw,audit,headers=read_report_sources(session)
     verified=verify_qq_process_report_audit(raw,audit)
-    headers=spreadsheet_values(session,HEAD_TAB,SHEET_RANGE_HEAD)
     normalized=build_records(raw,headers,verified_evidence=verified)
     return preclassify(raw[0],normalized,verified)
 
