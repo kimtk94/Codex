@@ -84,7 +84,7 @@ class ReadinessTest(unittest.TestCase):
     def test_wrong_missing_or_duplicate_daily_score_evidence_fails(self):
         for log in (LOG.replace("20 research-only scores", "19 research-only scores"),
                     LOG.replace("DAILY20_OOS", "MISSING_OOS"),
-                    LOG + "\\n2026Z DAILY20_OOS 1499 trades 20 research-only scores"):
+                    LOG + "\n2026Z DAILY20_OOS 1499 trades 20 research-only scores"):
             r = make_scorecard(RUN, JOBS, log, PUBLISH, now=NOW)
             self.assertIn("RESEARCH_SCORE_COUNT_NOT_20", r["operational_failures"])
 
