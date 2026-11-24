@@ -61,7 +61,9 @@ jobs:
           import os
           from datetime import timedelta
           from pathlib import Path
-          from research.kalman_daily20.historical_backfill_evidence import check_target
+          import sys
+          sys.path.insert(0, 'research/kalman_daily20')
+          from historical_backfill_evidence import check_target
           day = check_target(os.environ['TARGET_SESSION'])
           with Path(os.environ['GITHUB_ENV']).open('a') as f:
               f.write('BACKFILL_SESSION=' + str(day) + '\n')
