@@ -12,8 +12,9 @@ PINNED_CANDIDATE_ID = '1rptk7B9dJfNp2GgaDF0g27FZUolKEIDn'
 PINNED_CANDIDATE_SHA256 = '62b08e06a84caef53889f17bf75afde5bb2d2cd01e9adc5c6433b9c2e7c89722'
 PINNED_CANDIDATE_BYTES = 2151240
 
+PINNED_CANDIDATE_ARCHIVE = ('market_candidate_HOLD_2026-11-24_GH45533778910.zip', PINNED_CANDIDATE_BYTES)
+
 APPROVED_READONLY_ARCHIVES = {
-    PINNED_CANDIDATE_ID: ('market_candidate_HOLD_2026-11-24_GH45533778910.zip', PINNED_CANDIDATE_BYTES),
     '1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd': (
         'kalman_market_research_latest.zip', 35 * 1024 * 1024),
     '1nWbyCiRSscJSqgZYvYhJ9DKHRlBwlKgE': (
@@ -29,10 +30,15 @@ def verify_pinned_candidate(file_id, blob):
         raise RuntimeError('PINNED_CANDIDATE_BYTES_MISMATCH')
 
 
-def download(file_id, out):
-    if file_id not in APPROVED_READONLY_ARCHIVES:
-        raise ValueError('UNAPPROVED_DRIVE_FILE')
-    expected_name, size_cap = APPROVED_READONLY_ARCHIVES[file_id]
+def download(file_id, out, *, verified_candidate=False):
+    if verified_candidate:
+        if file_id != PINNED_CANDIDATE_ID:
+            raise ValueError('UNAPPROVED_DRIVE_FILE')
+        expected_name, size_cap = PINNED_CANDIDATE_ARCHIVE
+    else:
+        if file_id not in APPROVED_READONLY_ARCHIVES:
+            raise ValueError('UNAPPROVED_DRIVE_FILE')
+        expected_name, size_cap = APPROVED_READONLY_ARCHIVES[file_id]
     sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
     from research.kalman_market_refresh.refresh_ci import parse_google_credentials
     from googleapiclient.discovery import build
@@ -65,4 +71,5 @@ def download(file_id, out):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--file-id',required=True);p.add_argument('--out',required=True)
-    a=p.parse_args();download(a.file_id,a.out)
+    p.add_argument('--verified-candidate',action='store_true')
+    a=p.parse_args();download(a.file_id,a.out,verified_candidate=a.verified_candidate)
