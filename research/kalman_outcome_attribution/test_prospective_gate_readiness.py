@@ -14,7 +14,7 @@ from prospective_gate_readiness import (
 
 class ProspectiveGateContracts(unittest.TestCase):
     def setUp(self):
-        self.cal=xc.get_calendar("XNYS")
+        self.cal=xc.get_calendar("XNYS",start="2026-01-01",end="2028-02-01")
 
     def test_gate_boundaries_missing_and_non_candidate(self):
         self.assertEqual(gate_class("BULL_LOGISTIC",True,{"ret5":-.01,"spy_mom5_lag":0.}),
