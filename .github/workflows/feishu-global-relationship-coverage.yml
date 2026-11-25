@@ -1,0 +1,84 @@
+name: Feishu Global Source Relationship Coverage
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/global_relationship_coverage.py'
+      - 'automation/feishu/test_global_relationship_coverage.py'
+      - 'automation/feishu/global_mail_relationship_coverage.py'
+      - 'automation/feishu/test_global_mail_relationship_coverage.py'
+      - 'automation/feishu/unified_reference_search.py'
+      - 'automation/feishu/test_unified_reference_search.py'
+      - 'automation/feishu/UNIFIED_REFERENCE_SEARCH.md'
+      - 'automation/feishu/GLOBAL_RELATIONSHIP_CONTRACT.md'
+      - '.github/workflows/feishu-global-relationship-coverage.yml'
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Read-only project/mail relationship audit or aggregate search-index parity'
+        required: true
+        default: project
+        type: choice
+        options: [project, mail, search-index-project, search-index-all]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'feishu-global-relationship-coverage' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m unittest discover -s automation/feishu -p test_global_relationship_coverage.py -v
+      - run: python3 -m unittest discover -s automation/feishu -p test_global_mail_relationship_coverage.py -v
+      - run: python3 -m unittest discover -s automation/feishu -p test_unified_reference_search.py -v
+  coverage:
+    needs: offline
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.scope == 'project' || inputs.scope == 'search-index-project') && needs.offline.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - if: ${{ inputs.scope == 'project' }}
+        run: python3 automation/feishu/global_relationship_coverage.py
+      - if: ${{ inputs.scope == 'search-index-project' }}
+        run: python3 automation/feishu/unified_reference_search.py --scope project --verify-index
+
+  mail:
+    needs: offline
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.scope == 'mail' || inputs.scope == 'search-index-all') && needs.offline.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 30
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - if: ${{ inputs.scope == 'mail' }}
+        run: python3 automation/feishu/global_mail_relationship_coverage.py
+      - if: ${{ inputs.scope == 'search-index-all' }}
+        run: python3 automation/feishu/unified_reference_search.py --scope all --verify-index

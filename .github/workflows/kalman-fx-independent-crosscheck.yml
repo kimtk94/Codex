@@ -2,6 +2,12 @@ name: Kalman FX Independent Source Triangulation (Research Only)
 
 on:
   workflow_dispatch:
+    inputs:
+      use_verified_candidate:
+        description: 'Use the owner-verified immutable 2026-11-24 candidate ZIP (research HOLD)'
+        type: boolean
+        required: false
+        default: false
   schedule:
     # Weekly on Saturday 04:15 UTC; market and FRED refresh have completed.
     - cron: '15 4 * * 6'
@@ -10,17 +16,21 @@ on:
     paths:
       - 'research/kalman_market_missingness/crosscheck_fx_sources.py'
       - 'research/kalman_market_missingness/test_crosscheck_fx_sources.py'
+      - 'research/kalman_market_missingness/fetch_private_zip.py'
+      - 'research/kalman_market_missingness/test_fetch_private_zip.py'
       - '.github/workflows/kalman-fx-independent-crosscheck.yml'
   pull_request:
     paths:
       - 'research/kalman_market_missingness/crosscheck_fx_sources.py'
       - 'research/kalman_market_missingness/test_crosscheck_fx_sources.py'
+      - 'research/kalman_market_missingness/fetch_private_zip.py'
+      - 'research/kalman_market_missingness/test_fetch_private_zip.py'
       - '.github/workflows/kalman-fx-independent-crosscheck.yml'
 
 permissions:
   contents: read
 concurrency:
-  group: kalman-fx-source-triangulation
+  group: kalman-fx-source-triangulation-${{ github.event_name == 'workflow_dispatch' && inputs.use_verified_candidate && 'candidate-20261124' || 'original' }}
   cancel-in-progress: false
 
 jobs:
@@ -34,11 +44,12 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install -q 'pandas>=2.2,<3' 'numpy>=2,<3'
       - run: python -m unittest discover -s research/kalman_market_missingness -p 'test_crosscheck_fx_sources.py' -v
+      - run: python -m unittest discover -s research/kalman_market_missingness -p 'test_fetch_private_zip.py' -v
       - run: python -m compileall -q research/kalman_market_missingness/crosscheck_fx_sources.py
 
   crosscheck:
     needs: contract-tests
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.use_verified_candidate || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 25
@@ -52,7 +63,8 @@ jobs:
           python -m pip install --disable-pip-version-check -q \
             'pandas>=2.2,<3' 'numpy>=2,<3' 'pyarrow>=17' 'yfinance[repair]==1.7.0' \
             google-auth google-api-python-client requests
-      - name: Read private input (never publish source OHLC)
+      - name: Read original private input (never publish source OHLC)
+        if: github.event_name != 'workflow_dispatch' || !inputs.use_verified_candidate
         env:
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
@@ -60,10 +72,27 @@ jobs:
           python research/kalman_market_missingness/fetch_private_zip.py \
             --file-id 1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd \
             --out "$RUNNER_TEMP/kalman_fx_research_source.zip"
+      - name: Read exact owner-verified private candidate ZIP (SHA256 pinned)
+        if: github.event_name == 'workflow_dispatch' && inputs.use_verified_candidate
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_market_missingness/fetch_private_zip.py \
+            --file-id 1rptk7B9dJfNp2GgaDF0g27FZUolKEIDn --verified-candidate \
+            --out "$RUNNER_TEMP/kalman_fx_research_source.zip"
       - name: Verify original vs Yahoo repair modes and external sources
+        if: github.event_name != 'workflow_dispatch' || !inputs.use_verified_candidate
         run: |
           python research/kalman_market_missingness/crosscheck_fx_sources.py \
             --zip "$RUNNER_TEMP/kalman_fx_research_source.zip" \
+            --out outputs/kalman_fx_triangulation
+      - name: Triangulate immutable candidate against external FX sources (no price replacement)
+        if: github.event_name == 'workflow_dispatch' && inputs.use_verified_candidate
+        run: |
+          python research/kalman_market_missingness/crosscheck_fx_sources.py \
+            --zip "$RUNNER_TEMP/kalman_fx_research_source.zip" \
+            --expected-sha256 62b08e06a84caef53889f17bf75afde5bb2d2cd01e9adc5c6433b9c2e7c89722 \
             --out outputs/kalman_fx_triangulation
       - name: Publish metadata only; NO OHLC VALUES
         if: always()

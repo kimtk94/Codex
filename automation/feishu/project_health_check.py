@@ -48,10 +48,10 @@ SCHEMAS = {
             "Completion Evidence", "Invoice Gross KRW", "Outstanding Balance KRW",
             *EVIDENCE_FIELDS),
     REGISTRY: ("Source Key", "X Project", "H Contract", "AMEA", "AMEA Link State",
-               "Record State"),
+               "Owner Scope", "Record State"),
     LINKS: ("Source Key", "Link Type", "AMEA", "H Contract", "X Project", "SAM",
             "Link State", "Record State"),
-    INVOICE: ("Source Key", "CMS Invoice", "X Project", "AMEA", "Owner Scope",
+    INVOICE: ("Source Key", "CMS Invoice", "X Base", "X Project", "AMEA", "Owner Scope",
               "Invoice Link State", "Invoice Gross KRW Incl VAT",
               "Outstanding Balance KRW", "Record State"),
     PO: ("Project ID", "Contract Source", "Contract Mail Key", "Contract Notice UTC",
@@ -215,6 +215,92 @@ def po_check(direct, related):
     return "PO_REVIEW_REQUIRED"
 
 
+# Fixed codes only: never emit provider-controlled labels or identifiers.
+OWNER_SCOPES = {"MY_VERIFIED", "OTHER_SALES", "OWNER_UNVERIFIED"}
+X_LINK_CODES = {"EXACT_LIFECYCLE", "UNIQUE_H_CANDIDATE", "AMBIGUOUS_H",
+                "X_UNMATCHED", "CONFLICT_MULTIPLE_AMEA", "CONFLICT_LIFECYCLE_CSS_H"}
+INVOICE_LINK_CODES = {"EXACT_X_AMEA_CMS", "INVOICE_SOURCE_CONFLICT",
+                      "MULTI_Z_REVIEW", "X_NOT_IN_ONLINE",
+                      "AMEA_X_NOT_VERIFIED", "AMEA_X_CONFLICT"}
+
+
+def safe_code(value, allowed):
+    return value if value in allowed else "UNCLASSIFIED"
+
+
+def owner_scope(row):
+    return safe_code(get(row, "Owner Scope"), OWNER_SCOPES)
+
+
+def board_relation(row, pids):
+    pid = get(row, "AMEA")
+    if pid in pids:
+        return "BOARD_PRESENT"
+    if not pid:
+        return "AMEA_EMPTY"
+    return "AMEA_NOT_ON_BOARD" if AMEA_RE.fullmatch(pid) else "AMEA_FORMAT_REVIEW"
+
+
+def invoice_registry_relation(row, regs, by_base, pids):
+    x, base = get(row, "X Project"), get(row, "X Base")
+    if not x:
+        if not base:
+            return "X_BASE_NOT_OBSERVED"
+        if not X_RE.fullmatch(base) or re.search(r"-Z\d+$", base):
+            return "X_BASE_FORMAT_REVIEW"
+        count = len(by_base.get(base, ()))
+        return ("X_BASE_NOT_IN_CURRENT_REGISTRY" if not count else
+                "X_BASE_MULTIPLE_CURRENT_CANDIDATES" if count > 1 else
+                "X_BASE_ONE_CURRENT_CANDIDATE")
+    if x not in regs:
+        return "X_NOT_IN_CURRENT_REGISTRY"
+    registry_amea = get(regs[x], "AMEA")
+    if registry_amea and get(row, "AMEA") and registry_amea != get(row, "AMEA"):
+        return "X_AMEA_DISAGREEMENT"
+    return "X_WITH_BOARD_AMEA" if registry_amea in pids else "X_WITHOUT_BOARD_AMEA"
+
+
+def orphan_scope_counts(pids, regs, invoices):
+    """Observed Board coverage; not a finding of broken lineage or payment."""
+    by_base = defaultdict(set)
+    for x in regs:
+        by_base[re.sub(r"-Z\d+$", "", x)].add(x)
+    result = {}
+    for kind, records in (("x", regs), ("invoice", invoices)):
+        rows = [r for r in records.values() if get(r, "AMEA") not in pids]
+        groups = {}
+        for scope in ("MY_VERIFIED", "OTHER_SALES", "OWNER_UNVERIFIED", "UNCLASSIFIED"):
+            subset = [r for r in rows if owner_scope(r) == scope]
+            groups[scope] = {
+                "records": len(subset),
+                "distinct_valid_amea": len({get(r, "AMEA") for r in subset
+                                            if AMEA_RE.fullmatch(get(r, "AMEA"))}),
+                "board_relation_counts": dict(Counter(board_relation(r, pids) for r in subset)),
+                "link_state_counts": dict(Counter(safe_code(
+                    get(r, "AMEA Link State" if kind == "x" else "Invoice Link State"),
+                    X_LINK_CODES if kind == "x" else INVOICE_LINK_CODES) for r in subset)),
+            }
+            if kind == "invoice":
+                groups[scope]["registry_relation_counts"] = dict(Counter(
+                    invoice_registry_relation(r, regs, by_base, pids) for r in subset))
+        result[kind] = {
+            "current_records": len(records),
+            "board_present": len(records) - len(rows),
+            "board_absent": len(rows),
+            "owner_scope_counts": dict(Counter(owner_scope(r) for r in records.values())),
+            "board_absent_by_owner_scope": groups,
+        }
+        if sum(v["records"] for v in groups.values()) != len(rows):
+            raise HealthError("HEALTH_ORPHAN_SCOPE_COUNT_MISMATCH")
+    return result
+
+
+def review_health(reasons):
+    if any(reason.startswith("CONFLICT_") for reason in reasons):
+        return "CONFLICT_REVIEW"
+    return "REVIEW" if reasons else "LIMITED_OBSERVED_CHECKS_PASS"
+
+
 def assess(tables, manifest, report_audit, now):
     """Cross-check stored projections. Results are advisory and non-atomic."""
     boards = index(tables[BOARD], "Source Key")
@@ -278,9 +364,15 @@ def assess(tables, manifest, report_audit, now):
         lane = get(b, "Workflow Lane")
         if coverage != CURRENT or lane not in LANES:
             details.append({"amea": pid, "health": "NOT_CURRENT_OR_UNCLASSIFIED",
-                            "reasons": ["BOARD_NOT_CURRENT_OR_UNCLASSIFIED"]})
+                            "reasons": ["BOARD_NOT_CURRENT_OR_UNCLASSIFIED"],
+                            "projection_health": "NOT_CURRENT_OR_UNCLASSIFIED",
+                            "projection_reasons": ["BOARD_NOT_CURRENT_OR_UNCLASSIFIED"],
+                            "source_metadata_status": "NOT_ASSESSED",
+                            "source_metadata_reasons": [],
+                            "review_basis": "NOT_ASSESSED"})
             continue
         reasons = set()
+        metadata_reasons = set()
         data_check = get(b, "PM Data Check")
         quote = get(b, "PM Quote Link")
         if data_check == "CONFLICT" or quote.startswith("CONFLICT_"):
@@ -404,46 +496,65 @@ def assess(tables, manifest, report_audit, now):
                 elif board_gross is not None and amount(b, "Verified Invoice KRW") != board_gross:
                     reasons.add("CONFLICT_ARCHIVE_RECEIPT_GROSS")
                 if get(b, "Receipt Source") == "FEISHU_LATEST_PAYMENT_RECEIPT":
-                    if any(get(b, field) != source[name].get("manifest_source_date")
-                           or source[name]["state"] != "WITHIN_METADATA_LIMIT"
-                           for field, name in (
-                               ("Receipt Source Snapshot Date", "Payment Receipt"),
-                               ("Outstanding Source Snapshot Date", "Payment Outstanding"))):
-                        reasons.add("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT")
+                    for field, name in (
+                            ("Receipt Source Snapshot Date", "Payment Receipt"),
+                            ("Outstanding Source Snapshot Date", "Payment Outstanding")):
+                        observed_date = source[name].get("manifest_source_date")
+                        if observed_date and get(b, field) != observed_date:
+                            reasons.add("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT")
+                        if not observed_date or source[name]["state"] != "WITHIN_METADATA_LIMIT":
+                            metadata_reasons.add("REVIEW_ARCHIVE_RECEIPT_SNAPSHOT")
             payment_state = ("EXACT_OBSERVED_INVOICE_SET" if full and not any(
-                "INVOICE" in r or "ARCHIVE" in r for r in reasons)
+                "INVOICE" in r or "ARCHIVE" in r for r in reasons | metadata_reasons)
                 else "INVOICE_OR_RECEIPT_REVIEW")
         elif lane == "PAYMENT_FOLLOWUP":
             reasons.add("REVIEW_PAYMENT_OWNER_SCOPE")
-        # Source metadata is reported separately from cross-table evidence.
-        # Never mark all rows fresh simply because their projections agree.
+        # Metadata warnings are an independent axis: a shared stale report
+        # must not masquerade as hundreds of separate project defects.
+        # Keep the original combined health conservative for compatibility.
         if source["Online-Project"]["state"] != "WITHIN_METADATA_LIMIT":
-            reasons.add("REVIEW_ONLINE_MIRROR_METADATA")
+            metadata_reasons.add("REVIEW_ONLINE_MIRROR_METADATA")
         if get(b, "Payment Owner Scope") == MINE and any(
                 source[name]["state"] != "WITHIN_METADATA_LIMIT"
                 for name in ("Payment Outstanding", "Payment Receipt", "eTax Invoice")):
-            reasons.add("REVIEW_FINANCE_MIRROR_METADATA")
+            metadata_reasons.add("REVIEW_FINANCE_MIRROR_METADATA")
         if source["Prepayments"]["state"] != "WITHIN_METADATA_LIMIT":
-            reasons.add("REVIEW_PREPAYMENT_MIRROR_METADATA")
+            metadata_reasons.add("REVIEW_PREPAYMENT_MIRROR_METADATA")
         if reports["Quotation"]["state"] != "RECEIPT_WITHIN_6H":
-            reasons.add("REVIEW_QUOTE_REPORT_RECEIPT_METADATA")
-        health = ("CONFLICT_REVIEW" if any(r.startswith("CONFLICT_") for r in reasons)
-                  else "REVIEW" if reasons else "LIMITED_OBSERVED_CHECKS_PASS")
-        details.append({"amea": pid, "health": health, "x_chain": x_state,
+            metadata_reasons.add("REVIEW_QUOTE_REPORT_RECEIPT_METADATA")
+        combined = reasons | metadata_reasons
+        basis = ("BOTH" if reasons and metadata_reasons else
+                 "PROJECT_ONLY" if reasons else
+                 "SOURCE_METADATA_ONLY" if metadata_reasons else
+                 "NO_OBSERVED_REVIEW")
+        details.append({"amea": pid, "health": review_health(combined),
+                        "projection_health": review_health(reasons),
+                        "projection_reasons": sorted(reasons),
+                        "source_metadata_status": ("ADVISORY_REVIEW" if metadata_reasons
+                                                   else "WITHIN_CHECKED_METADATA_LIMITS"),
+                        "source_metadata_reasons": sorted(metadata_reasons),
+                        "review_basis": basis,
+                        "x_chain": x_state,
                         "x_exact_count": len(exact_x), "sam_chain": sam_state,
                         "sam_exact_count": len(sam_exact), "po": po_state,
                         "mail": mail_state, "mail_exact_count": mail_exact,
-                        "invoice": payment_state, "reasons": sorted(reasons)})
+                        "invoice": payment_state, "reasons": sorted(combined)})
     summary = {
         "checked_at_kst": now.astimezone(KST).isoformat(),
         "mode": "READ_ONLY_NON_ATOMIC_PROJECTION_AUDIT",
         "project_counts": dict(Counter(d["health"] for d in details)),
         "reason_counts": dict(Counter(r for d in details for r in d["reasons"])),
+        "projection_counts": dict(Counter(d["projection_health"] for d in details)),
+        "projection_reason_counts": dict(Counter(r for d in details for r in d["projection_reasons"])),
+        "source_metadata_project_counts": dict(Counter(d["source_metadata_status"] for d in details)),
+        "source_metadata_reason_counts": dict(Counter(r for d in details for r in d["source_metadata_reasons"])),
+        "review_basis_counts": dict(Counter(d["review_basis"] for d in details)),
         "mirror_metadata": source, "sfdc_receipt_metadata": reports,
         "source_freshness_unattested": ["CSS", "Lifecycle", "PO Tracker", "Mail Identity",
                                       "X Registry", "SFDC Quote Export"],
         "unassigned_current_x": sum(get(r, "AMEA") not in pids for r in regs.values()),
         "unassigned_current_invoices": sum(get(r, "AMEA") not in pids for r in invoices.values()),
+        "board_coverage_by_owner": orphan_scope_counts(pids, regs, invoices),
         "mail_without_board_project": sum(get(r, "Project ID") not in pids for r in mails.values()),
         "business_writes": 0,
     }

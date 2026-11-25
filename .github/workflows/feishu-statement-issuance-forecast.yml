@@ -1,0 +1,43 @@
+name: Feishu Statement Issuance Forecast Audit
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/statement_issuance_forecast.py'
+      - 'automation/feishu/test_statement_issuance_forecast.py'
+      - 'automation/feishu/STATEMENT_ISSUANCE_FORECAST.md'
+      - '.github/workflows/feishu-statement-issuance-forecast.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'feishu-statement-issuance-forecast' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m unittest discover -s automation/feishu -p test_statement_issuance_forecast.py -v
+  audit:
+    needs: offline
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.offline.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - run: python3 automation/feishu/statement_issuance_forecast.py
