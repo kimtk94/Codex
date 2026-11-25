@@ -84,5 +84,98 @@ class DeliveryAuditTests(unittest.TestCase):
         self.assertNotIn("secret", str(report))
 
 
+
+class ExternalScheduleProbeTests(unittest.TestCase):
+    def run_probe(self, *, when=None, token="fixture-only", env=None, fetch=None):
+        from external_schedule_probe import probe
+        delays = []
+        report = probe(when or clock(25, 8, 20), token,
+                       env=env or {}, fetch=fetch or fake_api(), sleep=delays.append)
+        return report, delays
+
+    def test_delivery_count_is_not_scientific_or_host_attestation(self):
+        from external_schedule_probe import exit_code
+        report, delays = self.run_probe()
+        self.assertEqual(report["observed_schedule_deliveries"], 4)
+        self.assertEqual(exit_code(report), 0)
+        self.assertEqual(delays, [])
+        self.assertFalse(report["host_independence_verified"])
+        self.assertFalse(report["original_first_and_replay_roles_verified"])
+        self.assertEqual(report["scientific_approval"], "HOLD")
+        self.assertFalse(report["live_execution"])
+
+    def test_missing_deliveries_are_not_retried_or_promoted(self):
+        from external_schedule_probe import exit_code
+        report, delays = self.run_probe(fetch=fake_api(count=(0, 0)))
+        self.assertEqual(report["observed_schedule_deliveries"], 0)
+        self.assertEqual(report["status"], "SCHEDULE_DELIVERY_HOLD")
+        self.assertEqual(report["api_attempts"], 1)
+        self.assertEqual(delays, [])
+        self.assertEqual(exit_code(report), 2)
+
+    def test_api_unavailable_retries_bounded_and_does_not_report_zero(self):
+        from external_schedule_probe import exit_code
+        def denied(path):
+            raise OSError("SECRET must not appear")
+        report, delays = self.run_probe(fetch=denied)
+        self.assertEqual(delays, [5, 15])
+        self.assertEqual(report["api_attempts"], 3)
+        self.assertIsNone(report["observed_schedule_deliveries"])
+        self.assertEqual(exit_code(report), 2)
+        self.assertNotIn("SECRET", str(report))
+
+    def test_transient_error_then_valid_response(self):
+        calls = []
+        good = fake_api()
+        def transient(path):
+            calls.append(path)
+            if len(calls) <= 2:
+                raise OSError("temporary")
+            return good(path)
+        report, delays = self.run_probe(fetch=transient)
+        self.assertEqual(delays, [5])
+        self.assertEqual(report["api_attempts"], 2)
+        self.assertEqual(report["observed_schedule_deliveries"], 4)
+
+    def test_before_cutoff_or_off_day_never_reuses_previous_day(self):
+        from external_schedule_probe import exit_code
+        def forbidden(path):
+            self.fail("no API access expected")
+        for when in (clock(25, 8, 14), clock(29, 12), clock(30, 12)):
+            report, delays = self.run_probe(when=when, fetch=forbidden)
+            self.assertEqual(report["status"], "NOT_DUE")
+            self.assertEqual(report["target_utc_date"], when.date().isoformat())
+            self.assertIsNone(report["observed_schedule_deliveries"])
+            self.assertEqual(exit_code(report), 3)
+            self.assertEqual(delays, [])
+
+    def test_missing_token_or_github_host_fails_before_api(self):
+        def forbidden(path):
+            self.fail("no API access expected")
+        for kwargs in ({"token": ""}, {"env": {"GITHUB_ACTIONS": "true"}},
+                       {"env": {"GITHUB_RUN_ID": "123"}}):
+            report, delays = self.run_probe(fetch=forbidden, **kwargs)
+            self.assertEqual(report["status"], "API_EVIDENCE_UNAVAILABLE_HOLD")
+            self.assertIsNone(report["observed_schedule_deliveries"])
+            self.assertEqual(report["api_attempts"], 0)
+            self.assertEqual(delays, [])
+
+    def test_atomic_local_report_and_fail_closed_exit(self):
+        from external_schedule_probe import write_report, exit_code
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        import json
+        report, _ = self.run_probe(fetch=fake_api(count=(0, 0)))
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "nested" / "report.json"
+            write_report(path, report)
+            self.assertEqual(json.loads(path.read_text()), report)
+            self.assertEqual(list(path.parent.iterdir()), [path])
+        self.assertEqual(exit_code({"status": "DELIVERY_COUNT_OK_NOT_SEAL_PROOF",
+                                    "api_evidence_complete": False,
+                                    "observed_schedule_deliveries": 4}), 2)
+
+
+
 if __name__ == "__main__":
     unittest.main()
