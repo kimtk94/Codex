@@ -1,0 +1,73 @@
+name: Kalman Frozen Outcome Attribution (Research Only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research/kalman_outcome_attribution/**'
+      - '.github/workflows/kalman-outcome-attribution.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-outcome-attribution-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'manual-readonly' }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated analysis dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=2,<2.4' 'pandas>=2.2,<3'
+      - name: Verify outcome, provenance and temporal join contracts
+        run: |
+          python -m unittest discover -s research/kalman_outcome_attribution -p 'test_*.py' -v
+          python -m compileall -q research/kalman_outcome_attribution
+
+  frozen-report:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: '06c66c0fea6de93eeb581ce856d648d24c0ff942'
+          path: original-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated original-model feature reader
+        run: python -m pip install --disable-pip-version-check 'numpy>=2,<2.4' 'pandas>=2.2,<3' 'scikit-learn>=1.6,<2' 'pyarrow>=17,<25' google-auth google-api-python-client
+      - name: Download exact frozen research archives read-only
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: python research/kalman_outcome_attribution/fetch_frozen_inputs.py --out "$RUNNER_TEMP/kalman_frozen_inputs"
+      - name: Attribute wins, losses and loss severity using original source
+        run: |
+          python research/kalman_outcome_attribution/outcome_profile.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/aggregate_report.json
+      - name: Publish only aggregate metadata, never input archives or row-level features
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-frozen-outcome-attribution-metadata
+          path: outputs/kalman_outcome_attribution/aggregate_report.json
+          if-no-files-found: error
+          retention-days: 45
