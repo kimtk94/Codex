@@ -140,7 +140,8 @@ def quote_opportunity_index(export, portfolio):
         return raw[:15] if QUOTE_OBJECT_RE.fullmatch(raw) else ""
     def opp(row):
         raw = text(row, "Opportunity ID")
-        return raw if OPP_REF_RE.fullmatch(raw) or OPP_OBJECT_RE.fullmatch(raw) else ""
+        # Validate syntax case-insensitively, but preserve literal identity comparisons.
+        return raw if OPP_REF_RE.fullmatch(raw.upper()) or OPP_OBJECT_RE.fullmatch(raw) else ""
     raw = collections.defaultdict(list)
     export_qids = collections.Counter()
     for row in export:
