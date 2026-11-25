@@ -159,10 +159,11 @@ class UnmatchedProjectReferenceTests(unittest.TestCase):
 
 class BoundedReadTests(unittest.TestCase):
     class Response:
-        def __init__(self,status,payload=None):
+        def __init__(self,status,payload=None,headers=None):
             self.status_code=status
             self.ok=200<=status<300
             self.payload=payload
+            self.headers=headers or {}
         def json(self):
             if isinstance(self.payload,Exception):
                 raise self.payload
@@ -188,7 +189,63 @@ class BoundedReadTests(unittest.TestCase):
         with patch.object(m.time,"sleep") as sleep:
             self.assertEqual(m.get_json(session,"synthetic","PAYLOAD",2000),{"valueRanges":[]})
         self.assertEqual(session.get.call_count,2)
-        sleep.assert_called_once_with(2)
+        sleep.assert_called_once_with(65)
+
+    def test_quota_retry_after_respected(self):
+        from unittest.mock import Mock
+        session=Mock()
+        session.get.side_effect=[self.Response(429,headers={"Retry-After":"90"}),
+                                 self.Response(200,{})]
+        with patch.object(m.time,"sleep") as sleep:
+            self.assertEqual(m.get_json(session,"synthetic","PAYLOAD",2000),{})
+        sleep.assert_called_once_with(90)
+
+    def test_quota_retry_after_over_budget_stops_without_split(self):
+        from unittest.mock import Mock
+        session=Mock()
+        session.get.return_value=self.Response(429,headers={"Retry-After":"181"})
+        with patch.object(m.time,"sleep") as sleep:
+            with self.assertRaisesRegex(m.MailSheetsReadError,"HTTP_429_RETRY_AFTER_BOUND") as cm:
+                m.get_json(session,"synthetic","PAYLOAD",2000)
+        self.assertFalse(cm.exception.can_split)
+        session.get.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_quota_retry_after_date_and_invalid_header(self):
+        from email.utils import format_datetime
+        import datetime as dt
+        until=dt.datetime.now(dt.timezone.utc)+dt.timedelta(seconds=100)
+        delay=m.quota_cooldown(self.Response(429,headers={"Retry-After":format_datetime(until)}))
+        self.assertGreater(delay,65)
+        self.assertLessEqual(delay,100)
+        for raw in ("invalid", "1", ""):
+            self.assertEqual(m.quota_cooldown(self.Response(429,headers={"Retry-After":raw})),65)
+
+    def test_pacer_spaces_requests_without_sleep_after_slow_response(self):
+        from unittest.mock import Mock
+        now=[0.0]
+        def advance(seconds):
+            now[0]+=seconds
+        with patch.object(m.time,"monotonic",side_effect=lambda:now[0]), \
+                patch.object(m.time,"sleep",side_effect=advance) as sleep:
+            pacer=m.ReadPacer()
+            pacer.wait()
+            pacer.wait()
+            self.assertEqual(now[0],2.0)
+            now[0]+=5
+            pacer.wait()
+            sleep.assert_called_once_with(2.0)
+
+    def test_every_get_attempt_is_paced(self):
+        from unittest.mock import Mock
+        session=Mock()
+        session.get.side_effect=[self.Response(503),self.Response(429),self.Response(200,{})]
+        pacer=Mock()
+        with patch.object(m.time,"sleep") as sleep:
+            self.assertEqual(m.get_json(session,"synthetic","PAYLOAD",2000,pacer),{})
+        self.assertEqual(pacer.wait.call_count,3)
+        self.assertEqual(session.get.call_count,3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list],[2,65])
 
     def test_transport_failure_retries_without_leaking_details(self):
         from unittest.mock import Mock

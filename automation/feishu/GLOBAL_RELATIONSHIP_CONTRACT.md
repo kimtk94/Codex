@@ -223,3 +223,20 @@ errors stop the audit without publishing a partial coverage result. No
 source writes, backfill, Feishu changes, new scheduled workflow or identity
 writer changes. The specific production failure remains unverified until
 an authenticated rerun provides the diagnostic evidence.
+
+
+## Follow-up: shared Sheets quota recovery
+
+The authenticated full search-index run 45578302525 completed the canonical
+key scan (53,544 keyed rows) and then received repeated HTTP 429 during the
+payload read. Its 2/4/8/16-second retry sequence did not recover. Keep all
+existing completeness checks and chunk sizes; space each canonical GET start
+by at least two seconds (approximately 30 starts/minute per reader), including
+metadata, payload, split and retry calls. For HTTP 429, wait at least 65 seconds
+and honor a longer valid Retry-After up to 180 seconds; beyond that bound stop
+without another request. Quota failures never trigger range splitting. This
+is a local reader limit, not a guarantee of shared service-account/project
+quota availability; concurrent external workflows still matter. No writes,
+schedule, credentials, source selection or business relation rules change.
+Re-run authenticated search-index-all in isolation after CI and merge, compare
+all source counts and postings; do not claim success until the full audit ends.
