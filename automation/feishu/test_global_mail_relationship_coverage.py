@@ -157,5 +157,97 @@ class UnmatchedProjectReferenceTests(unittest.TestCase):
         self.assertEqual(out["canonical_h_literal"],{"NONE_OBSERVED":1})
         self.assertEqual(out["nonmail_and_canonical_reference"],{"NONMAIL_ONLY":1})
 
+class BoundedReadTests(unittest.TestCase):
+    class Response:
+        def __init__(self,status,payload=None):
+            self.status_code=status
+            self.ok=200<=status<300
+            self.payload=payload
+        def json(self):
+            if isinstance(self.payload,Exception):
+                raise self.payload
+            return self.payload
+
+    def test_permission_error_is_sanitized_and_never_retried(self):
+        from unittest.mock import Mock
+        session=Mock()
+        session.get.return_value=self.Response(403,{"private":"DO_NOT_LOG"})
+        with patch.object(m.time,"sleep") as sleep:
+            with self.assertRaisesRegex(m.MailSheetsReadError,
+                    "phase=KEY_SCAN rows=10000 failure=HTTP_403") as cm:
+                m.get_json(session,"https://private.invalid/SECRET","KEY_SCAN",10000)
+        self.assertNotIn("SECRET",str(cm.exception))
+        self.assertFalse(cm.exception.can_split)
+        session.get.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_transient_quota_retries_then_succeeds(self):
+        from unittest.mock import Mock
+        session=Mock()
+        session.get.side_effect=[self.Response(429),self.Response(200,{"valueRanges":[]})]
+        with patch.object(m.time,"sleep") as sleep:
+            self.assertEqual(m.get_json(session,"synthetic","PAYLOAD",2000),{"valueRanges":[]})
+        self.assertEqual(session.get.call_count,2)
+        sleep.assert_called_once_with(2)
+
+    def test_transport_failure_retries_without_leaking_details(self):
+        from unittest.mock import Mock
+        session=Mock()
+        session.get.side_effect=OSError("SECRET_URL")
+        with patch.object(m.time,"sleep") as sleep:
+            with self.assertRaisesRegex(m.MailSheetsReadError,"failure=TRANSPORT") as cm:
+                m.get_json(session,"synthetic","PAYLOAD",2000)
+        self.assertTrue(cm.exception.can_split)
+        self.assertNotIn("SECRET_URL",str(cm.exception))
+        self.assertEqual(session.get.call_count,3)
+        self.assertEqual(sleep.call_count,2)
+
+    def test_invalid_json_is_not_accepted(self):
+        from unittest.mock import Mock
+        session=Mock()
+        for payload,code in ((ValueError("SECRET"),"INVALID_JSON"),([], "INVALID_JSON_SHAPE")):
+            session.get.return_value=self.Response(200,payload)
+            with self.assertRaisesRegex(m.MailSheetsReadError,"failure="+code) as cm:
+                m.get_json(session,"synthetic","META")
+            self.assertFalse(cm.exception.can_split)
+            self.assertNotIn("SECRET",str(cm.exception))
+
+    def test_split_preserves_contiguous_rows_and_column_ranges(self):
+        calls=[]
+        def read(ranges,phase,rows):
+            calls.append((ranges,phase,rows))
+            if rows>250:
+                raise m.MailSheetsReadError(phase,rows,"HTTP_413",True)
+            return [[["ok"]],[]]
+        batches=list(m.bounded_reads(read,"PAYLOAD",2,501,(("A","I"),("K","M"))))
+        self.assertEqual([(a,b) for a,b,_ in batches],[(2,251),(252,501)])
+        self.assertEqual(calls[1][0],["A2:I251","K2:M251"])
+        self.assertEqual(calls[2][0],["A252:I501","K252:M501"])
+
+    def test_quota_or_auth_error_never_splits(self):
+        from unittest.mock import Mock
+        for status in (403,429):
+            read=Mock(side_effect=m.MailSheetsReadError("KEY_SCAN",10000,"HTTP_"+str(status)))
+            with self.assertRaises(m.MailSheetsReadError):
+                list(m.bounded_reads(read,"KEY_SCAN",2,10001,(("A","B"),)))
+            read.assert_called_once()
+
+    def test_split_bound_fails_instead_of_truncating(self):
+        from unittest.mock import Mock
+        read=Mock(side_effect=m.MailSheetsReadError("PAYLOAD",2000,"HTTP_504",True))
+        with self.assertRaises(m.MailSheetsReadError):
+            list(m.bounded_reads(read,"PAYLOAD",2,2001,(("A","I"),)))
+        self.assertEqual(read.call_count,m.MAX_SPLIT_DEPTH+1)
+
+    def test_failed_right_half_does_not_silently_pass(self):
+        def read(ranges,phase,rows):
+            if rows>250:
+                raise m.MailSheetsReadError(phase,rows,"HTTP_413",True)
+            if ranges[0].startswith("A252:"):
+                raise m.MailSheetsReadError(phase,rows,"HTTP_403")
+            return [[["ok"]]]
+        with self.assertRaisesRegex(m.MailSheetsReadError,"HTTP_403"):
+            list(m.bounded_reads(read,"PAYLOAD",2,501,(("A","I"),)))
+
 if __name__=="__main__":
     unittest.main()
