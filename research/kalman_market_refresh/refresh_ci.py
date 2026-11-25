@@ -24,6 +24,11 @@ NEEDED = ('yf_spy','yf_qqq','yf_smh','yf_vix','yf_tnx','yf_hyg','yf_lqd',
           'yf_tlt','yf_gld','yf_dxy','yf_usdkrw')
 OPTIONAL = ('yf_iwm','yf_dia','yf_soxx','yf_sp500','yf_ixic','yf_btc',
             'yf_kospi','yf_kosdaq')
+# Canonical TA filenames use the normalized symbol, not the fetch key.
+# Keep this mapping checked against the actual market universe in tests.
+FEATURE_STEMS = {key:key[3:] for key in NEEDED+OPTIONAL}
+FEATURE_STEMS.update(yf_sp500='s_p500', yf_ixic='nasdaq', yf_btc='btc_usd',
+                     yf_tnx='us10y', yf_usdkrw='usd_krw')
 FRED_SERIES = ('CPIAUCSL','DEXKOUS','DFF','DFII10','DGS2','DTWEXBGS',
                'M2SL','NASDAQCOM','SP500','UNRATE','VIXCLS','WALCL')
 
@@ -254,6 +259,53 @@ def make_bundle(market_dir, features_dir, fred_dir, out, status_path):
     return manifest
 
 
+def candidate_status(bundle, status_path):
+    """Verify all candidate bytes, retain metadata only; never publish to Drive."""
+    bundle=Path(bundle)
+    with zipfile.ZipFile(bundle) as archive:
+        names=archive.namelist()
+        if len(names)!=len(set(names)) or archive.testzip() is not None:
+            raise RuntimeError('CANDIDATE_ARCHIVE_INTEGRITY_FAILED')
+        manifest=json.loads(archive.read('manifest.json'))
+        if (manifest.get('production_writes') is not False
+                or manifest.get('status')!='RESEARCH_ONLY_VALIDATED'
+                or manifest.get('schema')!='kalman-daily-market-research-bundle-v1'):
+            raise RuntimeError('CANDIDATE_NOT_RESEARCH_BUNDLE')
+        members=manifest['members']
+        paths=[m['path'] for m in members]
+        if len(paths)!=len(set(paths)) or set(paths)!=set(names)-{'manifest.json','readiness.json'}:
+            raise RuntimeError('CANDIDATE_MEMBER_SET_MISMATCH')
+        keys=NEEDED+OPTIONAL
+        expected_market={f'market/raw/yfinance/{key}.parquet' for key in keys}
+        expected_features={f'features/talib/{FEATURE_STEMS[key]}.parquet' for key in keys}
+        if (manifest.get('market_assets')!=len(keys)
+                or manifest.get('feature_assets')!=len(keys)
+                or {p for p in paths if p.startswith('market/')}!=expected_market
+                or {p for p in paths if p.startswith('features/')}!=expected_features):
+            raise RuntimeError('CANDIDATE_NOT_EXACT_19_MARKET_FEATURE_ASSETS')
+        for member in members:
+            content=archive.read(member['path'])
+            if (len(content)!=member['bytes']
+                    or hashlib.sha256(content).hexdigest()!=member['sha256']):
+                raise RuntimeError('CANDIDATE_MEMBER_HASH_MISMATCH')
+    report={
+        'status':'CANDIDATE_METADATA_ONLY_RESEARCH_HOLD',
+        'bundle_sha256':hashlib.sha256(bundle.read_bytes()).hexdigest(),
+        'bundle_bytes':bundle.stat().st_size,
+        'manifest_members_verified':len(members),
+        'market_assets':manifest['market_assets'],
+        'feature_assets':manifest['feature_assets'],
+        'fred_series_success':manifest['fred_series_success'],
+        'macro_completeness':manifest['macro_completeness'],
+        'canonical_drive_zip_replaced':False,
+        'private_candidate_archive_persisted':False,
+        'ready_for_pit_training':False,
+        'reason':'PENDING_SOURCE_BASIS_QC_AND_APPROVED_VERSIONED_PRIVATE_TARGET',
+    }
+    json_write(status_path,report)
+    return report
+
+
 def parse_google_credentials():
     from google.oauth2 import service_account
     raw=os.environ.get('CKD_DRIVE_SA_JSON','').strip()
@@ -298,11 +350,13 @@ def main():
     a=sub.add_parser('universe');a.add_argument('--source',required=True);a.add_argument('--out',required=True)
     a=sub.add_parser('fred');a.add_argument('--out',required=True);a.add_argument('--start',default='2017-01-01')
     a=sub.add_parser('bundle');a.add_argument('--market',required=True);a.add_argument('--features',required=True);a.add_argument('--fred',required=True);a.add_argument('--out',required=True);a.add_argument('--status',required=True)
+    a=sub.add_parser('candidate');a.add_argument('--file',required=True);a.add_argument('--status',required=True)
     a=sub.add_parser('publish');a.add_argument('--file',required=True);a.add_argument('--file-id',required=True)
     a=p.parse_args()
     if a.command=='universe': print(json.dumps({'asset_count':len(select_universe(a.source,a.out)['assets'])}))
     elif a.command=='fred': print(json.dumps(fred_refresh(a.out,a.start)))
     elif a.command=='bundle':print(json.dumps(make_bundle(a.market,a.features,a.fred,a.out,a.status)))
+    elif a.command=='candidate':print(json.dumps(candidate_status(a.file,a.status)))
     elif a.command=='publish':publish(a.file,a.file_id)
 
 if __name__=='__main__':main()
