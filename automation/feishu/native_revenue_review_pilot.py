@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One-time, reviewed Feishu Revenue member pilot. Default is read-only.
 
-A dedicated frozen October 2026 analysis snapshot, not the official chart
+A dedicated frozen October-November 2026 analysis snapshot, not the official chart
 and not a recurring writer. Create only when both named targets are absent
 and the exact reviewed source digest and original monthly totals still match.
 Never update/delete existing tables, rows, views, or dashboard blocks.
@@ -27,9 +27,13 @@ BASE = "IpMkbUD0vaFqtYs93a3csXtdn1b"
 ROOT = "/open-apis/bitable/v1/apps/" + BASE
 OFFICIAL = "Monthly Tax Invoice"
 OFFICIAL_ID = "tblXLFQWiEK9REZL"
-TITLE = "Revenue 집계 검토 · 2026-10 스냅샷"
-MONTH = "2026-10"
-EXPECTED_COUNT = 48
+TITLE = "Revenue 집계 검토 · 2026-10~11 스냅샷"
+LEGACY_TITLE = "Revenue 집계 검토 · 2026-10 스냅샷"
+# Reviewed source snapshot 2026-11-25. A count change requires a new
+# review, not a silent expansion of the approved frozen cohort.
+EXPECTED_COUNTS = {"2026-10":48,"2026-11":40}
+MONTHS = tuple(EXPECTED_COUNTS)
+EXPECTED_COUNT = sum(EXPECTED_COUNTS.values())
 DEFAULT_VIEW = "01 전체 집계 원본"
 # These are the only permissible business API write paths. The new table ID
 # is established by the create response + unique catalog readback.
@@ -52,32 +56,39 @@ def sha(obj):
 
 def snapshot(source):
     summary,ready=plan(source)
-    rows=ready.get(MONTH,[])
-    if summary["months"].get(MONTH,{}).get("state")!="VERIFIED_PUBLISHED_MONTH_MEMBERS":
-        fail("SOURCE_MONTH_NOT_READY")
-    if len(rows)!=EXPECTED_COUNT:
-        fail("EXPECTED_MEMBER_COUNT_CHANGED")
-    ordered=sorted(rows,key=lambda row:row["Source Key"])
+    ordered=[]
+    official={}
+    stamps={}
+    for month,count in EXPECTED_COUNTS.items():
+        rows=ready.get(month,[])
+        if summary["months"].get(month,{}).get("state")!="VERIFIED_PUBLISHED_MONTH_MEMBERS":
+            fail("SOURCE_MONTH_NOT_READY:"+month)
+        if len(rows)!=count:
+            fail("EXPECTED_MEMBER_COUNT_CHANGED:"+month)
+        if any(USER_FIELDS & r.keys() or set(r)!=SOURCE_FIELDS or r["Month"]!=month for r in rows):
+            fail("MEMBER_SCHEMA_OR_SCOPE")
+        authoritative=evidence_rows({
+            name:[r for r in source[name] if text(r,"Month")==month]
+            for name in ("BI Revenue Net VAT Monthly","BI Revenue Lifecycle Monthly","Revenue Source Authority")})
+        if len(authoritative)!=1 or authoritative[0]["Month"]!=month:
+            fail("AUTHORITY_CHANGED:"+month)
+        totals=member_totals(rows)["original"]
+        official[month]=authoritative[0]
+        if (totals["count"],totals["gross_known_krw"],totals["net_known_krw"])!=(
+                official[month]["Invoice Count"],official[month]["Tax Invoice KRW Incl VAT"],
+                official[month]["Net Revenue KRW Ex VAT"]):
+            fail("MEMBER_AUTHORITY_MISMATCH:"+month)
+        month_stamps={r["Verified At KST"] for r in rows}
+        if len(month_stamps)!=1:
+            fail("MEMBER_SNAPSHOT_MISMATCH:"+month)
+        stamps[month]=next(iter(month_stamps))
+        ordered.extend(rows)
+    ordered.sort(key=lambda row:(row["Month"],row["Source Key"]))
     if len({validate_review_member(row) for row in ordered})!=EXPECTED_COUNT:
         fail("MEMBER_KEY_NOT_UNIQUE")
-    if any(USER_FIELDS & r.keys() or set(r)!=SOURCE_FIELDS or r["Month"]!=MONTH for r in ordered):
-        fail("MEMBER_SCHEMA_OR_SCOPE")
-    authoritative=evidence_rows({
-        name:[r for r in source[name] if text(r,"Month")==MONTH]
-        for name in ("BI Revenue Net VAT Monthly","BI Revenue Lifecycle Monthly","Revenue Source Authority")})
-    if len(authoritative)!=1 or authoritative[0]["Month"]!=MONTH:
-        fail("AUTHORITY_CHANGED")
-    totals=member_totals(ordered)["original"]
-    official=authoritative[0]
-    if (totals["count"],totals["gross_known_krw"],totals["net_known_krw"])!=(
-            official["Invoice Count"],official["Tax Invoice KRW Incl VAT"],official["Net Revenue KRW Ex VAT"]):
-        fail("MEMBER_AUTHORITY_MISMATCH")
-    stamps={r["Verified At KST"] for r in ordered}
-    if len(stamps)!=1:
-        fail("MEMBER_SNAPSHOT_MISMATCH")
-    return {"rows":ordered,"digest":sha({"month":MONTH,"members":ordered,
-                                        "official":{k:official[k] for k in OFFICIAL_METRICS}}),
-            "official":official,"stamp":next(iter(stamps))}
+    digest=sha({"months":list(MONTHS),"members":ordered,
+                "official":{m:{k:official[m][k] for k in OFFICIAL_METRICS} for m in MONTHS}})
+    return {"rows":ordered,"digest":digest,"official":official,"stamps":stamps}
 
 
 def plain(value):
@@ -102,15 +113,18 @@ def decimal_value(value):
 
 
 def verify_official(records,expected):
-    hits=[rec for rec in records if plain(rec.get("fields",{}).get("Source Key"))=="INVOICE:"+MONTH]
-    if len(hits)!=1:
-        fail("OFFICIAL_MONTH_MISSING_OR_DUPLICATE")
-    row=hits[0].get("fields",{})
-    if plain(row.get("Month"))!=MONTH or not hits[0].get("record_id"):
-        fail("OFFICIAL_MONTH_IDENTITY")
-    for key in OFFICIAL_METRICS:
-        if decimal_value(row.get(key))!=Decimal(str(expected[key])):
-            fail("OFFICIAL_CHART_TOTAL_MISMATCH")
+    if set(expected)!=set(MONTHS):
+        fail("OFFICIAL_SCOPE_MISMATCH")
+    for month in MONTHS:
+        hits=[rec for rec in records if plain(rec.get("fields",{}).get("Source Key"))=="INVOICE:"+month]
+        if len(hits)!=1:
+            fail("OFFICIAL_MONTH_MISSING_OR_DUPLICATE:"+month)
+        row=hits[0].get("fields",{})
+        if plain(row.get("Month"))!=month or not hits[0].get("record_id"):
+            fail("OFFICIAL_MONTH_IDENTITY:"+month)
+        for key in OFFICIAL_METRICS:
+            if decimal_value(row.get(key))!=Decimal(str(expected[month][key])):
+                fail("OFFICIAL_CHART_TOTAL_MISMATCH:"+month)
 
 
 def check_schema(fields):
@@ -177,15 +191,27 @@ def verify_members(records,expected):
         fail("REVIEW_MEMBER_SET_INCOMPLETE")
     exclusions={k for k,r in observed.items() if r[EXCLUDE]}
     totals=member_totals(expected,exclusions)
+    per_month={}
+    for month in MONTHS:
+        subset=[r for r in expected if r["Month"]==month]
+        selected_keys={r["Source Key"] for r in subset}
+        month_totals=member_totals(subset,exclusions & selected_keys)
+        per_month[month]={"original":month_totals["original"]["count"],
+                          "excluded":month_totals["excluded"]["count"],
+                          "selected":month_totals["selected"]["count"]}
     return {"members":len(observed),"excluded":len(exclusions),
-            "selected":totals["selected"]["count"],"blank_nonmember_rows":blank}
+            "selected":totals["selected"]["count"],"blank_nonmember_rows":blank,
+            "selection_by_month":per_month}
 
 
-def specs(stamp):
-    note=("**2026년 10월 검증 스냅샷 · "+stamp+"**\n"
-          "공식 Revenue 그래프는 변경하지 않습니다. 48개 검증 Invoice만 포함하며 "
-          "11월 및 과거 미검증 월은 이 화면의 대상이 아닙니다. 자동 갱신하지 않는 분석 전용 스냅샷입니다.\n"
-          "그래프 점/막대 클릭 → 실제 집계 목록 확인. Revenue Invoice Review의 "
+def specs(stamps):
+    if set(stamps)!=set(MONTHS):
+        fail("CHART_MONTH_SCOPE")
+    label=" / ".join(m+" "+stamps[m] for m in MONTHS)
+    note=("**2026년 10~11월 검증 스냅샷 · "+label+"**\n"
+          "공식 Revenue 그래프는 변경하지 않습니다. 10월 48건, 11월 40건의 검증 Invoice만 포함합니다. "
+          "자동 갱신하지 않는 분석 전용 스냅샷입니다. 이후 신규 Invoice는 포함되지 않습니다.\n"
+          "월별 그래프 점/막대 클릭 → 실제 집계 목록 확인. Revenue Invoice Review의 "
           "'01 전체 집계 원본'에서 합산 제외 체크/해제로 분석 집계를 변경하고, "
           "제외 사유를 기록할 수 있습니다. 원래 집계는 체크와 무관합니다. "
           "공유 체크박스이므로 다른 사용자에게도 영향을 줍니다. "
@@ -195,7 +221,9 @@ def specs(stamp):
     for i,(metric,label) in enumerate((("Count Unit","Invoice 건수"),("Net KRW","VAT 제외 Revenue (KRW)"))):
         for j,(selected,suffix) in enumerate(((False,"원래 집계"),(True,"분석 합계"))):
             config=review_chart_config(metric,filtered=selected)
-            config["filter"]["conditions"].append({"field_name":"Month","operator":"is","value":MONTH})
+            # Group by month over the exact frozen two-month member table.
+            # Do not invent an unverified native multi-value filter operator.
+            # The backend admits only MONTHS and verifies the full member set.
             out.append({"name":label+" · "+suffix,"type":"bar" if metric=="Count Unit" else "line",
                         "data_config":config,"position":{"x":j*6,"y":6+i*7,"w":6,"h":7}})
     return out
@@ -220,9 +248,13 @@ def reconcile(source,backend,mode="plan",expected_digest=""):
     if named_id(tables,OFFICIAL)!=OFFICIAL_ID:
         fail("OFFICIAL_TABLE_ID_MISMATCH")
     verify_official(backend.records(OFFICIAL_ID),snap["official"])
+    if named_id(pages,LEGACY_TITLE):
+        fail("LEGACY_OCTOBER_PILOT_REQUIRES_REVIEW")
     t,p=named_id(tables,REVIEW),named_id(pages,TITLE)
-    charts=specs(snap["stamp"])
-    public={"month":MONTH,"members":EXPECTED_COUNT,"snapshot_verified_at_kst":snap["stamp"],
+    charts=specs(snap["stamps"])
+    public={"months":list(MONTHS),"members":EXPECTED_COUNT,
+            "expected_members_by_month":EXPECTED_COUNTS,
+            "snapshot_verified_at_kst_by_month":snap["stamps"],
             "review_digest":snap["digest"],"official_totals_parity":True,
             "target_table":t,"target_dashboard":p,"expected_new_chart_blocks":len(charts),
             "source_writes":0,"scheduled_sync":False,
@@ -342,7 +374,8 @@ class NativeBackend:
             fail("ROW_BATCH_BOUND")
         for row in rows:
             validate_review_member(row)
-            if set(row)!=set(REVIEW_FIELDS) or row[EXCLUDE] is not False or row["제외 사유"]!="":
+            if (set(row)!=set(REVIEW_FIELDS) or row["Month"] not in MONTHS
+                    or row[EXCLUDE] is not False or row["제외 사유"]!=""):
                 fail("ROW_CREATE_SCOPE")
         result=self.request("POST",ROOT+"/tables/"+t+"/records/batch_create",self.token,
             data={"records":[{"fields":r} for r in rows]},action="revenue_pilot_new_members")
