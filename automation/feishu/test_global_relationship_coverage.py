@@ -282,6 +282,56 @@ class RegistryReferenceTests(unittest.TestCase):
         self.assertNotIn("CMS",out["distinct_typed_identifiers"])
         self.assertNotIn("CMS->AMEA",out["observed_reference_edges"])
 
+    def test_mixed_case_opportunity_format_accepts_exact_literal_only(self):
+        s,e=self.fixture()
+        opp="Opp-2026-000001"
+        for name in ("Quote Portfolio","SFDC Quote Export","SFDC Verified Relations","SFDC Email Opportunities Raw"):
+            s[name][0]["Opportunity ID"]=opp
+        self.assertEqual(g.registry_reference_audit(s,e)["quote_reference_states"],
+                         {"EXACT_NORMALIZED_QUOTE_AMEA_QID_OPP":1})
+        s["SFDC Quote Export"][0]["Opportunity ID"]=opp.upper()
+        self.assertEqual(g.registry_reference_audit(s,e)["quote_reference_states"],
+                         {"QID_OPPORTUNITY_REFERENCE_REVIEW":1})
+
+    def test_expansion_partitions_existing_and_reference_only(self):
+        s,e=self.fixture()
+        s[g.REGISTRY_NAME]=[]
+        e["Payment & Tax Invoice"]=[]
+        s["Quote Portfolio"][0]["Opportunity ID"]="Opp-2026-000001"
+        s["SFDC Quote Export"][0]["Opportunity ID"]="Opp-2026-000001"
+        s["BI Project Lifecycle Overview"]=[{"AMEA":Q,"Project / Sub-project":X}]
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X}]
+        _,details=g.project_relationships(s)
+        out=g.registry_expansion_audit(s,e,details)
+        self.assertEqual(out["outside_registry_amea"],2)
+        self.assertEqual(out["candidate_partition"],{"EXACT_QUOTE_REFERENCE_ONLY":1,
+                        "EXACT_CURRENT_LIFECYCLE_NO_QUOTE":1})
+        self.assertEqual(out["exact_document_quote_candidate_triples"],0)
+        self.assertEqual(out["business_writes"],0)
+        self.assertNotIn(P,json.dumps(out))
+        self.assertNotIn(Q,json.dumps(out))
+
+    def test_expansion_document_candidate_requires_exact_parent_and_no_conflict(self):
+        s,e=self.fixture()
+        s[g.REGISTRY_NAME]=[]
+        _,details=g.project_relationships(s)
+        out=g.registry_expansion_audit(s,e,details)
+        self.assertEqual(out["candidate_partition"],{"EXACT_DOCUMENT_QUOTE_REFERENCE_CANDIDATE":1})
+        self.assertEqual(out["exact_document_quote_candidate_triples"],1)
+        e["Payment & Tax Invoice"].append(dict(e["Payment & Tax Invoice"][0],**{"SFDC Quote ID":""}))
+        out=g.registry_expansion_audit(s,e,details)
+        self.assertEqual(out["candidate_partition"],{"EXACT_QUOTE_REFERENCE_ONLY":1})
+        self.assertEqual(out["exact_document_quote_candidate_triples"],0)
+
+    def test_expansion_multiple_portfolio_does_not_choose_quote(self):
+        s,e=self.fixture()
+        s[g.REGISTRY_NAME]=[]
+        s["Quote Portfolio"].append(dict(s["Quote Portfolio"][0],
+            **{"Salesforce Quote ID (18)":g.quote18("a0P123456789012")}))
+        _,details=g.project_relationships(s)
+        out=g.registry_expansion_audit(s,e,details)
+        self.assertEqual(out["candidate_partition"],{"PORTFOLIO_MULTIPLE_REVIEW":1})
+
     def test_duplicate_registry_key_fails_closed(self):
         s,e=self.fixture()
         s[g.REGISTRY_NAME].append(s[g.REGISTRY_NAME][0].copy())
