@@ -64,7 +64,7 @@ SOURCES = {
     "Unified 2025+ Relationships": ("UNIFIED", 10000, "EXISTING_RELATION_REFERENCE", {
         "account_id":"ACCOUNT_OBJECT", "contact_id":"CONTACT_OBJECT",
         "opportunity_id":"OPP_ANY", "sfdc_quote_id":"QUOTE_BUSINESS",
-        "amea_quote_id":"QUOTE_BUSINESS", "invoice_number":"CMS", "project_id":"PROJECT_ANY"}),
+        "amea_quote_id":"QUOTE_BUSINESS", "invoice_number":"INVOICE_DOCUMENT_REF", "project_id":"PROJECT_ANY"}),
 }
 
 # Pairs only from explicit named columns of the SAME source row. Do not
@@ -106,6 +106,8 @@ FORMATS = {
     "X_REPORTED": r"X\d+SC\d+(?:-Z\d+)?",
     "SAM": r"(?:SAM\d{11}(?:-[A-Z0-9_]+)?|Z\d{9})",
     "CMS": r"\d{10,15}",
+    # CSS invoice document identifiers are not automatically CMS keys.
+    "INVOICE_DOCUMENT_REF": r"\d{10,15}",
     "QID": r"QID-[0-9-]{8,50}",
     "LEAD_REF": r"LEAD-[A-Z0-9-]{1,80}",
     "OPP_REF": r"OPP-[A-Z0-9-]{1,80}",
@@ -435,7 +437,208 @@ def private_project_report(path,summary,details):
         json.dump({"summary":summary,"projects":details},stream,ensure_ascii=False,indent=2)
 
 
-def read_sources(session):
+# Extra inputs for the existing project-scope audit only. The mail audit
+# still calls read_sources(session) with the original source set.
+REGISTRY_EVIDENCE_SPECS = {
+    "Payment & Tax Invoice": ("UNIFIED", 5000, "LEGACY_PAYMENT_RELATION_REFERENCE", {
+        "Invoice Number":"INVOICE_DOCUMENT_REF", "SFDC Quote ID":"QUOTE_OBJECT", "AMEA Project ID":"AMEA"}),
+    "CSS Tax Invoice List": ("CSS", 5000, "LEGACY_INVOICE_DOCUMENT_REFERENCE", {
+        "invoice_number":"INVOICE_DOCUMENT_REF", "project_id":"AMEA"}),
+    "CSS Tax Invoice Extract": ("CSS", 5000, "EXTRACTED_INVOICE_DOCUMENT_REFERENCE", {
+        "invoice_number":"INVOICE_DOCUMENT_REF", "project_id":"AMEA"}),
+}
+REGISTRY_NAME = "Unified 2025+ Relationships"
+REGISTRY_FIELDS = {"link_key","left_system","left_entity","left_record_id","right_system",
+                   "right_entity","right_record_id","sfdc_quote_id","amea_quote_id",
+                   "invoice_number","matching_method","verification_status","verified_at"}
+
+
+def quote18(raw):
+    """Case-sensitive Salesforce quote object key; validate supplied suffix."""
+    if not re.fullmatch(FORMATS["QUOTE_OBJECT"],raw):
+        return ""
+    first=raw[:15]
+    alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+    suffix="".join(alphabet[sum(1<<j for j in range(5) if first[i+j].isupper())]
+                   for i in range(0,15,5))
+    canonical=first+suffix
+    return canonical if len(raw)==15 or raw==canonical else ""
+
+
+def registry_reference_audit(sources,evidence):
+    """Audit stored links without promoting them to canonical graph edges.
+
+    All output is aggregate. A document reference is never a CMS join key,
+    even when the numeric strings coincide in different source tables.
+    """
+    if set(evidence)!=set(REGISTRY_EVIDENCE_SPECS):
+        raise CoverageError("REGISTRY_EVIDENCE_SET_INCOMPLETE")
+    required={
+        REGISTRY_NAME:REGISTRY_FIELDS,
+        "Quote Portfolio":{"Salesforce Quote ID (18)","Approved AMEA ID","Quote QID","Opportunity ID","Active"},
+        "SFDC Quote Export":{"Salesforce Record ID","AMEA Quotation ID","Opportunity ID"},
+        "SFDC Verified Relations":{"Quotation ID","Opportunity ID"},
+        "SFDC Email Opportunities Raw":{"Opportunity ID"},
+    }
+    for name,cols in required.items():
+        if name not in sources or any(not cols<=r.keys() for r in sources[name]):
+            raise CoverageError("REGISTRY_SOURCE_SCHEMA")
+    for name,(_,_,_,cols) in REGISTRY_EVIDENCE_SPECS.items():
+        if any(not set(cols)<=r.keys() for r in evidence[name]):
+            raise CoverageError("REGISTRY_EVIDENCE_SCHEMA")
+
+    def index(rows,field,normalize=lambda s:s):
+        out=defaultdict(list)
+        for r in rows:
+            key=normalize(value(r,field))
+            if key:
+                out[key].append(r)
+        return out
+
+    portfolio=sources["Quote Portfolio"]
+    exports=sources["SFDC Quote Export"]
+    p_obj=index(portfolio,"Salesforce Quote ID (18)",quote18)
+    p_amea=index(portfolio,"Approved AMEA ID",str.upper)
+    p_qid=index(portfolio,"Quote QID")
+    e_obj=index(exports,"Salesforce Record ID",quote18)
+    e_qid=index(exports,"AMEA Quotation ID")
+    relations=index(sources["SFDC Verified Relations"],"Quotation ID")
+    opportunities=index(sources["SFDC Email Opportunities Raw"],"Opportunity ID")
+    payment=defaultdict(set)
+    for r in evidence["Payment & Tax Invoice"]:
+        n=value(r,"Invoice Number")
+        q=quote18(value(r,"SFDC Quote ID"))
+        p=value(r,"AMEA Project ID").upper()
+        if re.fullmatch(FORMATS["INVOICE_DOCUMENT_REF"],n) and q and re.fullmatch(FORMATS["AMEA"],p):
+            payment[n].add((q,p))
+    invoice_refs={}
+    for name in ("CSS Tax Invoice List","CSS Tax Invoice Extract"):
+        bynumber=defaultdict(set)
+        for r in evidence[name]:
+            n=value(r,"invoice_number")
+            p=value(r,"project_id").upper()
+            if re.fullmatch(FORMATS["INVOICE_DOCUMENT_REF"],n):
+                # Retain malformed/empty parents as conflicting evidence.
+                bynumber[n].add(p)
+        invoice_refs[name]=bynumber
+
+    counts=Counter()
+    types=Counter()
+    quote_states=Counter()
+    payment_states=Counter()
+    invoice_states={name:Counter() for name in invoice_refs}
+    seen=set()
+    triples=set()
+    ameas=set()
+    quote_ids=set()
+    doc_ids=set()
+    exact_ameas=set()
+    exact_opps=set()
+    exact_triples=set()
+    report_states=Counter()
+    registry_rows=sources[REGISTRY_NAME]
+    for r in registry_rows:
+        key=value(r,"link_key")
+        if not key or key in seen:
+            raise CoverageError("REGISTRY_LINK_KEY_INVALID_OR_DUPLICATE")
+        seen.add(key)
+        p=value(r,"amea_quote_id").upper()
+        qraw=value(r,"sfdc_quote_id")
+        q=quote18(qraw)
+        n=value(r,"invoice_number")
+        valid_p=bool(re.fullmatch(FORMATS["AMEA"],p))
+        valid_n=bool(re.fullmatch(FORMATS["INVOICE_DOCUMENT_REF"],n))
+        if valid_p:
+            ameas.add(p)
+        if q:
+            quote_ids.add(q)
+            counts["quote_id_15_normalized" if len(qraw)==15 else "quote_id_18_validated"]+=1
+        else:
+            counts["quote_id_format_review"]+=1
+        if valid_n:
+            doc_ids.add(n)
+        if q and valid_p and valid_n:
+            triples.add((q,p,n))
+        kind=tuple(value(r,k) for k in ("left_system","left_entity","right_system","right_entity"))
+        if kind==("CSS","Invoice","SFDC","Quote"):
+            types["CSS_INVOICE_TO_SFDC_QUOTE"]+=1
+            endpoints=(value(r,"left_record_id")==n and quote18(value(r,"right_record_id"))==q)
+        elif kind==("CSS","QuoteApproval","CSS","Invoice"):
+            types["CSS_APPROVAL_TO_CSS_INVOICE"]+=1
+            endpoints=(value(r,"left_record_id").upper()==p and value(r,"right_record_id")==n)
+        else:
+            types["OTHER_RELATION_TYPE_REVIEW"]+=1
+            endpoints=False
+        endpoints=bool(endpoints and q and valid_p and valid_n)
+        counts["exact_declared_endpoints" if endpoints else "endpoint_review"]+=1
+        if value(r,"verification_status") in {"SOURCE_RESOLVED_ACTIVE_UNVERIFIED","ID_MATCH_ACTIVE_UNVERIFIED"}:
+            counts["stored_active_unverified"]+=1
+        if value(r,"verified_at"):
+            counts["stored_verification_timestamp_present"]+=1
+
+        if not endpoints:
+            state="REGISTRY_ENDPOINT_REVIEW"
+        elif len(p_obj.get(q,[]))!=1 or len(e_obj.get(q,[]))!=1:
+            state=("QUOTE_OBJECT_NOT_OBSERVED" if q not in p_obj and q not in e_obj
+                   else "QUOTE_OBJECT_PARTIAL_OR_MULTIPLE")
+        else:
+            a,b=p_obj[q][0],e_obj[q][0]
+            qid=value(a,"Quote QID")
+            opp=value(a,"Opportunity ID")
+            if (value(a,"Approved AMEA ID").upper()!=p or len(p_amea.get(p,[]))!=1):
+                state="PORTFOLIO_AMEA_REVIEW"
+            elif (not re.fullmatch(FORMATS["QID"],qid) or not re.fullmatch(FORMATS["OPP_REF"],opp)
+                    or qid!=value(b,"AMEA Quotation ID") or opp!=value(b,"Opportunity ID")
+                    or len(p_qid.get(qid,[]))!=1 or len(e_qid.get(qid,[]))!=1):
+                state="QID_OPPORTUNITY_REFERENCE_REVIEW"
+            else:
+                state="EXACT_NORMALIZED_QUOTE_AMEA_QID_OPP"
+                exact_ameas.add(p)
+                exact_opps.add(opp)
+                if value(a,"Active")=="ACTIVE":
+                    counts["portfolio_active_label_observed"]+=1
+                relation=relations.get(qid,[])
+                if len(relation)==1 and value(relation[0],"Opportunity ID")==opp:
+                    report_states["QID_OPP_EXACT_VERIFIED_RELATIONS_ROW"]+=1
+                else:
+                    report_states["QID_OPP_VERIFIED_RELATIONS_REVIEW"]+=1
+                report_states["OPP_REPORT_UNIQUE" if len(opportunities.get(opp,[]))==1
+                              else "OPP_REPORT_NOT_UNIQUE_OR_ABSENT"]+=1
+        quote_states[state]+=1
+
+        pm=payment.get(n,set())
+        payment_state=("EXACT_INVOICE_DOCUMENT_QUOTE_AMEA" if q and valid_p and pm=={(q,p)}
+                       else "INVOICE_DOCUMENT_NOT_OBSERVED" if not pm
+                       else "INVOICE_DOCUMENT_PARENT_REVIEW")
+        payment_states[payment_state]+=1
+        for name,by_n in invoice_refs.items():
+            parents=by_n.get(n,set())
+            code=("EXACT_INVOICE_DOCUMENT_AMEA" if valid_p and parents=={p}
+                  else "INVOICE_DOCUMENT_NOT_OBSERVED" if not parents
+                  else "INVOICE_DOCUMENT_AMEA_REVIEW")
+            invoice_states[name][code]+=1
+        if (state=="EXACT_NORMALIZED_QUOTE_AMEA_QID_OPP"
+                and payment_state=="EXACT_INVOICE_DOCUMENT_QUOTE_AMEA"):
+            counts["quote_and_payment_reference_exact_rows"]+=1
+            exact_triples.add((q,p,n))
+
+    return {"rows":len(registry_rows),"unique_link_keys":len(seen),"unique_amea":len(ameas),
+            "unique_quote_objects":len(quote_ids),"unique_invoice_document_refs":len(doc_ids),
+            "unique_invoice_quote_amea_triples":len(triples),
+            "unique_exact_quote_payment_triples":len(exact_triples),
+            "exact_current_quote_reference_amea":len(exact_ameas),
+            "exact_current_quote_reference_opportunities":len(exact_opps),
+            "relation_types":dict(types),"quote_reference_states":dict(quote_states),
+            "payment_reference_states":dict(payment_states),
+            "invoice_document_reference_states":{k:dict(v) for k,v in invoice_states.items()},
+            "report_reference_observations":dict(report_states),"diagnostic_counts":dict(counts),
+            "reference_scope":"STORED_RELATION_AND_CURRENT_SOURCE_REFERENCES_ONLY",
+            "cms_identity":"NOT_INFERRED_FROM_DOCUMENT_NUMBER",
+            "owner_payment_issuance_certification":"NOT_ATTESTED",
+            "business_writes":0}
+
+
+def read_sources(session,specs=SOURCES):
     # Reuse existing authorized GET-only reader. Prove bounds against actual
     # grid metadata first; a sparse tab cannot silently exceed a fixed limit.
     from sales_metrics_sync import CSS_SHEET, UNIFIED_SHEET, req_sheet
@@ -459,7 +662,7 @@ def read_sources(session):
             found[name] = prop
         catalogs[key] = found
     result = {}
-    for name,(book,limit,_,schema) in SOURCES.items():
+    for name,(book,limit,_,schema) in specs.items():
         prop = catalogs[book].get(name)
         if prop is None:
             raise CoverageError("GLOBAL_REQUIRED_TAB_MISSING")
@@ -493,8 +696,11 @@ def main():
     if args.private_project_report and os.environ.get("GITHUB_ACTIONS"):
         raise CoverageError("GLOBAL_PRIVATE_REPORT_FORBIDDEN_IN_CI")
     started = dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
-    sources = read_sources(sheets_session())
+    combined = read_sources(sheets_session(), {**SOURCES, **REGISTRY_EVIDENCE_SPECS})
+    sources = {name:combined[name] for name in SOURCES}
+    evidence = {name:combined[name] for name in REGISTRY_EVIDENCE_SPECS}
     summary = coverage(sources)
+    summary["registry_reference_audit"] = registry_reference_audit(sources,evidence)
     summary["project_reference_coverage"], details = project_relationships(sources)
     summary["read_started_kst"] = started
     summary["read_finished_kst"] = dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
