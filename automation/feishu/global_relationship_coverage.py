@@ -683,6 +683,120 @@ def registry_expansion_audit(sources,evidence,projects):
     source_counts=Counter()
     exact_opp=set()
     document_triples=set()
+    multi_counts=Counter()
+    multi_row_states=Counter()
+    multi_group_sizes=Counter()
+    multi_active_sizes=Counter()
+    multi_opps=set()
+
+    def quote_match(a):
+        q=quote18(value(a,"Salesforce Quote ID (18)"))
+        qid=value(a,"Quote QID")
+        opp=value(a,"Opportunity ID")
+        if not q or len(p_object.get(q,[]))!=1 or len(e_object.get(q,[]))!=1:
+            return "QUOTE_OBJECT_REVIEW",None
+        e=e_object[q][0]
+        if (not re.fullmatch(FORMATS["QID"],qid)
+                or not re.fullmatch(FORMATS["OPP_REF"],opp.upper())
+                or len(p_qid.get(qid,[]))!=1 or len(e_qid.get(qid,[]))!=1
+                or qid!=value(e,"AMEA Quotation ID") or opp!=value(e,"Opportunity ID")):
+            return "QID_OPPORTUNITY_REFERENCE_REVIEW",None
+        return "EXACT_QUOTE_REFERENCE",(q,qid,opp,a,e)
+
+    def audit_multiple(portfolio,pid):
+        """Retain all exact quote rows; never select a primary or infer a merge."""
+        multi_counts["amea_groups"]+=1
+        multi_counts["portfolio_rows"]+=len(portfolio)
+        multi_group_sizes[str(len(portfolio))]+=1
+        exact=[]
+        for row in portfolio:
+            status,item=quote_match(row)
+            multi_row_states[status]+=1
+            if item is not None:
+                exact.append(item)
+        multi_counts["exact_quote_rows"]+=len(exact)
+        multi_counts["review_quote_rows"]+=len(portfolio)-len(exact)
+        if not exact:
+            multi_counts["no_exact_reference_groups"]+=1
+            return "MULTI_QUOTE_NO_EXACT_REFERENCE_REVIEW"
+        if len(exact)!=len(portfolio):
+            multi_counts["partial_reference_groups"]+=1
+            return "MULTI_QUOTE_PARTIAL_REFERENCE_REVIEW"
+
+        multi_counts["fully_exact_reference_groups"]+=1
+        group_opps={opp for _,_,opp,_,_ in exact}
+        multi_opps.update(group_opps)
+        active_count=0
+        unknown_activity=False
+        activity_mismatch=False
+        account_refs=set()
+        contact_refs=set()
+        account_missing=False
+        contact_missing=False
+        report_all=True
+        relation_all=True
+        for q,qid,opp,a,e in exact:
+            portfolio_active={"ACTIVE":True,"INACTIVE":False}.get(value(a,"Active"))
+            export_active={"1":True,"0":False,"TRUE":True,"FALSE":False}.get(value(e,"IsActive").upper())
+            if portfolio_active is True:
+                active_count+=1
+                multi_counts["portfolio_active_rows"]+=1
+            elif portfolio_active is False:
+                multi_counts["portfolio_inactive_rows"]+=1
+            if portfolio_active is None or export_active is None:
+                unknown_activity=True
+                multi_counts["activity_not_assessed_rows"]+=1
+            elif portfolio_active!=export_active:
+                activity_mismatch=True
+                multi_counts["activity_mismatch_rows"]+=1
+            else:
+                multi_counts["activity_agreement_rows"]+=1
+            account=value(e,"Account ID")
+            contact=value(e,"Contact ID")
+            if account:
+                account_refs.add(account)
+            else:
+                account_missing=True
+            if contact:
+                contact_refs.add(contact)
+            else:
+                contact_missing=True
+            report=len(opps.get(opp,[]))==1
+            relation=rels.get(qid,[])
+            relation_match=len(relation)==1 and value(relation[0],"Opportunity ID")==opp
+            if report:
+                multi_counts["opportunity_report_unique_rows"]+=1
+            if relation_match:
+                multi_counts["verified_relation_reference_exact_rows"]+=1
+            report_all &= report
+            relation_all &= relation_match
+        multi_active_sizes[str(active_count)]+=1
+        if unknown_activity:
+            multi_counts["groups_with_activity_not_assessed"]+=1
+        if activity_mismatch:
+            multi_counts["groups_with_activity_mismatch"]+=1
+        if active_count!=1:
+            multi_counts["groups_without_single_active_label"]+=1
+        if len(account_refs)>1:
+            multi_counts["groups_multiple_account_refs_review"]+=1
+        if len(contact_refs)>1:
+            multi_counts["groups_multiple_contact_refs_review"]+=1
+        if account_missing:
+            multi_counts["groups_missing_account_ref"]+=1
+        if contact_missing:
+            multi_counts["groups_missing_contact_ref"]+=1
+        if report_all:
+            multi_counts["groups_all_opportunity_report_unique"]+=1
+        if relation_all:
+            multi_counts["groups_all_verified_relation_refs_exact"]+=1
+        if len(group_opps)!=1:
+            multi_counts["groups_multiple_opportunity_refs_review"]+=1
+            return "MULTI_QUOTE_EXACT_MULTIPLE_OPPORTUNITY_REVIEW"
+        multi_counts["groups_single_opportunity_ref"]+=1
+        # Even exact references with a single observed ACTIVE label are not
+        # approval to select it, collapse prior contacts or infer a revision.
+        return "MULTI_QUOTE_EXACT_SINGLE_OPPORTUNITY"
+
     for r in projects:
         pid=r["amea"]
         if pid in registry:
@@ -703,7 +817,7 @@ def registry_expansion_audit(sources,evidence,projects):
         references["MULTIPLE_SOURCES" if len(r["source_tables"])>1 else "SINGLE_SOURCE"]+=1
         source_counts.update(r["source_tables"])
         if len(portfolio)>1:
-            state="PORTFOLIO_MULTIPLE_REVIEW"
+            state=audit_multiple(portfolio,pid)
         elif portfolio:
             a=portfolio[0]
             q=quote18(value(a,"Salesforce Quote ID (18)"))
@@ -755,6 +869,17 @@ def registry_expansion_audit(sources,evidence,projects):
             "reference_coverage":dict(references),"source_coverage":dict(source_counts),
             "quote_reference_counts":dict(counts),"distinct_exact_opportunity_refs":len(exact_opp),
             "exact_document_quote_candidate_triples":len(document_triples),
+            "multi_quote_reference_audit":{
+                "counts":dict(multi_counts),"quote_row_states":dict(multi_row_states),
+                "quote_rows_per_amea":dict(multi_group_sizes),
+                "observed_active_labels_per_fully_exact_amea":dict(multi_active_sizes),
+                "distinct_opportunity_refs_in_fully_exact_groups":len(multi_opps),
+                "primary_quote_selection":"NOT_PERFORMED",
+                "activity_owner_issuance_certification":"NOT_ATTESTED",
+                "invoice_linkage":"NOT_INFERRED_FOR_MULTI_QUOTE_GROUPS"},
+            "fully_exact_single_or_multi_quote_projects":(
+                counts["exact_quote_reference_projects"]+multi_counts["fully_exact_reference_groups"]),
+            "distinct_opportunity_refs_single_and_fully_exact_multi":len(exact_opp|multi_opps),
             "status":"CANDIDATE_REFERENCES_ONLY_NOT_AUTHORIZED_FOR_WRITES","business_writes":0}
 
 
