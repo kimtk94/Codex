@@ -81,6 +81,50 @@ class CandidateCompareContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "MARKET_PRICE_BASIS_UNKNOWN"):
             compare_frames(old, old.assign(is_adjusted="False"), "yf_spy")
 
+    def test_documented_soxx_split_alignment(self):
+        old = frame("2026-10-01", 30).assign(symbol="SOXX")
+        new = frame("2026-10-01", 55).assign(symbol="SOXX")
+        new.loc[:, ["open", "high", "low", "close"]] /= 3
+        r = compare_frames(old, new, "yf_soxx", asof="2026-11-24")
+        split = r["documented_split_alignment"]
+        self.assertEqual(split["overlap_fields_checked"], 120)
+        self.assertTrue(split["all_overlap_fields_match_documented_split_within_tolerance"])
+        self.assertFalse(split["price_rewritten"])
+        self.assertFalse(split["official_regular_close_certified"])
+        self.assertEqual(r["release"], "HOLD")
+        new.loc[0, "close"] *= 1.01
+        r = compare_frames(old, new, "yf_soxx")
+        self.assertFalse(r["documented_split_alignment"]["all_overlap_fields_match_documented_split_within_tolerance"])
+        self.assertIsNone(compare_frames(old, new, "yf_spy")["documented_split_alignment"])
+
+    def test_split_pattern_never_applies_before_effective_session(self):
+        old = frame("2026-09-01", 30).assign(symbol="SOXX")
+        new = frame("2026-09-01", 35).assign(symbol="SOXX")
+        new.loc[:, ["open", "high", "low", "close"]] /= 3
+        self.assertIsNone(compare_frames(old, new, "yf_soxx")["documented_split_alignment"])
+
+    def test_common_asof_dates_excluded_and_quality_dates_retained(self):
+        old = frame("2026-10-25", 7)
+        new = frame("2026-10-25", 32)
+        new.loc[1, "close"] = float("nan")
+        new.loc[2, "high"] = 80.
+        r = compare_frames(old, new, "yf_usdkrw", asof="2026-11-24")
+        self.assertEqual(r["candidate_quality_dates"]["after_common_completed_xnys_asof_dates"], ["2026-11-25"])
+        self.assertEqual(r["candidate_tail_rows_after_common_asof"], 1)
+        self.assertEqual(r["candidate_tail_rows_at_or_before_common_asof"], 24)
+        self.assertEqual(r["candidate_quality_dates"]["invalid_ohlc_dates"], ["2026-10-26"])
+        self.assertEqual(r["candidate_quality_dates"]["inconsistent_ohlc_dates"], ["2026-10-27"])
+
+    def test_calendar_proxy_classifies_but_does_not_certify_missing_bars(self):
+        old = frame("2026-11-20", 5)
+        new = old.copy()
+        new.loc[[0, 1], "close"] = float("nan")
+        r = compare_frames(old, new, "yf_vix")
+        q = r["candidate_quality_dates"]
+        self.assertEqual(q["invalid_on_xnys_proxy_dates"], ["2026-11-20"])
+        self.assertEqual(q["invalid_off_xnys_proxy_dates"], ["2026-11-21"])
+        self.assertTrue(q["xnys_proxy_is_not_provider_calendar_certification"])
+
     def test_full_archives_metadata_only_and_original_unchanged(self):
         with tempfile.TemporaryDirectory() as root:
             old, new = Path(root)/"old.zip", Path(root)/"new.zip"
