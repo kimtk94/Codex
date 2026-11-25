@@ -157,6 +157,34 @@ class CompletedSessionPolicyTests(unittest.TestCase):
         self.assertEqual(d["reasons"], ["FEATURE_REBUILD_UNAVAILABLE"])
         self.assertFalse(d["feature_reproduction_verified"])
 
+    def test_prefix_difference_aggregates_values_without_raw_rows(self):
+        f = self.canonical()
+        bounded = f.iloc[:2].copy()
+        bounded.loc[0, "close"] += .125
+        d = self.reconcile(f, bounded, self.feature_builder(bounded))
+        summary = d["prefix_difference_summary"]
+        self.assertIn("ELIGIBLE_PREFIX_CHANGED", d["reasons"])
+        self.assertEqual(summary["column_differences"]["close"]["different_values"], 1)
+        self.assertEqual(summary["column_differences"]["close"]["max_abs_numeric_difference"], .125)
+        self.assertFalse(d["prefix_identity_verified"])
+
+    def test_prefix_dtype_only_difference_still_blocks(self):
+        f = self.canonical()
+        bounded = f.iloc[:2].copy()
+        bounded["volume"] = bounded.volume.astype("int64")
+        d = self.reconcile(f, bounded, self.feature_builder(bounded))
+        diff = d["prefix_difference_summary"]["column_differences"]["volume"]
+        self.assertTrue(diff["dtype_changed"])
+        self.assertEqual(diff["different_values"], 0)
+        self.assertFalse(d["prefix_identity_verified"])
+
+    def test_prefix_missing_eligible_session_count(self):
+        f = self.canonical()
+        bounded = f.iloc[[1]].copy()
+        d = self.reconcile(f, bounded, self.feature_builder(bounded))
+        self.assertEqual(d["prefix_difference_summary"]["left_only_sessions"], 1)
+        self.assertFalse(d["prefix_identity_verified"])
+
 
 if __name__ == "__main__":
     unittest.main()

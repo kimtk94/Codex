@@ -100,9 +100,16 @@ def probe_asset(a, end, cutoff, folder, provider):
             result["status"] = "NO_VALID_RSI_HOLD"
         # Reconciliation is necessary, not sufficient: coverage/QC is separate.
         c = result["bounded_coverage"]
-        result["coverage_qc_complete"] = not any(c[k] for k in (
-            "missing_xnys_labels", "missing_xnys_valid_closes", "invalid_complete_ohlc_rows",
-            "canonical_issue_count"))
+        result["xnys_expected_session_coverage_complete"] = not any(c[k] for k in (
+            "missing_xnys_labels", "missing_xnys_valid_closes"))
+        result["strict_xnys_calendar_clean"] = not c["non_xnys_labels"]
+        result["coverage_qc_complete"] = (
+            result["xnys_expected_session_coverage_complete"]
+            and result["strict_xnys_calendar_clean"]
+            and not any(c[k] for k in ("null_close_rows", "invalid_complete_ohlc_rows",
+                                      "canonical_issue_count")))
+        # An XNYS cutoff does not certify the native calendar of VIX or yields.
+        result["native_calendar_certified"] = False
     else:
         if end is not None:
             raise ValueError("NON_US_END_CHANGED")

@@ -95,6 +95,49 @@ def split_selected_universe(config, now_utc):
             "research_only": True, "production_writes": False}
 
 
+
+def summarize_prefix_difference(left, right):
+    """Aggregate-only diagnosis of a failed exact equality check, never tolerance."""
+    left = left.drop(columns=["retrieved_at"], errors="ignore").copy()
+    right = right.drop(columns=["retrieved_at"], errors="ignore").copy()
+    summary = {"left_rows": len(left), "right_rows": len(right),
+               "column_order_changed": list(left.columns) != list(right.columns),
+               "left_only_columns": sorted(set(left.columns) - set(right.columns)),
+               "right_only_columns": sorted(set(right.columns) - set(left.columns)),
+               "column_differences": {}}
+    # inspect_us_prefix has already enforced unique valid daily labels.
+    li = pd.DatetimeIndex(pd.to_datetime(left.timestamp, utc=True))
+    ri = pd.DatetimeIndex(pd.to_datetime(right.timestamp, utc=True))
+    summary["left_only_sessions"] = len(li.difference(ri))
+    summary["right_only_sessions"] = len(ri.difference(li))
+    common = li.intersection(ri)
+    left.index, right.index = li, ri
+    for name in sorted(set(left.columns) & set(right.columns)):
+        a, b = left.loc[common, name], right.loc[common, name]
+        dtype_changed = str(a.dtype) != str(b.dtype)
+        try:
+            equal = a.eq(b).fillna(False) | (a.isna() & b.isna())
+            different = int((~equal).sum())
+        except (TypeError, ValueError):
+            summary["column_differences"][name] = {
+                "dtype_changed": dtype_changed, "comparison_unavailable": True}
+            continue
+        if not different and not dtype_changed:
+            continue
+        d = {"different_values": different, "dtype_changed": dtype_changed,
+             "left_dtype": str(a.dtype), "right_dtype": str(b.dtype),
+             "missingness_changes": int((a.isna() != b.isna()).sum())}
+        if name in {"open", "high", "low", "close", "adj_close", "volume"}:
+            aa = pd.to_numeric(a, errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+            bb = pd.to_numeric(b, errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+            valid = np.isfinite(aa) & np.isfinite(bb)
+            delta = np.abs(aa[valid] - bb[valid])
+            d["finite_pair_count"] = int(valid.sum())
+            d["max_abs_numeric_difference"] = float(delta.max()) if len(delta) else None
+        summary["column_differences"][name] = d
+    return summary
+
+
 def reconcile_staged_us(observed, bounded, staged_features, *, key, cutoff, feature_builder):
     """Audit a separately fetched US prefix and freshly built TA in memory.
 
@@ -136,6 +179,7 @@ def reconcile_staged_us(observed, bounded, staged_features, *, key, cutoff, feat
                                       check_exact=True)
     except AssertionError:
         report["reasons"].append("ELIGIBLE_PREFIX_CHANGED")
+        report["prefix_difference_summary"] = summarize_prefix_difference(prefix, bounded)
         return report
     report["prefix_identity_verified"] = True
     if not {"timestamp", "symbol"}.issubset(staged_features.columns):
