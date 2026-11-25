@@ -6,16 +6,19 @@ on:
       - 'automation/feishu/test_global_relationship_coverage.py'
       - 'automation/feishu/global_mail_relationship_coverage.py'
       - 'automation/feishu/test_global_mail_relationship_coverage.py'
+      - 'automation/feishu/unified_reference_search.py'
+      - 'automation/feishu/test_unified_reference_search.py'
+      - 'automation/feishu/UNIFIED_REFERENCE_SEARCH.md'
       - 'automation/feishu/GLOBAL_RELATIONSHIP_CONTRACT.md'
       - '.github/workflows/feishu-global-relationship-coverage.yml'
   workflow_dispatch:
     inputs:
       scope:
-        description: 'Read-only project or mail relationship audit'
+        description: 'Read-only project/mail relationship audit or aggregate search-index parity'
         required: true
         default: project
         type: choice
-        options: [project, mail]
+        options: [project, mail, search-index-project, search-index-all]
 permissions:
   contents: read
 concurrency:
@@ -34,9 +37,10 @@ jobs:
           python-version: '3.11'
       - run: python3 -m unittest discover -s automation/feishu -p test_global_relationship_coverage.py -v
       - run: python3 -m unittest discover -s automation/feishu -p test_global_mail_relationship_coverage.py -v
+      - run: python3 -m unittest discover -s automation/feishu -p test_unified_reference_search.py -v
   coverage:
     needs: offline
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.scope == 'project' && needs.offline.result == 'success' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.scope == 'project' || inputs.scope == 'search-index-project') && needs.offline.result == 'success' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 20
@@ -50,11 +54,14 @@ jobs:
         with:
           python-version: '3.11'
       - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - run: python3 automation/feishu/global_relationship_coverage.py
+      - if: ${{ inputs.scope == 'project' }}
+        run: python3 automation/feishu/global_relationship_coverage.py
+      - if: ${{ inputs.scope == 'search-index-project' }}
+        run: python3 automation/feishu/unified_reference_search.py --scope project --verify-index
 
   mail:
     needs: offline
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.scope == 'mail' && needs.offline.result == 'success' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.scope == 'mail' || inputs.scope == 'search-index-all') && needs.offline.result == 'success' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 30
@@ -71,4 +78,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - run: python3 automation/feishu/global_mail_relationship_coverage.py
+      - if: ${{ inputs.scope == 'mail' }}
+        run: python3 automation/feishu/global_mail_relationship_coverage.py
+      - if: ${{ inputs.scope == 'search-index-all' }}
+        run: python3 automation/feishu/unified_reference_search.py --scope all --verify-index
