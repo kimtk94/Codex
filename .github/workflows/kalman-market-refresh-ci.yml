@@ -5,6 +5,17 @@ on:
     # Tue-Sat 02:15 UTC, after prior US session close (11:15 KST).
     - cron: '15 2 * * 2-6'
   workflow_dispatch:
+    inputs:
+      candidate_target_file_id:
+        description: 'Optional one-time owner-provisioned private HOLD archive slot; never the original'
+        required: false
+        type: string
+        default: ''
+      candidate_expected_session:
+        description: 'Exact completed XNYS session for the one-time slot (YYYY-MM-DD)'
+        required: false
+        type: string
+        default: ''
   pull_request:
     paths:
       - 'research/kalman_market_refresh/**'
@@ -40,7 +51,7 @@ jobs:
 
   refresh:
     needs: offline-tests
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 60
@@ -49,6 +60,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Reject incomplete manual archive requests before data collection
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CANDIDATE_TARGET_FILE_ID: ${{ inputs.candidate_target_file_id }}
+          CANDIDATE_EXPECTED_SESSION: ${{ inputs.candidate_expected_session }}
+        run: |
+          python - <<'PY'
+          import os, re
+          from datetime import date
+          target = os.environ["CANDIDATE_TARGET_FILE_ID"]
+          session = os.environ["CANDIDATE_EXPECTED_SESSION"]
+          if bool(target) != bool(session):
+              raise SystemExit("INCOMPLETE_ONE_TIME_ARCHIVE_REQUEST")
+          if target and (not re.fullmatch(r"[A-Za-z0-9_-]{15,100}", target)
+                         or date.fromisoformat(session).isoformat() != session):
+              raise SystemExit("INVALID_ONE_TIME_ARCHIVE_REQUEST")
+          PY
       - name: Install isolated market and Drive dependencies
         run: |
           python -m pip install --disable-pip-version-check -r kalman-toss-gateway/engine/market_data/requirements.txt
@@ -117,6 +145,22 @@ jobs:
             --original "$RUNNER_TEMP/original_market_research.zip" \
             --candidate "$RUNNER_TEMP/kalman_market_research.zip" \
             --out outputs/kalman_market_refresh/overlap_audit.json
+      - name: Store only explicit one-time private candidate slot, never release data
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.candidate_target_file_id != '' && inputs.candidate_expected_session != ''
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+          CANDIDATE_TARGET_FILE_ID: ${{ inputs.candidate_target_file_id }}
+          CANDIDATE_EXPECTED_SESSION: ${{ inputs.candidate_expected_session }}
+        run: |
+          python research/kalman_market_refresh/archive_candidate_once.py \
+            --original "$RUNNER_TEMP/original_market_research.zip" \
+            --candidate "$RUNNER_TEMP/kalman_market_research.zip" \
+            --audit outputs/kalman_market_refresh/overlap_audit.json \
+            --target-id "$CANDIDATE_TARGET_FILE_ID" \
+            --expected-session "$CANDIDATE_EXPECTED_SESSION" \
+            --run-id "$GITHUB_RUN_ID" \
+            --out outputs/kalman_market_refresh/private_archive_status.json
       - name: Upload metadata only, never publish price snapshots to Actions
         if: always()
         uses: actions/upload-artifact@v4
