@@ -64,10 +64,19 @@ jobs:
             --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
             --original-source original-source \
             --out outputs/kalman_outcome_attribution/aggregate_report.json
+      - name: Independently reproduce exact OHLC paths and full-feature risk comparison
+        run: |
+          python research/kalman_outcome_attribution/ohlc_exit.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/exact_ohlc_report.json
       - name: Publish only aggregate metadata, never input archives or row-level features
         uses: actions/upload-artifact@v4
         with:
           name: kalman-frozen-outcome-attribution-metadata
-          path: outputs/kalman_outcome_attribution/aggregate_report.json
+          path: |
+            outputs/kalman_outcome_attribution/aggregate_report.json
+            outputs/kalman_outcome_attribution/exact_ohlc_report.json
           if-no-files-found: error
           retention-days: 45
