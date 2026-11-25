@@ -314,6 +314,184 @@ def unmatched_project_reference_metrics(canonical, qq, identities, tuple_keys, p
     return {axis:dict(counts) for axis,counts in out.items()}
 
 
+def mail_only_reference_audit(canonical,qq,crm,tuple_keys,projects,observed_amea):
+    """Partition all mail-only AMEA by literal, same-record evidence.
+
+    Exact QQ tuple crosswalks share a record-key observation; Message-ID is
+    never an identity join. No cross-product of multi-AMEA rows. A numeric
+    invoice label or structured invoice field is not a CMS crosswalk.
+    """
+    known={r["amea"] for r in projects}
+    expected=set(observed_amea)-known
+    members={}
+    records=[]
+    key_refs=defaultdict(set)
+    typed_parents=defaultdict(set)
+
+    def add_parent(kind,ident,pid):
+        typed_parents[(kind,ident)].add(pid)
+        if kind=="H":
+            typed_parents[("H_ROOT",re.sub(r"-B\d+$","",ident))].add(pid)
+
+    for r in projects:
+        for kind,ids in r["refs"].items():
+            mapped={"LIFECYCLE_X":"X_PROJECT","FINANCE_X":"X_PROJECT",
+                    "CMS":"EXPLICIT_CMS_NUMBER"}.get(kind,kind)
+            if mapped in {"H","SAM","X_PROJECT","QID","EXPLICIT_CMS_NUMBER"}:
+                for ident in ids:
+                    add_parent(mapped,ident,r["amea"])
+
+    def collect(pool,canonical_source,source_label):
+        for key,row in pool.items():
+            source=SOURCE_CODES[row["source_table"]] if canonical_source else source_label
+            if canonical_source:
+                identity=("CANONICAL",key)
+            elif source==QQ and key in tuple_keys:
+                identity=("CANONICAL",tuple_keys[key])
+            else:
+                identity=(source,key)
+            a_col="amea_numbers" if canonical_source else "AMEA"
+            h_col="h_project_numbers" if canonical_source else "H Project"
+            subj=value(row,"subject" if canonical_source else "Subject")
+            observed=subject_refs(subj)
+            a_tokens,a_state=keys(value(row,a_col),"AMEA*")
+            structured_a={ident for _,ident in a_tokens}
+            ids=structured_a|observed["AMEA"]
+            if not ids:
+                continue
+            key_refs[identity].add(frozenset(ids))
+            clean={}
+            review=set()
+            for kind,col in (("H",h_col),("SAM","sam_numbers" if canonical_source else "")):
+                tokens,state=keys(value(row,col),kind+"*") if col else (set(),"EMPTY")
+                structured={ident for _,ident in tokens}
+                subject=observed[kind]
+                if state not in ("EMPTY","OBSERVED") or (structured and subject and structured!=subject):
+                    review.add(kind)
+                elif structured or subject:
+                    clean[kind]=structured|subject
+            for kind in ("X_PROJECT","QID"):
+                if observed[kind]:
+                    clean[kind]=observed[kind]
+            # Explicit CMS labels and generic invoice number labels remain
+            # separate typed observations; never promote a bare number.
+            label=r"\s*(?:NO\.?|NUMBER|#|:)?\s*[:#]?\s*(\d{10,15})(?![\d-])"
+            cms=set(re.findall(r"\bCMS(?:\s+INVOICE)?"+label,subj.upper()))
+            invoice=set(re.findall(r"\bINVOICE"+label,subj.upper()))-cms
+            if cms:
+                clean["EXPLICIT_CMS_NUMBER"]=cms
+            if invoice:
+                clean["INVOICE_LABELLED_NUMBER"]=invoice
+            if canonical_source:
+                num,state=keys(value(row,"invoice_numbers"),"CMS*")
+                if state not in ("EMPTY","OBSERVED"):
+                    review.add("STRUCTURED_INVOICE_NUMBER")
+                elif num:
+                    clean["STRUCTURED_INVOICE_NUMBER"]={ident for _,ident in num}
+            date=value(row,"received_at" if canonical_source else "Received At")
+            day=None
+            if re.match(r"^\d{4}-\d{2}-\d{2}(?:$|[ T])",date):
+                try:
+                    day=dt.date.fromisoformat(date[:10])
+                except ValueError:
+                    pass
+            records.append((identity,source,ids,structured_a,a_state,clean,review,day))
+
+    collect(canonical,True,"")
+    collect(qq,False,QQ)
+    collect(crm,False,CRM)
+    conflicting_keys={k for k,sets in key_refs.items() if len(sets)>1}
+    for identity,source,ids,structured_a,a_state,clean,review,day in records:
+        singleton=(len(ids)==1 and a_state in ("EMPTY","OBSERVED")
+                   and identity not in conflicting_keys)
+        if singleton:
+            pid=next(iter(ids))
+            for kind,refs in clean.items():
+                if kind in {"H","SAM","X_PROJECT","QID","EXPLICIT_CMS_NUMBER"}:
+                    for ident in refs:
+                        add_parent(kind,ident,pid)
+        for pid in ids & expected:
+            m=members.setdefault(pid,{"rows":0,"keys":set(),"clean_keys":set(),
+                "sources":set(),"refs":defaultdict(set),"flags":set(),"latest":None})
+            m["rows"]+=1
+            m["keys"].add(identity)
+            m["sources"].add(source)
+            m["flags"].add("STRUCTURED_AMEA_REFERENCE" if pid in structured_a else "SUBJECT_ONLY_AMEA_ON_ROW")
+            if len(ids)>1:
+                m["flags"].add("MULTIPLE_AMEA_ROW_REVIEW")
+            if a_state not in ("EMPTY","OBSERVED"):
+                m["flags"].add("AMEA_FORMAT_REVIEW")
+            if identity in conflicting_keys:
+                m["flags"].add("EXACT_TUPLE_AMEA_DIFFERENCE_REVIEW")
+            if review:
+                m["flags"].add("RELATED_FIELD_REVIEW")
+            if singleton:
+                m["clean_keys"].add(identity)
+                for kind,refs in clean.items():
+                    m["refs"][kind].update(refs)
+            if day is not None:
+                m["latest"]=max(m["latest"] or day,day)
+
+    if set(members)!=expected:
+        raise MailAuditError("MAIL_ONLY_POPULATION_MISMATCH")
+    partition=Counter()
+    flags=Counter()
+    source_counts=Counter()
+    surface_counts=Counter()
+    reference_counts=Counter()
+    latest_year=Counter()
+    distinct=defaultdict(set)
+    for pid,m in members.items():
+        refs=m["refs"]
+        if refs.get("X_PROJECT"):
+            state="EXACT_X_LITERAL_COOBSERVATION"
+        elif refs.get("H") or refs.get("SAM"):
+            state="H_OR_SAM_LITERAL_COOBSERVATION"
+        elif refs.get("QID"):
+            state="QID_LITERAL_COOBSERVATION"
+        elif any(refs.get(k) for k in ("EXPLICIT_CMS_NUMBER","INVOICE_LABELLED_NUMBER","STRUCTURED_INVOICE_NUMBER")):
+            state="INVOICE_NUMBER_REFERENCE_ONLY"
+        elif m["clean_keys"]:
+            state="SINGLE_AMEA_NO_OTHER_CLEAN_REFERENCE"
+        else:
+            state="AMBIGUOUS_OR_FORMAT_REVIEW_ONLY"
+        partition[state]+=1
+        flags.update(m["flags"])
+        if m["clean_keys"]:
+            flags["HAS_CLEAN_SINGLETON_AMEA_RECORD_KEY"]+=1
+        if len(m["clean_keys"])>1:
+            flags["MULTIPLE_SINGLETON_RECORD_KEYS_NOT_INDEPENDENCE_PROOF"]+=1
+        if any(len(typed_parents.get((kind,ident),set())-{pid})>0
+               for kind,vals in refs.items() for ident in vals):
+            flags["OTHER_AMEA_TYPED_LITERAL_REVIEW"]+=1
+        if any(typed_parents.get(("H_ROOT",re.sub(r"-B\d+$","",h)),set())-{pid}
+               for h in refs.get("H",set())):
+            flags["OTHER_AMEA_H_ROOT_REVIEW"]+=1
+        if refs.get("H") and refs.get("SAM"):
+            flags["HAS_BOTH_H_AND_SAM_NO_PAIR_INFERRED"]+=1
+        source_counts.update(m["sources"])
+        surface_counts[str(len(m["sources"]))]+=1
+        for kind,vals in refs.items():
+            if vals:
+                reference_counts[kind]+=1
+                distinct[kind].update(vals)
+        latest_year[str(m["latest"].year) if m["latest"] else "UNKNOWN"]+=1
+    if sum(partition.values())!=len(expected):
+        raise MailAuditError("MAIL_ONLY_PARTITION_MISMATCH")
+    return {"mail_only_amea":len(expected),"candidate_partition":dict(partition),
+            "source_population":dict(source_counts),"source_surfaces_per_amea":dict(surface_counts),
+            "amea_with_typed_coobservations":dict(reference_counts),
+            "distinct_typed_coobserved_references":{k:len(v) for k,v in distinct.items()},
+            "review_and_evidence_flags":dict(flags),
+            "latest_parseable_mail_date_year_counts":dict(latest_year),
+            "same_row_observation_rule":"SINGLETON_VALID_AMEA_NO_EXACT_TUPLE_CONFLICT",
+            "message_id_identity_merge":"NOT_PERFORMED",
+            "invoice_number_cms_crosswalk":"NOT_INFERRED",
+            "h_sam_pair_assignment":"NOT_INFERRED",
+            "owner_payment_delivery_certification":"NOT_ATTESTED",
+            "business_writes":0}
+
+
 def audit(canonical_rows,tables,sources):
     canonical, tuple_keys = {},{}
     source_counts = Counter()
@@ -382,6 +560,8 @@ def audit(canonical_rows,tables,sources):
             "identity_projection":dict(identity_metrics),"tracker_mail_references":dict(tracker),
             "unmatched_project_reference_audit":unmatched_project_reference_metrics(
                 canonical,qq,identities,tuple_keys,project_rows),
+            "mail_only_reference_audit":mail_only_reference_audit(
+                canonical,qq,crm,tuple_keys,project_rows,observed_amea),
             "project_reference_population":{"nonmail":len(known),"mail":len(observed_amea),
                    "intersection":len(known&observed_amea),"mail_only":len(observed_amea-known),
                    "nonmail_only":len(known-observed_amea),"union":len(known|observed_amea)},
@@ -390,21 +570,80 @@ def audit(canonical_rows,tables,sources):
             "payment_delivery_sif_po_certification":"NOT_ATTESTED"}
 
 
-def get_json(session,url):
+# All diagnostics are fixed phases, integer counts and HTTP status only.
+# Never emit request URLs, response bodies, exceptions or cell values.
+READ_PHASES={"META","HEADER","KEY_SCAN","PAYLOAD","META_RECHECK"}
+RETRY_HTTP={408,429,500,502,503,504}
+SPLIT_HTTP={408,413,504}
+KEY_CHUNK_ROWS=10000
+PAYLOAD_CHUNK_ROWS=2000
+MAX_SPLIT_DEPTH=3
+MIN_SPLIT_ROWS=125
+MAX_RANGE_BATCHES=350
+
+
+class MailSheetsReadError(MailAuditError):
+    def __init__(self,phase,rows,failure,can_split=False):
+        self.can_split=can_split
+        super().__init__(f"MAIL_SHEETS_READ_FAILED phase={phase} rows={rows} failure={failure}")
+
+
+def get_json(session,url,phase,rows=0):
+    if phase not in READ_PHASES or type(rows) is not int or rows<0:
+        raise MailAuditError("MAIL_READ_DIAGNOSTIC_SCOPE")
     for attempt in range(5):
-        r=session.get(url,timeout=60)
-        if r.ok:
-            return r.json()
-        if r.status_code not in (429,500,502,503,504) or attempt==4:
-            raise MailAuditError("MAIL_SHEETS_READ_FAILED")
+        try:
+            r=session.get(url,timeout=60)
+        except OSError:
+            # requests transport exceptions inherit OSError; never expose
+            # their messages, which may contain authenticated URLs.
+            error=MailSheetsReadError(phase,rows,"TRANSPORT",True)
+            retry=attempt<2
+        else:
+            if r.ok:
+                try:
+                    payload=r.json()
+                except ValueError:
+                    raise MailSheetsReadError(phase,rows,"INVALID_JSON") from None
+                if not isinstance(payload,dict):
+                    raise MailSheetsReadError(phase,rows,"INVALID_JSON_SHAPE")
+                return payload
+            status=r.status_code
+            if type(status) is not int or not 100<=status<=599:
+                raise MailSheetsReadError(phase,rows,"UNKNOWN_HTTP_STATUS")
+            error=MailSheetsReadError(phase,rows,"HTTP_"+str(status),status in SPLIT_HTTP)
+            # Oversize requests should be split, not retried unchanged.
+            # Persistent timeouts can also benefit from smaller chunks.
+            retry=status in RETRY_HTTP and attempt<(2 if status in SPLIT_HTTP else 4)
+        if not retry:
+            raise error from None
+        print(f"MAIL_SHEETS_RETRY phase={phase} rows={rows} attempt={attempt+1} "
+              f"failure={str(error).rsplit('failure=',1)[-1]}",flush=True)
         time.sleep(min(30,2**(attempt+1)))
-    raise MailAuditError("MAIL_SHEETS_READ_FAILED")
+    raise MailAuditError("MAIL_SHEETS_RETRY_BOUND")
+
+
+def bounded_reads(read_ranges,phase,start,end,pieces,depth=0):
+    """Yield contiguous complete batches or fail; never skip a failed row."""
+    ranges=[f"{a}{start}:{b}{end}" for a,b in pieces]
+    try:
+        matrices=read_ranges(ranges,phase,end-start+1)
+    except MailSheetsReadError as exc:
+        count=end-start+1
+        if not exc.can_split or depth>=MAX_SPLIT_DEPTH or count<2*MIN_SPLIT_ROWS:
+            raise
+        mid=(start+end)//2
+        print(f"MAIL_SHEETS_SPLIT phase={phase} rows={count} depth={depth+1}",flush=True)
+        yield from bounded_reads(read_ranges,phase,start,mid,pieces,depth+1)
+        yield from bounded_reads(read_ranges,phase,mid+1,end,pieces,depth+1)
+        return
+    yield start,end,matrices
 
 
 def read_canonical(session,book):
     root="https://sheets.googleapis.com/v4/spreadsheets/"+book
-    def meta():
-        obj=get_json(session,root+"?fields=spreadsheetId,sheets(properties(title,sheetId,gridProperties))")
+    def meta(phase):
+        obj=get_json(session,root+"?fields=spreadsheetId,sheets(properties(title,sheetId,gridProperties))",phase)
         if obj.get("spreadsheetId")!=book:
             raise MailAuditError("MAIL_CATALOG_ID_MISMATCH")
         p=[s["properties"] for s in obj.get("sheets",[]) if s["properties"].get("title")==TAB]
@@ -415,10 +654,15 @@ def read_canonical(session,book):
         if type(n)!=int or not 1<=n<=250000 or w!=27:
             raise MailAuditError("MAIL_GRID_OUT_OF_BOUND_OR_SCHEMA")
         return p[0]["sheetId"],n,w
-    def read_ranges(ranges):
+    range_batches=0
+    def read_ranges(ranges,phase,rows):
+        nonlocal range_batches
+        range_batches+=1
+        if range_batches>MAX_RANGE_BATCHES:
+            raise MailAuditError("MAIL_RANGE_BATCH_BOUND")
         query=urllib.parse.urlencode([("ranges","'"+TAB+"'!"+a) for a in ranges]+
                                      [("majorDimension","ROWS"),("valueRenderOption","FORMATTED_VALUE")])
-        obj=get_json(session,root+"/values:batchGet?"+query)
+        obj=get_json(session,root+"/values:batchGet?"+query,phase,rows)
         if obj.get("spreadsheetId")!=book or len(obj.get("valueRanges",[]))!=len(ranges):
             raise MailAuditError("MAIL_BATCH_RANGE_SET_MISMATCH")
         out=[]
@@ -431,56 +675,61 @@ def read_canonical(session,book):
                 raise MailAuditError("MAIL_BATCH_ROW_SCHEMA")
             out.append(vals)
         return out
-    initial=meta()
-    if read_ranges(["A1:AA1"])[0]!=[CANONICAL_HEADER]:
+    initial=meta("META")
+    if read_ranges(["A1:AA1"],"HEADER",1)[0]!=[CANONICAL_HEADER]:
         raise MailAuditError("MAIL_CANONICAL_SCHEMA_MISMATCH")
     # Scan the entire allocated key/source columns first. Then read only
     # necessary fields over the populated key extent; no body/attachments.
     expected={}
     seen=set()
-    for start in range(2,initial[1]+1,10000):
-        end=min(start+9999,initial[1])
-        matrix=read_ranges([f"A{start}:B{end}"])[0]
-        if len(matrix)>end-start+1:
-            raise MailAuditError("MAIL_KEY_SCAN_ROW_BOUND")
-        for i,row in enumerate(matrix,start):
-            k=str(row[0]) if row else ""
-            s=str(row[1]) if len(row)>1 else ""
-            if not k and not s:
-                continue
-            if not k or not s or k in seen:
-                raise MailAuditError("MAIL_KEY_SCAN_INVALID_OR_DUPLICATE")
-            expected[i]=(k,s);seen.add(k)
+    for first in range(2,initial[1]+1,KEY_CHUNK_ROWS):
+        last=min(first+KEY_CHUNK_ROWS-1,initial[1])
+        for start,end,matrices in bounded_reads(read_ranges,"KEY_SCAN",first,last,(("A","B"),)):
+            matrix=matrices[0]
+            if len(matrix)>end-start+1 or any(len(row)>2 for row in matrix):
+                raise MailAuditError("MAIL_KEY_SCAN_ROW_BOUND")
+            for i,row in enumerate(matrix,start):
+                k=str(row[0]) if row else ""
+                s=str(row[1]) if len(row)>1 else ""
+                if not k and not s:
+                    continue
+                if not k or not s or k in seen:
+                    raise MailAuditError("MAIL_KEY_SCAN_INVALID_OR_DUPLICATE")
+                expected[i]=(k,s);seen.add(k)
     if not expected:
         raise MailAuditError("MAIL_CANONICAL_NO_KEYED_ROWS")
+    print(f"MAIL_CANONICAL_KEYS_COMPLETE allocated_rows={initial[1]} keyed_rows={len(expected)} "
+          f"range_batches={range_batches}",flush=True)
     result=[]
     # ranges (column start/end, zero-based header indices)
     pieces=(("A","I",0,9),("K","M",10,13),("O","O",14,15),("R","U",17,21),
             ("W","X",22,24),("AA","AA",26,27))
-    for start in range(2,max(expected)+1,2000):
-        end=min(start+1999,max(expected))
-        ranges=[f"{a}{start}:{b}{end}" for a,b,_,_ in pieces]
-        matrices=read_ranges(ranges)
-        if any(len(m)>end-start+1 for m in matrices):
-            raise MailAuditError("MAIL_PAYLOAD_ROW_BOUND")
-        for i in range(end-start+1):
-            row={}
-            for matrix,(_,_,left,right) in zip(matrices,pieces):
-                cells=matrix[i] if i<len(matrix) else []
-                if len(cells)>right-left:
-                    raise MailAuditError("MAIL_PAYLOAD_COLUMN_BOUND")
-                row.update({CANONICAL_HEADER[j]:str(cells[j-left]) if j-left<len(cells) and cells[j-left] is not None else ""
-                            for j in range(left,right)})
-            pair=(row["canonical_key"],row["source_table"])
-            if start+i not in expected:
-                if any(row.values()):
-                    raise MailAuditError("MAIL_PAYLOAD_WITHOUT_KEY")
-                continue
-            if pair!=expected[start+i]:
-                raise MailAuditError("MAIL_KEY_CHANGED_DURING_READ")
-            result.append(row)
-    if len(result)!=len(expected) or meta()!=initial:
+    extent=max(expected)
+    columns=tuple((a,b) for a,b,_,_ in pieces)
+    for first in range(2,extent+1,PAYLOAD_CHUNK_ROWS):
+        last=min(first+PAYLOAD_CHUNK_ROWS-1,extent)
+        for start,end,matrices in bounded_reads(read_ranges,"PAYLOAD",first,last,columns):
+            if any(len(m)>end-start+1 for m in matrices):
+                raise MailAuditError("MAIL_PAYLOAD_ROW_BOUND")
+            for i in range(end-start+1):
+                row={}
+                for matrix,(_,_,left,right) in zip(matrices,pieces):
+                    cells=matrix[i] if i<len(matrix) else []
+                    if len(cells)>right-left:
+                        raise MailAuditError("MAIL_PAYLOAD_COLUMN_BOUND")
+                    row.update({CANONICAL_HEADER[j]:str(cells[j-left]) if j-left<len(cells) and cells[j-left] is not None else ""
+                                for j in range(left,right)})
+                pair=(row["canonical_key"],row["source_table"])
+                if start+i not in expected:
+                    if any(row.values()):
+                        raise MailAuditError("MAIL_PAYLOAD_WITHOUT_KEY")
+                    continue
+                if pair!=expected[start+i]:
+                    raise MailAuditError("MAIL_KEY_CHANGED_DURING_READ")
+                result.append(row)
+    if len(result)!=len(expected) or meta("META_RECHECK")!=initial:
         raise MailAuditError("MAIL_CANONICAL_READ_CHANGED")
+    print(f"MAIL_CANONICAL_PAYLOAD_COMPLETE keyed_rows={len(result)} range_batches={range_batches}",flush=True)
     return result
 
 
@@ -533,7 +782,11 @@ def main():
     started=dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
     session=sheets_session()
     sources=read_sources(session)
-    summary=audit(read_canonical(session,CSS_SHEET),read_feishu(),sources)
+    print(f"MAIL_NONMAIL_REFERENCES_COMPLETE sources={len(sources)}",flush=True)
+    canonical=read_canonical(session,CSS_SHEET)
+    tables=read_feishu()
+    print(f"MAIL_FEISHU_READ_COMPLETE tables={len(tables)}",flush=True)
+    summary=audit(canonical,tables,sources)
     summary["read_started_kst"]=started
     summary["read_finished_kst"]=dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
     print("GLOBAL_MAIL_RELATIONSHIP_COVERAGE "+json.dumps(summary,sort_keys=True))
