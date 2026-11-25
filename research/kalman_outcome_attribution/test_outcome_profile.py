@@ -7,14 +7,14 @@ import numpy as np
 import pandas as pd
 
 from outcome_profile import (
-    ASOF, FEATURES, RUN_ID, SOURCE_SHA, classify, join_signal_features,
-    match_executions, profile, rank_auc, sha, summarize, verified_members,
+    ASOF, FEATURES, DIAGNOSTICS, RUN_ID, SOURCE_SHA, classify, join_signal_features,
+    match_executions, profile, rank_auc, sha, summarize, trailing_diagnostics, verified_members,
 )
 
 
 def fixture():
     dates = pd.to_datetime(["2026-01-02","2026-01-05","2026-01-06","2026-01-07"])
-    frame = pd.DataFrame({k:[1.,2.,3.,4.] for k in FEATURES},index=dates)
+    frame = pd.DataFrame({k:[1.,2.,3.,4.] for k in FEATURES + DIAGNOSTICS},index=dates)
     frame["entry_date"] = pd.Series(dates,index=dates).shift(-1)
     frame["exit_date"] = pd.Series(dates,index=dates).shift(-2)
     frame["gross_return"] = [.012,-.058,np.nan,np.nan]
@@ -99,6 +99,19 @@ class OutcomeContracts(unittest.TestCase):
         ex["symbol"]="UNKNOWN"
         with self.assertRaisesRegex(ValueError,"EXECUTION_WITHOUT_CANDIDATE"):
             match_executions(g,ex)
+
+    def test_trailing_diagnostics_unchanged_by_future_observations(self):
+        dates=pd.date_range("2025-01-01",periods=60,freq="B")
+        close=pd.Series(np.linspace(100,130,60),index=dates)
+        spy=pd.Series(np.linspace(100,110,60),index=dates)
+        cutoff=dates[39]
+        full=trailing_diagnostics(close,spy)
+        close.loc[dates[40:]]*=10
+        spy.loc[dates[40:]]/=2
+        pd.testing.assert_frame_equal(full.loc[:cutoff],
+                                      trailing_diagnostics(close,spy).loc[:cutoff])
+        self.assertTrue(full.iloc[:20].isna().all().all())
+        self.assertTrue(full.iloc[20:].notna().all().all())
 
     def test_archive_hash_and_member_contract(self):
         m={"format":"kalman-daily20-drive-v1","research_only":True,"production_writes":False,
