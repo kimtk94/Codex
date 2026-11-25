@@ -127,5 +127,81 @@ class SearchTests(unittest.TestCase):
             with self.assertRaisesRegex(u.SearchError,"ABSOLUTE_OUTPUT_REQUIRED"):
                 u.private_target("relative.json")
 
+class IndexParityTests(unittest.TestCase):
+    def fixture(self):
+        s=sources()
+        s["CSS Project Dashboard"]=[
+            {"project_id":P,"h_project_numbers":H,"sam_numbers":S},
+            {"project_id":"","h_project_numbers":"bad","sam_numbers":""}]
+        s["BI Project Lifecycle Overview"]=[{"AMEA":Q,"Project / Sub-project":X}]
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"AMEA":P,"H Project":H}]
+        c=[canonical()]
+        idx=u.ReferenceIndex()
+        u.add_nonmail(idx,s)
+        u.add_mail(idx,c,t)
+        return idx,s,c,t
+
+    def test_parity_all_sources_no_identifier_leak(self):
+        idx,s,c,t=self.fixture()
+        out=u.index_parity(idx,s,c,t)
+        self.assertEqual(out["source_rows"],5)
+        self.assertEqual(out["indexed_rows"],4)
+        self.assertEqual(out["sources_indexed"],len(g.SOURCES)+3)
+        self.assertEqual(out["sources"]["CSS Project Dashboard"],
+            {"raw_rows":2,"indexed_rows":1,"no_valid_typed_reference_rows":1,"format_review_indexed_rows":0})
+        self.assertEqual(out["sources"][m.QQ]["indexed_rows"],1)
+        self.assertEqual(out["query_types_probed"],len(out["distinct_identifiers_by_type"]))
+        self.assertEqual(out["business_writes"],0)
+        for ident in (P,Q,H,X,S,KEY,TUPLE):
+            self.assertNotIn(ident,json.dumps(out))
+
+    def test_missing_source_row_is_detected(self):
+        idx,s,c,t=self.fixture()
+        idx.rows.pop()
+        with self.assertRaisesRegex(u.SearchError,"MISSING_SOURCE_ROW"):
+            u.index_parity(idx,s,c,t)
+
+    def test_lost_or_extra_posting_is_detected(self):
+        idx,s,c,t=self.fixture()
+        idx.by_token[("AMEA",P)].pop()
+        with self.assertRaisesRegex(u.SearchError,"INVERTED_POSTINGS"):
+            u.index_parity(idx,s,c,t)
+        idx,s,c,t=self.fixture()
+        idx.by_token[("AMEA","AMEA9999999999")]=[]
+        with self.assertRaisesRegex(u.SearchError,"INVERTED_POSTINGS"):
+            u.index_parity(idx,s,c,t)
+
+    def test_wrong_edge_is_detected(self):
+        idx,s,c,t=self.fixture()
+        idx.rows[0]["edges"].add((("AMEA",P),("AMEA",Q)))
+        with self.assertRaisesRegex(u.SearchError,"ROW_EDGES"):
+            u.index_parity(idx,s,c,t)
+
+    def test_duplicate_source_row_is_detected(self):
+        idx,s,c,t=self.fixture()
+        idx.rows.append(idx.rows[0])
+        with self.assertRaisesRegex(u.SearchError,"DUPLICATE_SOURCE_ROW"):
+            u.index_parity(idx,s,c,t)
+
+    def test_credentialed_ci_only_main_manual(self):
+        with patch.dict(os.environ,{"GITHUB_ACTIONS":"true","GITHUB_REF":"refs/pull/1/merge",
+                                    "GITHUB_EVENT_NAME":"pull_request"},clear=True):
+            with self.assertRaisesRegex(u.SearchError,"MAIN_MANUAL_ONLY"):
+                u.aggregate_environment()
+        with patch.dict(os.environ,{"GITHUB_ACTIONS":"true","GITHUB_REF":"refs/heads/main",
+                                    "GITHUB_EVENT_NAME":"workflow_dispatch"},clear=True):
+            u.aggregate_environment()
+        with patch.dict(os.environ,{"CI":"true"},clear=True):
+            with self.assertRaisesRegex(u.SearchError,"UNRECOGNIZED_CI"):
+                u.aggregate_environment()
+
+    def test_verify_mode_refuses_query_and_output_before_reader(self):
+        with patch("sys.argv",["search","--verify-index","--type","AMEA"]), \
+                patch.object(u,"read_index_inputs") as read:
+            with self.assertRaisesRegex(u.SearchError,"NO_QUERY_OR_OUTPUT"):
+                u.main()
+            read.assert_not_called()
+
 if __name__=="__main__":
     unittest.main()
