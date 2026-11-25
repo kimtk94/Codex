@@ -70,6 +70,39 @@ class PrivateArchiveContracts(unittest.TestCase):
         args.update(kwargs)
         return archive.save_once(self.client, **args)
 
+    def test_preflight_no_write_and_missing_parent_diagnosed(self):
+        report = archive.preflight(self.client, TARGET, SESSION)
+        self.assertTrue(report["eligible_for_archive"])
+        self.assertTrue(report["seed_sha256_matches"])
+        self.assertTrue(report["read_only"])
+        self.assertEqual(self.client.writes, [])
+        self.client.meta.pop("parents")
+        report = archive.preflight(self.client, TARGET, SESSION)
+        self.assertFalse(report["candidate_slot_checks"]["parent_visible"])
+        self.assertFalse(report["candidate_slot_checks"]["parent_matches"])
+        self.assertFalse(report["eligible_for_archive"])
+        self.assertTrue(report["seed_sha256_matches"])
+        self.assertEqual(self.client.writes, [])
+        with self.assertRaisesRegex(ValueError, "UNAPPROVED_OR_CONSUMED"):
+            self.store()
+        self.assertEqual(self.client.writes, [])
+
+    def test_preflight_missing_capability_or_permissions_never_eligible(self):
+        self.client.meta.pop("capabilities")
+        self.client.meta.pop("permissions")
+        report = archive.preflight(self.client, TARGET, SESSION)
+        checks = report["candidate_slot_checks"]
+        self.assertFalse(checks["edit_capability_visible"])
+        self.assertFalse(checks["can_edit"])
+        self.assertFalse(checks["permissions_visible"])
+        self.assertFalse(report["eligible_for_archive"])
+        self.assertEqual(self.client.writes, [])
+
+    def test_preflight_rejects_canonical_id(self):
+        with self.assertRaisesRegex(ValueError, "UNAPPROVED_CANDIDATE_TARGET"):
+            archive.preflight(self.client, archive.ORIGINAL_ID, SESSION)
+        self.assertEqual(self.client.writes, [])
+
     def test_save_once_verified_readback_and_no_reuse(self):
         r = self.store()
         self.assertEqual(self.client.data, self.candidate)
