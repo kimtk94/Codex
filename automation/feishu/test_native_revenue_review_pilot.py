@@ -59,8 +59,8 @@ class PilotTests(unittest.TestCase):
     def test_plan_matches_official_and_never_writes(self):
         result=reconcile(self.s,self.b)
         self.assertEqual(result["state"],"READY_NEW_REVIEW_PILOT")
-        self.assertEqual(result["members"],88)
-        self.assertEqual(result["expected_members_by_month"],{"2026-10":48,"2026-11":40})
+        self.assertEqual(result["members"],90)
+        self.assertEqual(result["expected_members_by_month"],{"2026-10":48,"2026-11":42})
         self.assertEqual(result["review_digest"],self.digest)
         self.assertEqual(self.b.writes,[])
         self.assertNotIn("209126000001",json.dumps(result))
@@ -69,7 +69,7 @@ class PilotTests(unittest.TestCase):
         original=copy.deepcopy(self.b.rows[OFFICIAL_ID])
         out=reconcile(self.s,self.b,"apply",self.digest)
         self.assertEqual(out["state"],"CREATED_FROZEN_REVIEW_PILOT")
-        self.assertEqual(len(self.b.rows["tblReview"]),88)
+        self.assertEqual(len(self.b.rows["tblReview"]),90)
         self.assertEqual(len(self.b.charts),5)
         self.assertEqual(self.b.rows[OFFICIAL_ID],original)
         self.assertEqual(self.b.ts["tblOriginal"],"Unrelated source")
@@ -79,10 +79,10 @@ class PilotTests(unittest.TestCase):
         writes=list(self.b.writes)
         out=reconcile(self.s,self.b,"apply",self.digest)
         self.assertEqual(out["state"],"EXISTING_SNAPSHOT_VERIFIED_NO_WRITES")
-        self.assertEqual(out["selected"],87)
+        self.assertEqual(out["selected"],89)
         self.assertEqual(out["selection_by_month"],{
             "2026-10":{"original":48,"excluded":1,"selected":47},
-            "2026-11":{"original":40,"excluded":0,"selected":40}})
+            "2026-11":{"original":42,"excluded":0,"selected":42}})
         self.assertEqual(self.b.rows,before)
         self.assertEqual(self.b.writes,writes)
 
@@ -147,7 +147,21 @@ class PilotTests(unittest.TestCase):
         self.assertFalse(self.b.writes)
 
     def test_reviewed_count_change_requires_new_approval(self):
-        count=41
+        count=43
+        nov=sources(month="2026-11",
+                    rows=[inv("209126"+str(49+i).zfill(6),month="2026-11") for i in range(count)],
+                    count=count,gross=11000*count,net=10000*count)
+        for tab,rows in nov.items():
+            if tab=="CSS Tax Invoice Extract":
+                self.s[tab]=self.s[tab][:48]+rows
+            elif tab!="Revenue Invoice Base":
+                self.s[tab]=[r for r in self.s[tab] if r["Month"]!="2026-11"]+rows
+        with self.assertRaisesRegex(DrilldownError,"EXPECTED_MEMBER_COUNT_CHANGED:2026-11"):
+            reconcile(self.s,self.b)
+        self.assertFalse(self.b.writes)
+
+    def test_previous_40_member_november_snapshot_cannot_be_adopted(self):
+        count=40
         nov=sources(month="2026-11",
                     rows=[inv("209126"+str(49+i).zfill(6),month="2026-11") for i in range(count)],
                     count=count,gross=11000*count,net=10000*count)
@@ -172,9 +186,9 @@ class PilotTests(unittest.TestCase):
         row["fields"][EXCLUDE]=True
         out=reconcile(self.s,self.b)
         self.assertEqual(out["selection_by_month"]["2026-10"]["selected"],48)
-        self.assertEqual(out["selection_by_month"]["2026-11"]["selected"],39)
+        self.assertEqual(out["selection_by_month"]["2026-11"]["selected"],41)
         row["fields"][EXCLUDE]=False
-        self.assertEqual(reconcile(self.s,self.b)["selected"],88)
+        self.assertEqual(reconcile(self.s,self.b)["selected"],90)
 
 if __name__=="__main__":
     unittest.main()
