@@ -223,8 +223,14 @@ def main():
         identity=snapshot_identity(a.archive,a.expected_sha256,a.anchor,a.session,a.original_source,cal)
     report=audit_pair(identity,collect(identity["session"],a.original_source,token),cal)
     report["historical_rehearsal"]=a.rehearse_known_failure
-    if a.rehearse_known_failure and report["scheduled_evidence_status"]!="HOLD":
-        raise ValueError("KNOWN_HISTORICAL_FAILURE_WRONGLY_ACCEPTED")
+    if a.rehearse_known_failure:
+        required={"FIRST_NOT_ORIGINAL_CAPTURE","FIRST_INPUTS_CHANGED_OR_UNKNOWN",
+                  "REPLAY_CODE_SHA_MISMATCH","REPLAY_NOT_PREOPEN_SCHEDULED_CAPTURE"}
+        if (report["scheduled_evidence_status"]!="HOLD" or report["run_count"]!=2
+                or report["first_run"]!=45398233974 or report["replay_run"]!=45423471061
+                or not required.issubset(report["problem_codes"])
+                or any("RUN_OR_JOB_UNVERIFIED" in x for x in report["problem_codes"])):
+            raise ValueError("KNOWN_HISTORICAL_FAILURE_NOT_INDEPENDENTLY_REPRODUCED")
     out=Path(a.out);out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(report,indent=2,allow_nan=False)+"\n")
     print(json.dumps(report,allow_nan=False))
