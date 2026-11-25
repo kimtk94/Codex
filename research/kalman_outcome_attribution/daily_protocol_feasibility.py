@@ -14,6 +14,7 @@ import pandas as pd
 from outcome_profile import ARCHIVES, KEY, load_archive, load_original, csv
 from protocol_feasibility import HIGH_RISK, compare, bear_episodes, rolling_feasibility, paired_date_diagnostic
 from daily_gate_risk import analyze as gate_risk
+from daily_tail_attribution import analyze as tail_attribution
 
 CORE="SPY QQQ QLD IWM AAPL MSFT AMZN GOOGL META NVDA AMD AVGO MU TSLA PLTR IONQ COIN MSTR JPM XOM".split()
 
@@ -124,6 +125,8 @@ def report(raw,result,train):
             "bull_date_diagnostic":paired_date_diagnostic(x,cal),
             "daily_gate_risk":{"BULL":gate_risk(x,"BULL",cal),
                                "BEAR":gate_risk(y,"BEAR",cal)},
+            "daily_tail_attribution":{"BULL":tail_attribution(x,"BULL"),
+                                      "BEAR":tail_attribution(y,"BEAR")},
             "rolling_252_session_feasibility":rolling_feasibility(x,y,cal,episodes)}
     return {"schema":"kalman-all-daily-protocol-feasibility-v1",
         "input_sha256":{k:v[2] for k,v in ARCHIVES.items()},
