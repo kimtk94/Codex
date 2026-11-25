@@ -79,7 +79,7 @@ jobs:
           GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
         run: |
           python research/kalman_market_missingness/fetch_private_zip.py \
-            --file-id 1rptk7B9dJfNp2GgaDF0g27FZUolKEIDn \
+            --file-id 1rptk7B9dJfNp2GgaDF0g27FZUolKEIDn --verified-candidate \
             --out "$RUNNER_TEMP/kalman_fx_research_source.zip"
       - name: Verify original vs Yahoo repair modes and external sources
         if: github.event_name != 'workflow_dispatch' || !inputs.use_verified_candidate
