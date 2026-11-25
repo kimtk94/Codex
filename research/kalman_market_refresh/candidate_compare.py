@@ -84,7 +84,7 @@ def normalize(frame):
         if values.isna().any() or values.nunique() != 1 or not str(values.iloc[0]).strip():
             raise ValueError("MARKET_IDENTITY_UNKNOWN")
         identities.append(str(values.iloc[0]))
-    values = frame.loc[:, OHLC].apply(pd.to_numeric, errors="coerce")
+    values = frame.loc[:, list(OHLC)].apply(pd.to_numeric, errors="coerce").astype(float)
     values.index = dates
     valid = pd.DataFrame(np.isfinite(values.to_numpy()), index=values.index, columns=values.columns) & values.gt(0)
     bad = ~valid.all(axis=1)
