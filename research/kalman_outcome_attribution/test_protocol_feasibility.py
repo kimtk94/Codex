@@ -27,10 +27,10 @@ class ProtocolFeasibilityContracts(unittest.TestCase):
         b=pd.DataFrame({"signal_date":cal[1:4],"qualifies":[True,False,True],
             "net_return":[.02,-.03,.01],"episode":ids.loc[cal[1:4]].to_numpy()})
         a=b.iloc[:0].copy()
-        r=rolling_feasibility(a,b,cal,2)
+        r=rolling_feasibility(a,b,cal,episodes,width=2)
         self.assertEqual(r["windows"],4)
         self.assertEqual(r["metric_maxima"]["bear_matched_complete_episodes"],0)
-        r=rolling_feasibility(a,b,cal,3)
+        r=rolling_feasibility(a,b,cal,episodes,width=3)
         self.assertEqual(r["metric_maxima"]["bear_matched_complete_episodes"],1)
         self.assertEqual(r["h1_candidate_minimum_pass_windows"],0)
         self.assertEqual(r["h2_candidate_minimum_pass_windows"],0)
