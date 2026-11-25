@@ -38,6 +38,7 @@ FEATURES = (
     "smh_relative_lag", "credit_mom5_lag", "vix_lag", "tlt_mom5_lag",
     "gld_mom5_lag",
 )
+DIAGNOSTICS = ("vol20", "relative20_spy")
 KEY = ["symbol", "signal_date", "entry_date", "exit_date"]
 FAMILIES = {
     "BULL_LOGISTIC": ("LOGISTIC", 439),
@@ -102,6 +103,14 @@ def normalize_keys(frame):
     return frame
 
 
+def trailing_diagnostics(close, spy):
+    """Additional close-known diagnostics, not original model predictors."""
+    return pd.DataFrame({
+        "vol20": close.pct_change(fill_method=None).rolling(20, min_periods=20).std(),
+        "relative20_spy": (close/spy).pct_change(20, fill_method=None),
+    }).reindex(close.index).replace([np.inf,-np.inf],np.nan)
+
+
 def join_signal_features(events, feature_frames):
     """Strict same-symbol signal-date lookup; future columns never enter predictors."""
     events = normalize_keys(events)
@@ -122,8 +131,8 @@ def join_signal_features(events, feature_frames):
             if not np.allclose(selected[name].to_numpy(float), group[name].to_numpy(float),
                                rtol=0, atol=2e-6, equal_nan=False):
                 raise ValueError("ARCHIVED_LABEL_MISMATCH")
-        x = selected.loc[:, list(FEATURES)].reset_index(drop=True)
-        if set(x.columns) != set(FEATURES):
+        x = selected.loc[:, [*FEATURES, *DIAGNOSTICS]].reset_index(drop=True)
+        if set(x.columns) != set(FEATURES + DIAGNOSTICS):
             raise ValueError("FEATURE_SCHEMA_MISMATCH")
         joined.append(pd.concat([group.reset_index(drop=True), x], axis=1))
     out = pd.concat(joined, ignore_index=True)
@@ -204,7 +213,7 @@ def profile(frame, return_col):
         ("WIN_VS_LOSS", r.gt(0), r.lt(0)),
         ("SEVERE_VS_MILD_LOSS", r.le(-.05), r.lt(0) & r.gt(-.05)),
     )
-    for feature in [*FEATURES, "probability"]:
+    for feature in [*FEATURES, *DIAGNOSTICS, "probability"]:
         x = frame[feature].replace([np.inf, -np.inf], np.nan)
         for name, positive, negative in comparisons:
             subset = frame.loc[positive | negative].copy()
@@ -292,6 +301,8 @@ def build_report(events, result, feature_frames):
         "input_sha256": {k: v[2] for k,v in ARCHIVES.items()},
         "candidate_count": len(data), "model_input_feature_count": len(FEATURES),
         "feature_nonmissing": {k: int(data[k].notna().sum()) for k in FEATURES},
+        "supplemental_diagnostics": list(DIAGNOSTICS),
+        "diagnostic_nonmissing": {k: int(data[k].notna().sum()) for k in DIAGNOSTICS},
         "groups": rows, "research_only": True, "approved_live": False,
         "new_holdout": False, "independent_price_certification": False,
         "point_in_time_training_ready": False, "production_writes": False,
@@ -339,9 +350,17 @@ def main():
             dest.parent.mkdir(parents=True,exist_ok=True)
             dest.write_bytes(blob)
         context=train.context_frame(root/"market")
-        frames={s:train.feature_frame(s,root/"market",root/"features",context,20.)
-                for s in sorted(set(events.symbol))}
+        spy=train.load_bars(train.market_file(root/"market","SPY"))["close"]
+        frames={}
+        for symbol in sorted(set(events.symbol)):
+            base=train.feature_frame(symbol,root/"market",root/"features",context,20.)
+            close=train.load_bars(train.market_file(root/"market",symbol))["close"]
+            frames[symbol]=base.join(trailing_diagnostics(close,spy))
         report=build_report(events,result,frames)
+    import sklearn, pyarrow
+    report["runtime_versions"]={"python":sys.version.split()[0],"pandas":pd.__version__,
+                                "numpy":np.__version__,"scikit_learn":sklearn.__version__,
+                                "pyarrow":pyarrow.__version__}
     out=Path(a.out)
     out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(report,indent=2,allow_nan=False)+"\n")
