@@ -1,0 +1,7 @@
+# Completed-session research cutoff policy (proposal only)
+
+Incident #1030 / run 45602794486: Yahoo returned a November 25 VIX row before the completed November 24 XNYS cutoff. The existing validation correctly blocked the bundle.
+
+This offline-only proposal freezes an explicit aware clock, calculates the XNYS close plus 30 minutes (including holidays and early closes), and returns an exclusive provider end date for the 14 US-session keys only. Five non-US keys retain their existing collection semantics. It also provides a non-mutating tail diagnostic that counts even null-close post-cutoff rows, checks the cutoff OHLC, and returns HOLD metadata. It does not certify the provider, inspect every historical OHLC row, or approve a derived prefix.
+
+No changes to workflow, shared provider, schedule, source archive, feature output, data writer or LIVE. Before integration, test separately fetched US and non-US windows, freeze a single reference clock through fetch/validation, retain observed tails in private evidence, require coverage and raw/TA timestamp and value reconciliation, regenerate features and manifests from the same completed prefix, and preserve every existing QC gate. Do not merge merely because a synthetic test passes. A push to main may start existing refresh workflow.
