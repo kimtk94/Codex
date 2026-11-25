@@ -188,6 +188,132 @@ def reference_metrics(rows, canonical, contact_index, lead_index):
              "duplicate_message_id_groups":sum(len(v)>1 for v in mids.values())},distinct,mids)
 
 
+def literal_coverage(tokens, observed):
+    if not tokens:
+        return "NO_DIRECT_TOKEN"
+    overlap = tokens & observed
+    return ("ALL_OBSERVED" if overlap == tokens else
+            "PARTIAL_OBSERVED" if overlap else "NONE_OBSERVED")
+
+
+def unmatched_project_reference_metrics(canonical, qq, identities, tuple_keys, projects):
+    """Explain existing PROJECT_ID_UNMATCHED rows without reassigning them.
+
+    Canonical membership is source observation, not independent evidence.
+    A distinct keyed record excludes the same QQ tuple and any known equal
+    Message-ID, but still does not prove a distinct real-world message.
+    No inference from a name, sender, body, or untyped number. Never write.
+    """
+    known = {r["amea"] for r in projects}
+    h_nonmail = defaultdict(set)
+    for r in projects:
+        for h in r["refs"].get("H", {}):
+            h_nonmail[re.sub(r"-B\d+$", "", h)].add(r["amea"])
+    canonical_by = {"AMEA":defaultdict(set), "H":defaultdict(set)}
+    legacy_amea = set()
+    canonical_h_amea = defaultdict(set)
+    mids = {}
+    for k,row in canonical.items():
+        mids[k] = msgid(row.get("message_id"))
+        ar, ast = keys(value(row, "amea_numbers"), "AMEA*")
+        hr, hst = keys(value(row, "h_project_numbers"), "H*")
+        a, h = {x for _,x in ar}, {x for _,x in hr}
+        for kind, ids in (("AMEA",a),("H",h)):
+            for ident in ids:
+                canonical_by[kind][ident].add(k)
+        if row.get("source_table") == "All Emails":
+            legacy_amea.update(a)
+        # Same-row co-observation is a candidate only. Do not cross-join
+        # several AMEA to H, and never promote partially malformed cells.
+        if ast == hst == "OBSERVED" and len(a)==1:
+            for ident in h:
+                canonical_h_amea[ident].update(a)
+
+    out = {"population":Counter(), "nonmail_reference_state":Counter(),
+           "canonical_amea_literal":Counter(), "canonical_h_literal":Counter(),
+           "canonical_any_reference":Counter(), "legacy_amea_reference":Counter(),
+           "canonical_h_amea_candidates":Counter(), "other_canonical_record":Counter(),
+           "nonmail_and_canonical_reference":Counter()}
+    for key, identity in identities.items():
+        if value(identity,"Project Link") != "PROJECT_ID_UNMATCHED":
+            out["population"]["OTHER_IDENTITY_STATE_NOT_ASSESSED"] += 1
+            continue
+        out["population"]["UNMATCHED_PROJECT_ID"] += 1
+        row = qq.get(key)
+        if row is None:
+            out["population"]["SOURCE_QQ_NOT_OBSERVED"] += 1
+            continue
+        out["population"]["SOURCE_QQ_PRESENT"] += 1
+        structured, review = structured_refs(row, {"AMEA":"AMEA","H":"H Project"})
+        subject = subject_refs(row.get("Subject"))
+        a = structured["AMEA"] | subject["AMEA"]
+        h = structured["H"] | subject["H"]
+        direct = a & known
+        h_candidates = set().union(*(h_nonmail.get(re.sub(r"-B\d+$","",v),set())
+                                     for v in h)) if h else set()
+        candidates = direct | h_candidates
+        # Match the operational gap categories, but keep them explicitly
+        # observational. An unmatched H or malformed field is tracked below;
+        # a direct AMEA does not certify every other identifier on the mail.
+        if len(a)==1 and a==direct and h_candidates <= direct:
+            nonmail = "DIRECT_AMEA_OBSERVED_NONMAIL"
+        elif len(candidates)>1:
+            nonmail = "MULTIPLE_KNOWN_CANDIDATES"
+        elif direct and a-direct:
+            nonmail = "PARTIAL_AMEA_CANDIDATE"
+        elif not a and len(h_candidates)==1:
+            nonmail = "H_ROOT_ONE_CANDIDATE"
+        elif candidates:
+            nonmail = "OTHER_REVIEW_CANDIDATE"
+        elif a or h:
+            nonmail = "NO_NONMAIL_MATCH"
+        else:
+            nonmail = "NO_STRICT_TOKEN"
+        out["nonmail_reference_state"][nonmail] += 1
+        if review:
+            out["population"]["STRUCTURED_FORMAT_REVIEW"] += 1
+        if len(a)>1:
+            out["population"]["MULTIPLE_LITERAL_AMEA"] += 1
+        if any(not h_nonmail.get(re.sub(r"-B\d+$","",v)) for v in h):
+            out["population"]["H_NOT_OBSERVED_NONMAIL"] += 1
+        found_a = a & canonical_by["AMEA"].keys()
+        found_h = h & canonical_by["H"].keys()
+        out["canonical_amea_literal"][literal_coverage(a,found_a)] += 1
+        out["canonical_h_literal"][literal_coverage(h,found_h)] += 1
+        out["canonical_any_reference"][
+            "AMEA_AND_H_OBSERVED" if found_a and found_h else
+            "AMEA_ONLY_OBSERVED" if found_a else
+            "H_ONLY_OBSERVED" if found_h else "NO_STRUCTURED_CANONICAL_REFERENCE"] += 1
+        out["legacy_amea_reference"][
+            "AT_LEAST_ONE_AMEA_IN_LEGACY" if a & legacy_amea else "NO_AMEA_IN_LEGACY"] += 1
+        hc = set().union(*(canonical_h_amea.get(v,set()) for v in h)) if h else set()
+        out["canonical_h_amea_candidates"][
+            "ONE_COOBSERVED_AMEA_CANDIDATE" if len(hc)==1 else
+            "MULTIPLE_COOBSERVED_AMEA_CANDIDATES" if hc else "NO_COOBSERVED_AMEA"] += 1
+        out["nonmail_and_canonical_reference"][
+            "BOTH" if candidates and (found_a or found_h) else
+            "NONMAIL_ONLY" if candidates else
+            "CANONICAL_ONLY" if found_a or found_h else "NEITHER"] += 1
+        same_key = tuple_keys.get(key)
+        mid = msgid(row.get("Message ID"))
+        refs = [(kind,ident) for kind,ids in (("AMEA",found_a),("H",found_h)) for ident in ids]
+        other = any(k != same_key and (not mid or mids[k]!=mid)
+                    for kind,ident in refs for k in canonical_by[kind][ident])
+        out["other_canonical_record"][
+            "OTHER_KEY_WITHOUT_KNOWN_SAME_MESSAGE_ID" if other else
+            "ONLY_SAME_KEY_OR_KNOWN_SAME_MESSAGE_ID" if refs else
+            "NO_CANONICAL_REFERENCE"] += 1
+
+    assessed = out["population"]["SOURCE_QQ_PRESENT"]
+    if (assessed + out["population"]["SOURCE_QQ_NOT_OBSERVED"] !=
+            out["population"]["UNMATCHED_PROJECT_ID"]):
+        raise MailAuditError("MAIL_GAP_POPULATION_MISMATCH")
+    for axis, counts in out.items():
+        if axis!="population" and sum(counts.values())!=assessed:
+            raise MailAuditError("MAIL_GAP_AXIS_COUNT_MISMATCH")
+    return {axis:dict(counts) for axis,counts in out.items()}
+
+
 def audit(canonical_rows,tables,sources):
     canonical, tuple_keys = {},{}
     source_counts = Counter()
@@ -254,6 +380,8 @@ def audit(canonical_rows,tables,sources):
             "qq_canonical_crosswalk":dict(cross),"crm_canonical_message_id_candidates":dict(crm_cross),
             "canonical_tuple_keys_not_in_qq":len(set(tuple_keys)-set(qq)),
             "identity_projection":dict(identity_metrics),"tracker_mail_references":dict(tracker),
+            "unmatched_project_reference_audit":unmatched_project_reference_metrics(
+                canonical,qq,identities,tuple_keys,project_rows),
             "project_reference_population":{"nonmail":len(known),"mail":len(observed_amea),
                    "intersection":len(known&observed_amea),"mail_only":len(observed_amea-known),
                    "nonmail_only":len(known-observed_amea),"union":len(known|observed_amea)},

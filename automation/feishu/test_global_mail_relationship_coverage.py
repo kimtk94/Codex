@@ -83,5 +83,79 @@ class MailTests(unittest.TestCase):
         with self.assertRaisesRegex(m.MailAuditError,"CANONICAL_DUPLICATE"):
             m.audit([canonical(),canonical()],tables(),sources())
 
+
+class UnmatchedProjectReferenceTests(unittest.TestCase):
+    def test_direct_nonmail_and_canonical_membership_no_assignment(self):
+        s=sources()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":""}]
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"Message ID":MID,"AMEA":P,"H Project":H}]
+        t[m.IDENTITY]=[{"Mail Key":KEY,"Project Link":"PROJECT_ID_UNMATCHED"}]
+        c=[canonical()]
+        out=m.audit(c,t,s)["unmatched_project_reference_audit"]
+        self.assertEqual(out["population"]["UNMATCHED_PROJECT_ID"],1)
+        self.assertEqual(out["nonmail_reference_state"],{"DIRECT_AMEA_OBSERVED_NONMAIL":1})
+        self.assertEqual(out["canonical_any_reference"],{"AMEA_AND_H_OBSERVED":1})
+        self.assertEqual(out["other_canonical_record"],{"ONLY_SAME_KEY_OR_KNOWN_SAME_MESSAGE_ID":1})
+        self.assertEqual(t[m.IDENTITY][0]["Project Link"],"PROJECT_ID_UNMATCHED")
+        self.assertNotIn(P,json.dumps(out))
+        self.assertNotIn(H,json.dumps(out))
+
+    def test_same_message_id_legacy_not_other_record_evidence(self):
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"Message ID":MID,"AMEA":P}]
+        t[m.IDENTITY]=[{"Mail Key":KEY,"Project Link":"PROJECT_ID_UNMATCHED"}]
+        legacy=canonical(canonical_key="legacy:All Emails:2",source_table="All Emails",
+                         imap_folder="",uidvalidity="",imap_uid="")
+        out=m.audit([canonical(),legacy],t,sources())["unmatched_project_reference_audit"]
+        self.assertEqual(out["legacy_amea_reference"],{"AT_LEAST_ONE_AMEA_IN_LEGACY":1})
+        self.assertEqual(out["other_canonical_record"],{"ONLY_SAME_KEY_OR_KNOWN_SAME_MESSAGE_ID":1})
+        legacy["message_id"]="<different@example.invalid>"
+        out=m.audit([canonical(),legacy],t,sources())["unmatched_project_reference_audit"]
+        self.assertEqual(out["other_canonical_record"],{"OTHER_KEY_WITHOUT_KNOWN_SAME_MESSAGE_ID":1})
+
+    def test_preserve_partial_and_multiple_amea_references(self):
+        s=sources()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":""}]
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"Message ID":MID,"AMEA":P+";"+Q}]
+        t[m.IDENTITY]=[{"Mail Key":KEY,"Project Link":"PROJECT_ID_UNMATCHED"}]
+        out=m.audit([canonical()],t,s)["unmatched_project_reference_audit"]
+        self.assertEqual(out["canonical_amea_literal"],{"PARTIAL_OBSERVED":1})
+        self.assertEqual(out["nonmail_reference_state"],{"PARTIAL_AMEA_CANDIDATE":1})
+        self.assertEqual(out["population"]["MULTIPLE_LITERAL_AMEA"],1)
+
+    def test_h_candidate_exact_suffix_and_multi_amea_not_cross_joined(self):
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"Message ID":MID,"H Project":H+"-B01"},
+                 {"Mail Key":OTHER,"Message ID":"<other@example.invalid>","H Project":H}]
+        t[m.IDENTITY]=[{"Mail Key":k,"Project Link":"PROJECT_ID_UNMATCHED"} for k in (KEY,OTHER)]
+        out=m.audit([canonical(amea_numbers=P+";"+Q)],t,sources())["unmatched_project_reference_audit"]
+        self.assertEqual(out["canonical_h_literal"],{"NONE_OBSERVED":1,"ALL_OBSERVED":1})
+        self.assertEqual(out["canonical_h_amea_candidates"],{"NO_COOBSERVED_AMEA":2})
+        self.assertEqual(out["canonical_any_reference"],{"NO_STRUCTURED_CANONICAL_REFERENCE":1,
+                         "H_ONLY_OBSERVED":1})
+
+    def test_absent_source_and_existing_link_preserved(self):
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"Message ID":MID,"AMEA":P}]
+        t[m.IDENTITY]=[{"Mail Key":KEY,"Project Link":"PROJECT_ID_EXACT","Project ID":P},
+                       {"Mail Key":OTHER,"Project Link":"PROJECT_ID_UNMATCHED"}]
+        out=m.audit([canonical()],t,sources())["unmatched_project_reference_audit"]
+        self.assertEqual(out["population"],{"OTHER_IDENTITY_STATE_NOT_ASSESSED":1,
+                         "UNMATCHED_PROJECT_ID":1,"SOURCE_QQ_NOT_OBSERVED":1})
+        self.assertEqual(out["nonmail_reference_state"],{})
+
+    def test_h_root_candidate_is_not_direct_amea(self):
+        s=sources()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":""}]
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"Message ID":MID,"H Project":H+"-B01"}]
+        t[m.IDENTITY]=[{"Mail Key":KEY,"Project Link":"PROJECT_ID_UNMATCHED"}]
+        out=m.audit([canonical()],t,s)["unmatched_project_reference_audit"]
+        self.assertEqual(out["nonmail_reference_state"],{"H_ROOT_ONE_CANDIDATE":1})
+        self.assertEqual(out["canonical_h_literal"],{"NONE_OBSERVED":1})
+        self.assertEqual(out["nonmail_and_canonical_reference"],{"NONMAIL_ONLY":1})
+
 if __name__=="__main__":
     unittest.main()

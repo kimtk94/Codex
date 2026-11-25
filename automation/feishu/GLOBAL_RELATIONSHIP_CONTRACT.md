@@ -149,6 +149,44 @@ are exported to logs. No source writes, new table, mail send, recurring
 schedule, or source cutover. Live QQ/CRM comparison requires the approved
 main dispatch; the prior actual counts came from the Sheets connector.
 
+## Phase 4: previously unmatched mail project reference review
+
+A read-only private backup audit (Feishu 2026-11-24 23:30 KST) observed
+31,262 valid QQ Mail keys (one smoke row excluded), 31,260 Mail Identity
+keys, two QQ keys absent from Identity and zero Identity keys absent from
+QQ. All 1,083 review keys pointed to a QQ row. The existing Identity
+projection contained 7,032 PROJECT_ID_EXACT and 2,593 PROJECT_ID_UNMATCHED
+rows. The latter cohort, compared with the 869 non-mail AMEA population
+on 2026-11-25, comprised 1,092 singleton direct AMEA observations, four
+single H-root candidates, 41 partial AMEA references, 36 multiple known
+candidates and 1,420 without a non-mail match.
+
+A separate bounded cross-check of the 2,593 grouped backup rows with
+the previously observed 53,522 Canonical keyed records (41,005 legacy,
+12,517 staging) found:
+- 2,503 all explicit AMEA references observed; 58 partial; 14 none;
+  18 no explicit AMEA.
+- 1,993 AMEA only observed, 568 AMEA and H, 13 H only, 19 neither.
+- 1,926 have an AMEA reference also observed in legacy All Emails.
+These are literal references, not independently corroborated projects,
+and the grouped cross-check could not exclude the same message.
+
+The new unmatched_project_reference_metrics function runs within the
+existing read-only mail audit. It partitions existing PROJECT_ID_UNMATCHED
+rows by source presence, non-mail candidate state, Canonical literal
+AMEA/H observation, legacy membership, H-to-AMEA same-row candidates and
+combined source support. It separately reports whether a Canonical
+reference comes from another keyed row after excluding the exact QQ
+tuple and known equal Message-ID. Even a distinct keyed row is not
+proof of distinct real-world mail or authoritative project linkage.
+Multiple or partial references are retained; H-root matches remain
+candidates, not exact H links. Existing linked rows are not reassigned;
+no Identity, source mail, owner, PO/SIF or finance record changes.
+Aggregate partition checks and synthetic regression cases ensure
+coverage without logging identifiers. Backup/mirror times differ; the
+full live Canonical/QQ/CRM crosswalk remains pending authenticated main
+audit.
+
 ## Remaining phases
 
 1. Run the global source audit and reconcile results to native Feishu
