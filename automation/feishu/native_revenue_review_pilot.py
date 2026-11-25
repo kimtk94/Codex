@@ -261,6 +261,27 @@ def chart_diagnostic(value,expected):
     return type(value).__name__
 
 
+def chart_readback_config(actual,chart):
+    """Map native rich-text and single-choice representations to the pilot spec."""
+    if chart["type"]=="text":
+        expected=chart["data_config"]["text"]
+        heading,*paragraphs=expected.split("\n")
+        titles=[re.escape(heading)]
+        if heading.startswith("**") and heading.endswith("**"):
+            titles.append(re.escape(heading[2:-2]))
+        pattern=r"\s*".join(["(?:"+"|".join(titles)+")",*map(re.escape,paragraphs)])
+        value=actual.get("text")
+        if isinstance(value,str) and re.fullmatch(pattern+r"\s*",value):
+            return {**actual,"text":expected}
+        return actual
+    rule=actual.get("filter")
+    if not isinstance(rule,dict) or not isinstance(rule.get("conditions"),list):
+        return actual
+    native={"field_name":"Membership State","operator":"is","value":[INCLUSION]}
+    conditions=[{**c,"value":INCLUSION} if c==native else c for c in rule["conditions"]]
+    return {**actual,"filter":{**rule,"conditions":conditions}}
+
+
 def reconcile(source,backend,mode="plan",expected_digest=""):
     if mode not in {"plan","apply","resume-empty"}:
         fail("INVALID_MODE")
@@ -506,7 +527,7 @@ class NativeBackend:
             if not isinstance(actual,dict):
                 differences.append({"chart":chart["name"],"data_config":type(actual).__name__})
                 continue
-            changed=config_patch(actual,expected)
+            changed=config_patch(chart_readback_config(actual,chart),expected)
             if changed:
                 differences.append({"chart":chart["name"],"keys":sorted(changed),
                     "observed":chart_diagnostic({k:actual.get(k) for k in changed},canonical_json(expected))})

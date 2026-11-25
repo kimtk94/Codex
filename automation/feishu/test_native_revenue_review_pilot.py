@@ -231,6 +231,25 @@ class PilotTests(unittest.TestCase):
         self.assertEqual(out["text"],{"string_length":90})
         self.assertNotIn("private",json.dumps(out))
 
+    def test_native_filter_singleton_and_rich_text_preserve_chart_meaning(self):
+        charts=specs(snapshot(self.s)["stamps"])
+        chart=charts[-1]
+        actual=copy.deepcopy(chart["data_config"])
+        actual["filter"]["conditions"][0]["value"]=[INCLUSION]
+        self.assertEqual(chart_readback_config(actual,chart),chart["data_config"])
+        for wrong in ([INCLUSION,"other"],[],False):
+            actual["filter"]["conditions"][0]["value"]=wrong
+            self.assertNotEqual(chart_readback_config(actual,chart),chart["data_config"])
+        actual["filter"]["conditions"][0]["value"]=[INCLUSION]
+        actual["filter"]["conditions"][1]["value"]=True
+        self.assertNotEqual(chart_readback_config(actual,chart),chart["data_config"])
+        note=charts[0]
+        original=note["data_config"]["text"]
+        for rendered in (original.replace("**","").replace("\n","\n\n"),original.replace("\n","")):
+            self.assertEqual(chart_readback_config({"text":rendered},note),note["data_config"])
+        altered=original.replace("42건","40건")
+        self.assertNotEqual(chart_readback_config({"text":altered},note),note["data_config"])
+
     def test_november_source_mismatch_blocks_both_months(self):
         self.s["CSS Tax Invoice Extract"].pop()
         with self.assertRaisesRegex(DrilldownError,"SOURCE_MONTH_NOT_READY:2026-11"):
