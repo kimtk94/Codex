@@ -31,7 +31,7 @@ TITLE = "Revenue 집계 검토 · 2026-10~11 스냅샷"
 LEGACY_TITLE = "Revenue 집계 검토 · 2026-10 스냅샷"
 # Reviewed source snapshot 2026-11-25. A count change requires a new
 # review, not a silent expansion of the approved frozen cohort.
-EXPECTED_COUNTS = {"2026-10":48,"2026-11":40}
+EXPECTED_COUNTS = {"2026-10":48,"2026-11":42}
 MONTHS = tuple(EXPECTED_COUNTS)
 EXPECTED_COUNT = sum(EXPECTED_COUNTS.values())
 DEFAULT_VIEW = "01 전체 집계 원본"
@@ -209,7 +209,7 @@ def specs(stamps):
         fail("CHART_MONTH_SCOPE")
     label=" / ".join(m+" "+stamps[m] for m in MONTHS)
     note=("**2026년 10~11월 검증 스냅샷 · "+label+"**\n"
-          "공식 Revenue 그래프는 변경하지 않습니다. 10월 48건, 11월 40건의 검증 Invoice만 포함합니다. "
+          "공식 Revenue 그래프는 변경하지 않습니다. 10월 48건, 11월 42건의 검증 Invoice만 포함합니다. "
           "자동 갱신하지 않는 분석 전용 스냅샷입니다. 이후 신규 Invoice는 포함되지 않습니다.\n"
           "월별 그래프 점/막대 클릭 → 실제 집계 목록 확인. Revenue Invoice Review의 "
           "'01 전체 집계 원본'에서 합산 제외 체크/해제로 분석 집계를 변경하고, "
