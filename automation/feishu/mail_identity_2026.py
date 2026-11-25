@@ -2,8 +2,8 @@
 """2026 QQ mail -> Account/Contact/Project identity evidence in NEW Feishu Base.
 
 Mail records: direct Feishu QQ Mail Intake, never Google Sheets.
-Legacy SFDC Contacts, Leads, Quote Export and CSS Project Dashboard: read-only
-matching references, explicitly labelled as such, never authoritative new events.
+SFDC Contacts, Leads, Quote Export, Quote Portfolio and CSS Project Dashboard:
+read-only matching references, explicitly labelled as such, never authoritative new events.
 No name-only matching, no inference of invoice payment, no outgoing mail or SFDC writes.
 """
 import collections
@@ -87,12 +87,101 @@ def read_legacy_leads(session):
             for row in values[1:] if any(str(cell).strip() for cell in row)]
 
 
+QUOTE_OBJECT_RE = re.compile(r"a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?")
+QID_RE = re.compile(r"QID-[0-9-]{8,50}")
+OPP_REF_RE = re.compile(r"OPP-[A-Z0-9-]{1,80}")
+OPP_OBJECT_RE = re.compile(r"006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?")
+
+
+def read_quote_references(session):
+    # Read complete, bounded source grids. The two Quote fields named
+    # AMEA Quotation ID and Approved AMEA ID have different ID domains.
+    url = ("https://sheets.googleapis.com/v4/spreadsheets/" + UNIFIED_SHEET +
+           "?fields=spreadsheetId,sheets(properties(title,sheetId,gridProperties))")
+    response = session.get(url, timeout=45)
+    if not response.ok:
+        raise SafeError("IDENTITY_QUOTE_CATALOG_READ_FAILED")
+    data = response.json()
+    if data.get("spreadsheetId") != UNIFIED_SHEET:
+        raise SafeError("IDENTITY_QUOTE_CATALOG_ID_MISMATCH")
+    result = {}
+    specs = {
+        "SFDC Quote Export": ("Salesforce Record ID", "AMEA Quotation ID", "Opportunity ID"),
+        "Quote Portfolio": ("Salesforce Quote ID (18)", "Quote QID", "Approved AMEA ID", "Opportunity ID"),
+    }
+    for title, fields in specs.items():
+        matches = [x.get("properties", {}) for x in data.get("sheets", [])
+                   if x.get("properties", {}).get("title") == title]
+        if len(matches) != 1:
+            raise SafeError("IDENTITY_QUOTE_REFERENCE_TAB_MISSING_OR_AMBIGUOUS")
+        grid = matches[0].get("gridProperties", {})
+        n, w = grid.get("rowCount"), grid.get("columnCount")
+        if type(n) is not int or type(w) is not int or not 2 <= n <= 5000 or not 1 <= w <= 52:
+            raise SafeError("IDENTITY_QUOTE_REFERENCE_GRID_BOUND")
+        rows = req_sheet(session, UNIFIED_SHEET, title, n)
+        if not rows or len(rows) >= n or any(not set(fields).issubset(row) for row in rows):
+            raise SafeError("IDENTITY_QUOTE_REFERENCE_SCHEMA_OR_BOUND")
+        result[title] = rows
+    return result
+
+
+def quote_opportunity_index(export, portfolio):
+    # An AMEA in the approved Portfolio is only accepted when the QID,
+    # case-preserved quote record ID, and typed Opportunity ID also agree
+    # with exactly one Quote Export row. No active/owner filter or revenue
+    # inference. Multiple valid quotes for the same AMEA remain evidence.
+    def text(row, key):
+        return str(row.get(key) or "").strip()
+    def qid(row, key):
+        return text(row, key).upper()
+    def object_key(row, key):
+        raw = text(row, key)
+        return raw[:15] if QUOTE_OBJECT_RE.fullmatch(raw) else ""
+    def opp(row):
+        raw = text(row, "Opportunity ID")
+        return raw if OPP_REF_RE.fullmatch(raw) or OPP_OBJECT_RE.fullmatch(raw) else ""
+    raw = collections.defaultdict(list)
+    for row in export:
+        key = object_key(row, "Salesforce Record ID")
+        if key:
+            raw[key].append(row)
+    owners = collections.defaultdict(set)
+    for row in portfolio:
+        pid = text(row, "Approved AMEA ID").upper()
+        if not PROJECT_RE.fullmatch(pid):
+            continue
+        oid, q = object_key(row, "Salesforce Quote ID (18)"), qid(row, "Quote QID")
+        if oid:
+            owners[("object", oid)].add(pid)
+        if QID_RE.fullmatch(q):
+            owners[("qid", q)].add(pid)
+    linked = collections.defaultdict(list)
+    review = set()
+    for row in portfolio:
+        pid = text(row, "Approved AMEA ID").upper()
+        if not PROJECT_RE.fullmatch(pid):
+            continue
+        oid, q = object_key(row, "Salesforce Quote ID (18)"), qid(row, "Quote QID")
+        op = opp(row)
+        candidates = raw.get(oid, [])
+        if (not oid or not QID_RE.fullmatch(q) or not op or len(candidates) != 1
+                or owners[("object", oid)] != {pid} or owners[("qid", q)] != {pid}
+                or qid(candidates[0], "AMEA Quotation ID") != q
+                or opp(candidates[0]) != op):
+            review.add(pid)
+            continue
+        linked[pid].append({"Opportunity ID": op})
+    return linked, review
+
+
 def load_references():
     session = sheets_session()
+    quote_sources = read_quote_references(session)
     source = {
         "contacts": req_sheet(session, UNIFIED_SHEET, "SFDC Contacts", 400),
         "leads": read_legacy_leads(session),
-        "quotes": req_sheet(session, UNIFIED_SHEET, "SFDC Quote Export", 1200),
+        "quotes": quote_sources["SFDC Quote Export"],
+        "quote_portfolio": quote_sources["Quote Portfolio"],
         "projects": req_sheet(session, CSS_SHEET, "CSS Project Dashboard", 700),
     }
     if not source["contacts"] or not source["projects"]:
@@ -103,7 +192,7 @@ def load_references():
 def build_index(source):
     contact_email = collections.defaultdict(list)
     lead_email = collections.defaultdict(list)
-    quote_project = collections.defaultdict(list)
+    quote_project, quote_review = quote_opportunity_index(source["quotes"], source.get("quote_portfolio", []))
     project_ids = collections.defaultdict(list)
     h_ids = collections.defaultdict(list)
     for row in source["contacts"]:
@@ -123,10 +212,6 @@ def build_index(source):
             "id": str(row.get("Contact ID") or "").strip(),
             "account_id": str(row.get("Account ID") or "").strip(),
         })
-    for row in source["quotes"]:
-        project_id = str(row.get("AMEA Quotation ID") or "").strip().upper()
-        if PROJECT_RE.fullmatch(project_id):
-            quote_project[project_id].append(row)
     for row in source["projects"]:
         pid = str(row.get("project_id") or "").strip().upper()
         if not PROJECT_RE.fullmatch(pid):
@@ -136,7 +221,7 @@ def build_index(source):
             h_ids[h].append(row)
     return {
         "contacts": contact_email, "leads": lead_email,
-        "quotes": quote_project, "projects": project_ids, "h_ids": h_ids,
+        "quotes": quote_project, "quote_review": quote_review, "projects": project_ids, "h_ids": h_ids,
     }
 
 
@@ -294,10 +379,13 @@ def decorate(mail, index, now):
         qs = index["quotes"].get(project_id, [])
         opps = {str(q.get("Opportunity ID") or "").strip() for q in qs
                 if str(q.get("Opportunity ID") or "").strip()}
-        if len(opps) == 1:
+        if project_id in index.get("quote_review", set()):
+            evidence.append("QUOTE_PORTFOLIO_EXPORT_REFERENCE_REVIEW")
+            project_review = "REVIEW"
+        elif len(opps) == 1:
             # Project->Quote->Opportunity is a reference link, not an identity proof.
             opportunity_id = next(iter(opps))
-            evidence.append("SINGLE_SFDC_QUOTE_OPPORTUNITY_REFERENCE")
+            evidence.append("EXACT_AMEA_QID_QUOTE_OBJECT_OPPORTUNITY_REFERENCE")
         elif len(opps) > 1:
             evidence.append("MULTIPLE_QUOTE_OPPORTUNITY_CANDIDATES")
             project_review = "REVIEW"
@@ -509,7 +597,11 @@ def main():
     print("IDENTITY_REFERENCE_LISTS contacts=" + str(len(refs["contacts"])) +
           " leads=" + str(len(refs["leads"])) +
           " quotes=" + str(len(refs["quotes"])) +
+          " quote_portfolio=" + str(len(refs["quote_portfolio"])) +
           " projects=" + str(len(refs["projects"])))
+    print("IDENTITY_QUOTE_OPPORTUNITY_PLAN linked_mail=" +
+          str(sum(bool(r["Opportunity ID"]) for r in desired)) +
+          " portfolio_review_amea=" + str(len(idx["quote_review"])))
     if mode == "plan":
         print("IDENTITY_PLAN_PASS writes=0")
         return

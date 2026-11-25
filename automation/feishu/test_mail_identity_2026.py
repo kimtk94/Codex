@@ -32,8 +32,12 @@ def fixture_refs():
              "Company / Account": "기타대학교"},
         ],
         "quotes": [
-            {"AMEA Quotation ID": "AMEA2026042239", "Opportunity ID": "006AAA",
-             "Account Name": "고려대학교"}
+            {"Salesforce Record ID": "a0PAbc123456789", "AMEA Quotation ID": "QID-2026-000001",
+             "Opportunity ID": "OPP-2026-000001"}
+        ],
+        "quote_portfolio": [
+            {"Salesforce Quote ID (18)": "a0PAbc123456789AAA", "Quote QID": "QID-2026-000001",
+             "Approved AMEA ID": "AMEA2026042239", "Opportunity ID": "OPP-2026-000001"}
         ],
         "projects": [
             {"project_id": "AMEA2026042239", "h_project_numbers": "H209SC26065705",
@@ -69,7 +73,8 @@ class MailIdentityTests(unittest.TestCase):
         self.assertEqual(row["Relationship Status"], "LINKED")
         self.assertEqual(row["Account ID"], "001123")
         self.assertEqual(row["Contact ID"], "003123")
-        self.assertEqual(row["Opportunity ID"], "006AAA")
+        self.assertEqual(row["Opportunity ID"], "OPP-2026-000001")
+        self.assertIn("EXACT_AMEA_QID_QUOTE_OBJECT_OPPORTUNITY_REFERENCE", row["Evidence"])
         self.assertEqual(row["Project ID"], "AMEA2026042239")
 
     def test_css_sender_project_match_not_contact_exact(self):
@@ -191,6 +196,71 @@ class MailIdentityTests(unittest.TestCase):
         self.assertTrue(m.same({"Mail Key": [{"text":"a"*64}],
                                 "Project ID": [{"text":"AMEA2026042239"}]}, entry))
         self.assertFalse(m.same({"Mail Key": "a"*64}, entry))
+
+class QuoteOpportunityBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.a = "AMEA2026042239"
+        self.q = "QID-2026-000001"
+        self.o = "OPP-2026-000001"
+        self.x = "a0PAbc123456789"
+        self.export = {"Salesforce Record ID": self.x, "AMEA Quotation ID": self.q,
+                       "Opportunity ID": self.o}
+        self.portfolio = {"Salesforce Quote ID (18)": self.x+"AAA", "Quote QID": self.q,
+                          "Approved AMEA ID": self.a, "Opportunity ID": self.o}
+
+    def test_qid_is_not_amea_and_requires_portfolio_bridge(self):
+        refs, review = m.quote_opportunity_index([self.export], [])
+        self.assertEqual(dict(refs), {})
+        self.assertEqual(review, set())
+        refs, review = m.quote_opportunity_index([self.export], [self.portfolio])
+        self.assertEqual(refs[self.a], [{"Opportunity ID":self.o}])
+        self.assertEqual(review, set())
+
+    def test_mismatched_qid_object_case_opp_and_duplicate_export_block(self):
+        for exports, portfolio in (
+            ([dict(self.export, **{"AMEA Quotation ID":"QID-2026-000002"})], self.portfolio),
+            ([dict(self.export, **{"Salesforce Record ID":self.x.upper()})], self.portfolio),
+            ([dict(self.export, **{"Opportunity ID":"OPP-2026-000002"})], self.portfolio),
+            ([self.export,self.export.copy()], self.portfolio),
+            ([self.export], dict(self.portfolio, **{"Opportunity ID":""})),
+        ):
+            with self.subTest(case=exports[0]):
+                refs, review = m.quote_opportunity_index(exports, [portfolio])
+                self.assertFalse(refs[self.a])
+                self.assertEqual(review,{self.a})
+
+    def test_same_quote_shared_amea_not_auto_assigned(self):
+        other="AMEA2026042240"
+        refs, review = m.quote_opportunity_index([self.export], [self.portfolio,
+            dict(self.portfolio, **{"Approved AMEA ID":other})])
+        self.assertEqual(dict(refs),{})
+        self.assertEqual(review,{self.a,other})
+
+    def test_multiple_valid_quotes_and_opportunity_conflict(self):
+        x2="a0PAbc123456780"
+        q2="QID-2026-000002"
+        e2={"Salesforce Record ID":x2,"AMEA Quotation ID":q2,"Opportunity ID":self.o}
+        p2={"Salesforce Quote ID (18)":x2+"AAA","Quote QID":q2,
+            "Approved AMEA ID":self.a,"Opportunity ID":self.o}
+        refs,review=m.quote_opportunity_index([self.export,e2],[self.portfolio,p2])
+        self.assertEqual({r["Opportunity ID"] for r in refs[self.a]},{self.o})
+        self.assertFalse(review)
+        e2["Opportunity ID"]=p2["Opportunity ID"]="OPP-2026-000002"
+        refs,review=m.quote_opportunity_index([self.export,e2],[self.portfolio,p2])
+        idx=fixture_refs(); idx["quotes"]=refs; idx["quote_review"]=review
+        row=m.decorate(mail("Project "+self.a),idx,NOW)
+        self.assertEqual(row["Opportunity ID"],"")
+        self.assertEqual(row["Project ID"],self.a)
+        self.assertIn("MULTIPLE_QUOTE_OPPORTUNITY_CANDIDATES",row["Evidence"])
+
+    def test_bad_quote_row_keeps_project_reference_in_review(self):
+        idx=fixture_refs()
+        idx["quote_review"]={self.a}
+        row=m.decorate(mail("Project "+self.a),idx,NOW)
+        self.assertEqual(row["Project ID"],self.a)
+        self.assertEqual(row["Opportunity ID"],"")
+        self.assertEqual(row["Review State"],"REVIEW")
+        self.assertIn("QUOTE_PORTFOLIO_EXPORT_REFERENCE_REVIEW",row["Evidence"])
 
 
 if __name__ == "__main__":
