@@ -1,0 +1,69 @@
+name: Feishu Revenue Review Pilot
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/native_revenue_review_pilot.py'
+      - 'automation/feishu/test_native_revenue_review_pilot.py'
+      - 'automation/feishu/dashboard_drilldown_plan.py'
+      - 'automation/feishu/test_dashboard_drilldown_plan.py'
+      - '.github/workflows/feishu-revenue-review-pilot.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'plan is read-only; apply creates only the reviewed frozen October-November pilot'
+        required: true
+        type: choice
+        default: plan
+        options: [plan, apply]
+      expected_digest:
+        description: 'Exact approved review_digest from the plan; required for apply'
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'feishu-revenue-review-pilot' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m unittest discover -s automation/feishu -p test_native_revenue_review_pilot.py -v
+  pilot:
+    needs: offline
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.offline.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      PILOT_MODE: ${{ inputs.mode }}
+      REVIEW_DIGEST: ${{ inputs.expected_digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - run: npm install --global '@larksuite/cli@1.0.99'
+      - name: Configure ephemeral Feishu identity
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name revenue-review-pilot --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use revenue-review-pilot
+      - name: Inspect or explicitly provision the isolated snapshot
+        run: python3 automation/feishu/native_revenue_review_pilot.py --mode "$PILOT_MODE" --expected-digest "$REVIEW_DIGEST"
