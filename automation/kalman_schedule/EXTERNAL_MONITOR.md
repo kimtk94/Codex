@@ -16,8 +16,11 @@ assertion of independent scientific validation.
   credentials in the repo, command line, report, or notification.
 - From a reviewed checkout, invoke:
   python3 automation/kalman_schedule/external_schedule_probe.py --out /approved/local/path/kalman-delivery.json
-- Exit 0 means complete successful delivery counts only (four runs), not
-  exact first/replay slot proof. Exit 2 means missing, invalid, or unavailable
+- Exit 0 means four successful registrations, exactly one in each proposed
+  UTC slot window (02:40, 04:40, 06:25, 07:25, inclusive 50-minute grace).
+  Count-only success, out-of-window runs and duplicate window occupancy
+  cannot pass. Registration timestamps are not exact cron identity,
+  completion deadlines or original first/replay seal proof. Exit 2 means missing, invalid, or unavailable
   evidence; exit 3 means today's UTC audit is not due. Never reuse a prior
   day's result as today's pass. Retry only incomplete API evidence, with 5s
   and 15s waits and at most three attempts. A valid missing-delivery report
@@ -35,6 +38,8 @@ assertion of independent scientific validation.
 ## Verification
 
 The existing schedule-delivery audit offline test suite includes synthetic
-wrapper tests. No external host/network credential is used by those tests.
+wrapper tests (including late successes, duplicate window occupancy, early
+registration and exact grace boundaries). No external host/network credential
+is used by those tests.
 Existing GitHub audit workflow, schedule, and writer code are unchanged.
 Related issue: #1045.

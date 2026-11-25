@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Host-run, read-only schedule delivery probe; never a signal or recovery writer."""
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, time as clock_time, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -10,9 +10,16 @@ import time
 
 from schedule_delivery_audit import audit, api_get, FIRST_AUDIT_DAY, AUDIT_AFTER
 
-VERSION = "kalman-external-schedule-probe-v1"
+VERSION = "kalman-external-schedule-probe-v2"
 RETRY_DELAYS = (5, 15)
 COUNT_OK = "DELIVERY_COUNT_OK_NOT_SEAL_PROOF"
+WINDOW_OK = "DELIVERY_WINDOWS_OK_NOT_SEAL_PROOF"
+# Proposed operational alert grace, not a GitHub SLA or scientific threshold.
+WINDOW_GRACE_MINUTES = 50
+SLOTS_UTC = {
+    "kalman-daily20.yml": (clock_time(2, 40), clock_time(4, 40)),
+    "kalman-daily20-slot-watchdog.yml": (clock_time(6, 25), clock_time(7, 25)),
+}
 
 
 def unavailable(now, status, reason, attempts=0):
@@ -35,6 +42,68 @@ def guard_fields(report):
             "scientific_approval": "HOLD", "research_only": True,
             "production_writes": False, "live_execution": False,
             "strategy_promoted": False}
+
+
+def assess_delivery_windows(report, now):
+    """Check registration windows, not exact cron identity or original seal."""
+    report = dict(report)
+    report["delivery_count_status"] = report["status"]
+    report["delivery_window_grace_minutes"] = WINDOW_GRACE_MINUTES
+    report["delivery_windows_verified"] = False
+    report["observed_within_window_deliveries"] = None
+    report["delivery_window_observations"] = []
+    report["out_of_window_run_ids"] = []
+    if report.get("api_evidence_complete") is not True:
+        return report
+
+    observations = report["workflow_observations"]
+    if (len(observations) != len(SLOTS_UTC)
+            or {row["workflow"] for row in observations} != set(SLOTS_UTC)):
+        raise ValueError("WINDOW_WORKFLOW_IDENTITY_INCOMPLETE")
+    issues = list(report.get("problem_codes", []))
+    windows = []
+    unmatched = []
+    matched_total = 0
+    for row in observations:
+        workflow = row["workflow"]
+        ranges = []
+        for nominal in SLOTS_UTC[workflow]:
+            start = datetime.combine(now.date(), nominal, tzinfo=timezone.utc)
+            ranges.append((start, start + timedelta(minutes=WINDOW_GRACE_MINUTES), []))
+        for run in row["runs"]:
+            stamp = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                raise ValueError("WINDOW_RUN_TIMESTAMP_UNVERIFIED")
+            stamp = stamp.astimezone(timezone.utc)
+            matches = [items for start, end, items in ranges
+                       if start <= stamp <= end and stamp <= now]
+            if len(matches) == 1:
+                matches[0].append(run["run_id"])
+                matched_total += 1
+            else:
+                unmatched.append(run["run_id"])
+                issues.append({"workflow": workflow,
+                               "code": "RUN_OUTSIDE_EXPECTED_REGISTRATION_WINDOWS",
+                               "run_id": run["run_id"]})
+        for start, end, items in ranges:
+            status = "ONE_RUN_IN_WINDOW" if len(items) == 1 else (
+                "MISSING_WINDOW" if not items else "MULTIPLE_RUNS_IN_WINDOW")
+            windows.append({"workflow": workflow, "start_utc": start.isoformat(),
+                            "end_utc": end.isoformat(), "run_ids": items,
+                            "status": status})
+            if status != "ONE_RUN_IN_WINDOW":
+                issues.append({"workflow": workflow, "code": status,
+                               "nominal_utc": start.isoformat()})
+    report["delivery_window_observations"] = windows
+    report["out_of_window_run_ids"] = unmatched
+    report["observed_within_window_deliveries"] = matched_total
+    report["problem_codes"] = issues
+    report["delivery_windows_verified"] = (
+        report["delivery_count_status"] == COUNT_OK
+        and matched_total == 4 and not unmatched and not issues)
+    report["status"] = (WINDOW_OK if report["delivery_windows_verified"]
+                        else "SCHEDULE_DELIVERY_HOLD")
+    return report
 
 
 def probe(now, token, *, env, fetch=None, sleep=time.sleep):
@@ -71,14 +140,21 @@ def probe(now, token, *, env, fetch=None, sleep=time.sleep):
         if report.get("api_evidence_complete") is True:
             break
     report["api_attempts"] = attempt
+    try:
+        report = assess_delivery_windows(report, now)
+    except Exception:
+        report = unavailable(now, "API_EVIDENCE_UNAVAILABLE_HOLD",
+                             "WINDOW_EVIDENCE_UNVERIFIED", attempt)
     return guard_fields(report)
 
 
 def exit_code(report):
-    if (report["status"] == COUNT_OK
+    if (report["status"] == WINDOW_OK
             and report.get("api_evidence_complete") is True
-            and report.get("observed_schedule_deliveries") == 4):
-        return 0  # Delivery count only; never scientific approval.
+            and report.get("delivery_windows_verified") is True
+            and report.get("observed_schedule_deliveries") == 4
+            and report.get("observed_within_window_deliveries") == 4):
+        return 0  # Registration windows only; never scientific approval.
     return 3 if report["status"] == "NOT_DUE" else 2
 
 

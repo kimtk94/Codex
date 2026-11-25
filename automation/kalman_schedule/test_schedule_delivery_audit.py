@@ -10,7 +10,8 @@ def clock(day=24, hour=10, minute=30):
 
 
 def fake_api(*, count=(2, 2), state=("active", "active"),
-             wrong_event=False, incomplete=False, duplicate=False, running=False):
+             wrong_event=False, incomplete=False, duplicate=False, running=False,
+             timestamps=None):
     def get(path):
         if "/runs?" not in path:
             filename = path.split("/")[-1]
@@ -23,7 +24,7 @@ def fake_api(*, count=(2, 2), state=("active", "active"),
         runs = [
             {"id": 1000 + idx * 100 + (0 if duplicate else i),
              "workflow_id": 101 + idx, "event": "push" if wrong_event else "schedule",
-             "head_branch": "main", "created_at": f"{day}T04:15:00Z",
+             "head_branch": "main", "created_at": f"{day}T{(timestamps or (('02:40:00', '04:40:00'), ('06:25:00', '07:25:00')))[idx][i % 2]}Z",
              "status": "in_progress" if running else "completed",
              "conclusion": None if running else "success", "head_sha": "abc"}
             for i in range(count[idx])
@@ -98,6 +99,9 @@ class ExternalScheduleProbeTests(unittest.TestCase):
         report, delays = self.run_probe()
         self.assertEqual(report["observed_schedule_deliveries"], 4)
         self.assertEqual(exit_code(report), 0)
+        self.assertEqual(report["status"], "DELIVERY_WINDOWS_OK_NOT_SEAL_PROOF")
+        self.assertEqual(report["observed_within_window_deliveries"], 4)
+        self.assertTrue(report["delivery_windows_verified"])
         self.assertEqual(delays, [])
         self.assertFalse(report["host_independence_verified"])
         self.assertFalse(report["original_first_and_replay_roles_verified"])
@@ -174,6 +178,53 @@ class ExternalScheduleProbeTests(unittest.TestCase):
         self.assertEqual(exit_code({"status": "DELIVERY_COUNT_OK_NOT_SEAL_PROOF",
                                     "api_evidence_complete": False,
                                     "observed_schedule_deliveries": 4}), 2)
+
+    def test_four_late_successes_are_not_on_time_delivery(self):
+        from external_schedule_probe import exit_code
+        report, delays = self.run_probe(
+            when=clock(24, 20, 0),
+            fetch=fake_api(timestamps=(("12:55:34", "15:15:53"),
+                                       ("17:56:42", "18:58:47"))))
+        self.assertEqual(report["delivery_count_status"], "DELIVERY_COUNT_OK_NOT_SEAL_PROOF")
+        self.assertEqual(report["observed_schedule_deliveries"], 4)
+        self.assertEqual(report["observed_within_window_deliveries"], 0)
+        self.assertEqual(len(report["out_of_window_run_ids"]), 4)
+        self.assertFalse(report["delivery_windows_verified"])
+        self.assertEqual(report["status"], "SCHEDULE_DELIVERY_HOLD")
+        self.assertEqual(exit_code(report), 2)
+        self.assertEqual(delays, [])
+
+    def test_two_distinct_runs_in_one_window_do_not_satisfy_other_slot(self):
+        report, _ = self.run_probe(fetch=fake_api(timestamps=(
+            ("02:40:00", "02:41:00"), ("06:25:00", "07:25:00"))))
+        statuses = [r["status"] for r in report["delivery_window_observations"]]
+        self.assertIn("MULTIPLE_RUNS_IN_WINDOW", statuses)
+        self.assertIn("MISSING_WINDOW", statuses)
+        self.assertEqual(report["observed_within_window_deliveries"], 4)
+        self.assertFalse(report["delivery_windows_verified"])
+
+    def test_exact_grace_boundary_and_one_second_over(self):
+        report, _ = self.run_probe(fetch=fake_api(timestamps=(
+            ("03:30:00", "05:30:00"), ("07:15:00", "08:15:00"))))
+        self.assertTrue(report["delivery_windows_verified"])
+        late, _ = self.run_probe(fetch=fake_api(timestamps=(
+            ("03:30:01", "05:30:00"), ("07:15:00", "08:15:00"))))
+        self.assertEqual(late["observed_within_window_deliveries"], 3)
+        self.assertFalse(late["delivery_windows_verified"])
+
+    def test_registration_before_nominal_never_gets_slot_credit(self):
+        report, _ = self.run_probe(fetch=fake_api(timestamps=(
+            ("02:39:59", "04:40:00"), ("06:25:00", "07:25:00"))))
+        self.assertEqual(report["observed_within_window_deliveries"], 3)
+        self.assertFalse(report["delivery_windows_verified"])
+
+    def test_in_window_but_unsuccessful_runs_still_hold(self):
+        from external_schedule_probe import exit_code
+        report, _ = self.run_probe(fetch=fake_api(running=True))
+        self.assertEqual(report["observed_within_window_deliveries"], 4)
+        self.assertFalse(report["delivery_windows_verified"])
+        self.assertEqual(exit_code(report), 2)
+
 
 
 
