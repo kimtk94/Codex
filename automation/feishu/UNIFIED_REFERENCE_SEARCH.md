@@ -48,3 +48,37 @@ each namespace, parity of source record membership, conflict review and
 private-output checks. No Feishu UI or business row mutation is authorized by
 this preview. A shared UI requires separate owner scope, permission isolation,
 stable source-row links and publication review.
+
+
+## Aggregate live index parity (follow-up)
+
+The main-only manual global coverage workflow may use scope
+`search-index-project` or `search-index-all` after explicit release approval.
+The original project/mail audit branches remain intact. The aggregate mode
+reparses each loaded row, compares source membership, explicit edge
+membership and every inverted posting, then probes one exact query per
+observed type using a linear scan. Counts include empty tabs and rows
+without valid typed keys. No query identifiers, source contents, per-key
+hashes, result files, artifacts or row writes are allowed. CI execution
+outside main manual dispatch fails. The interactive query mode remains
+local-only. Shared parser semantics and sequential reads are limitations;
+the check is not independent parser validation, freshness proof or an
+authorization test.
+
+## Feishu Project Explorer design gate
+
+Integrate navigation with the existing Project Management Center rather
+than creating a second operational Board. The proposed Explorer must
+provide an exact typed search, a source-separated result list, a reference
+detail panel and a review state. A row click can open only an independently
+verified stable source locator and only after checking the requesting
+user's access. The current read-result ordinal is NOT a Sheets physical row
+ID and must not be used to fabricate a deep link. Mail keys support exact
+lookup but do not authorize display of subject, body, participants or
+other-owner records. The all-owner local/aggregate audit does not establish
+UI access. Do not publish a shared all-owner index or cache to the Sales
+Base. No public dashboard, new table, access change, or record-level
+writer until a separate approval and actual tenant role/permission checks.
+Native Feishu searchable table/view capability and supported link behavior
+must be verified; if unsupported, retain the local lookup instead of
+claiming an interactive native search exists.
