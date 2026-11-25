@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
-from refresh_ci import (NEEDED, OPTIONAL, candidate_status, clean_fred_csv, select_universe, verified_status,
+from refresh_ci import (NEEDED, OPTIONAL, FEATURE_STEMS, candidate_status, clean_fred_csv, select_universe, verified_status,
                         make_bundle, publish, last_completed_nyse_session, fred_completeness_label,
                         clean_fred_api_json)
 
@@ -40,7 +40,7 @@ class RefreshContracts(unittest.TestCase):
         srcs={};assets={}
         for k in keys:
             pd.DataFrame({'timestamp':dates,'close':np.arange(len(dates))+100.}).to_parquet(md/'raw'/'yfinance'/f'{k}.parquet')
-            pd.DataFrame({'timestamp':dates,'talib_v2_rsi14':np.linspace(20,80,len(dates))}).to_parquet(fd/'talib'/f'{k[3:]}.parquet')
+            pd.DataFrame({'timestamp':dates,'talib_v2_rsi14':np.linspace(20,80,len(dates))}).to_parquet(fd/'talib'/f'{FEATURE_STEMS[k]}.parquet')
             srcs[k]={'status':'READY'};assets[k]={'status':'READY'}
         (md/'market_data_v2_run_status.json').write_text(json.dumps({'status':'READY','sources':srcs}))
         (fd/'features_v2_002_run_status.json').write_text(json.dumps({'status':'READY','required_failures':[],'assets':assets}))
@@ -91,6 +91,41 @@ class RefreshContracts(unittest.TestCase):
             self.assertTrue(any('LAST_CLOSED_NYSE' in x for x in before['blocking_errors']))
             after=verified_status(md,fd,frd,now_utc='2026-10-31T01:28:00Z')
             self.assertEqual(after['status'],'READY')
+
+    def test_feature_names_match_real_market_universe(self):
+        repo=Path(__file__).resolve().parents[2]
+        cfg=json.loads((repo/'kalman-toss-gateway/config/market-data-v2-universe.json').read_text())
+        expected={}
+        for asset in cfg['assets']:
+            if asset['key'] in NEEDED+OPTIONAL and asset['provider']=='yfinance':
+                stem=''.join(c.lower() if c.isalnum() else '_' for c in asset['symbol']).strip('_')
+                while '__' in stem:
+                    stem=stem.replace('__','_')
+                expected[asset['key']]=stem
+        self.assertEqual(expected,FEATURE_STEMS)
+        self.assertEqual(len(set(expected.values())),19)
+
+    def test_candidate_rejects_fetch_key_feature_alias(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as root:
+            md,fd,frd=self.make_state(root,keys=NEEDED+OPTIONAL)
+            out=Path(root)/'candidate.zip'
+            make_bundle(md,fd,frd,out,Path(root)/'readiness.json')
+            wrong=Path(root)/'wrong_alias.zip'
+            with zipfile.ZipFile(out) as source, zipfile.ZipFile(wrong,'w') as dest:
+                manifest=json.loads(source.read('manifest.json'))
+                old='features/talib/btc_usd.parquet'
+                alias='features/talib/btc.parquet'
+                for member in manifest['members']:
+                    if member['path']==old:
+                        member['path']=alias
+                for name in source.namelist():
+                    if name=='manifest.json':
+                        dest.writestr(name,json.dumps(manifest))
+                    else:
+                        dest.writestr(alias if name==old else name,source.read(name))
+            with self.assertRaisesRegex(RuntimeError,'CANDIDATE_NOT_EXACT_19'):
+                candidate_status(wrong,Path(root)/'candidate_status.json')
 
     def test_candidate_exact_full_universe_metadata_only(self):
         with tempfile.TemporaryDirectory() as root:
