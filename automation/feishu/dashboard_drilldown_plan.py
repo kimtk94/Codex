@@ -40,7 +40,7 @@ SCHEMAS = {
     NET: ("UNIFIED", 5000, ("Month","Issued Invoice Gross KRW (VAT incl)",
                             "Issued Net Revenue KRW (VAT excl)","Issued Invoice Count",
                             "Issued Net Revenue kUSD @1500","Verified At KST","Evidence State")),
-    LIFE: ("UNIFIED", 5000, ("Month","Actual Invoice KRW","Invoice Count")),
+    LIFE: ("UNIFIED", 5000, ("Month","Actual Invoice KRW","Invoice Count","Snapshot KST")),
     AUTH: ("UNIFIED", 5000, ("Month","Source Tab","Source Role","Issued Invoice Count","Amount KRW",
                              "Tax Basis","Source Parity","Authoritative For KPI","Verified KST")),
     LEGACY: ("UNIFIED", 10000, ("Invoice No","Year-Month","Revenue KRW (Tax Invoice)",
@@ -84,6 +84,22 @@ def issue_month(raw):
     return stamp.astimezone(KST).strftime("%Y-%m")
 
 
+def timestamp(raw, kst=False):
+    """No guessed time zone or timestamp; unknown remains unknown."""
+    try:
+        if kst:
+            parsed = dt.datetime.strptime(raw,"%Y-%m-%d %H:%M:%S KST").replace(tzinfo=KST)
+        else:
+            parsed = dt.datetime.fromisoformat(raw.replace("Z","+00:00"))
+        return parsed.astimezone(dt.timezone.utc) if parsed.tzinfo is not None else None
+    except (ValueError,TypeError,OverflowError,AttributeError):
+        return None
+
+
+def stamp_text(stamp):
+    return stamp.isoformat() if stamp is not None else ""
+
+
 def members_from_extract(rows):
     """Mirror the existing revenue_net_vat_publish admission/rounding rules.
 
@@ -117,6 +133,8 @@ def members_from_extract(rows):
             "H Contract":f.group(2).upper(), "PO Reference":f.group(3),
             "Source Table":EXTRACT, "Source Key":"REVENUE_MEMBER:"+ident,
             "Evidence State":"FILENAME_NOTICE_UID_OBSERVED",
+            "Extracted At UTC":stamp_text(timestamp(text(row,"extracted_at_utc"))),
+            "Received At UTC":stamp_text(timestamp(text(row,"received_at"))),
             "Reference Review":any(text(row,col).upper()!=v.upper()
                 for col,v in (("project_id",f.group(4)),("h_project_number",f.group(2)),
                               ("po_reference",f.group(3)))),
@@ -126,6 +144,10 @@ def members_from_extract(rows):
             if any(old[k]!=evidence[k] for k in ("Month","Gross KRW","Net KRW","AMEA","H Contract","PO Reference")):
                 raise DrilldownError("DRILLDOWN_DUPLICATE_MEMBER_CONFLICT")
             old["Reference Review"] = old["Reference Review"] or evidence["Reference Review"]
+            # Do not infer an earlier extraction from an unstamped duplicate.
+            for key in ("Extracted At UTC","Received At UTC"):
+                stamps=[timestamp(old[key]),timestamp(evidence[key])]
+                old[key]=stamp_text(min(stamps)) if all(stamps) else ""
             rejected["REPEATED_IDENTICAL_MEMBER"] += 1
         else:
             by_id[ident] = evidence
@@ -168,6 +190,43 @@ def monthly_index(rows, source):
             raise DrilldownError("DRILLDOWN_MONTH_KEY_INVALID_OR_DUPLICATE")
         result[m]=r
     return result
+
+
+def snapshot_diagnostics(rows, published, lifecycle):
+    """Explain current vs published totals, not historical member authority.
+
+    Timestamp cutoffs only reconstruct a candidate prior membership. Never
+    publish or materialize a stale reconstructed set as a verified graph.
+    """
+    actual=member_totals(rows)["original"]
+    expected=(won(published.get("Issued Invoice Count")),
+              won(published.get("Issued Invoice Gross KRW (VAT incl)")),
+              won(published.get("Issued Net Revenue KRW (VAT excl)")))
+    pub_stamp=timestamp(text(published,"Verified At KST"),kst=True)
+    life_stamp=timestamp(text(lifecycle or {},"Snapshot KST"),kst=True)
+    stamps=[timestamp(text(r,"Extracted At UTC")) for r in rows]
+    complete=all(s is not None for s in stamps)
+    cut=[r for r,s in zip(rows,stamps) if pub_stamp and s is not None and s<=pub_stamp]
+    old=member_totals(cut)["original"]
+    current=(actual["count"],actual["gross_known_krw"],actual["net_known_krw"])
+    prior=(old["count"],old["gross_known_krw"],old["net_known_krw"])
+    life_parity=(lifecycle is not None and
+                 actual["count"]==won(lifecycle.get("Invoice Count")) and
+                 actual["gross_known_krw"]==won(lifecycle.get("Actual Invoice KRW")))
+    state=("CURRENT_MEMBER_TOTALS_MATCH_PUBLISHED" if current==expected else
+           "SNAPSHOT_LAG_CANDIDATE" if pub_stamp and life_stamp and life_stamp>pub_stamp
+           and complete and prior==expected and len(cut)<len(rows) and life_parity
+           else "UNEXPLAINED_OR_INCOMPLETE_PARITY")
+    return {
+        "state":state,"published_snapshot_utc":stamp_text(pub_stamp),
+        "lifecycle_snapshot_utc":stamp_text(life_stamp),
+        "extraction_timestamp_missing":sum(s is None for s in stamps),
+        "cutoff_member_count":len(cut) if pub_stamp and complete else None,
+        "cutoff_totals_match":bool(pub_stamp and complete and prior==expected),
+        "post_cutoff_members":len(rows)-len(cut) if pub_stamp and complete else None,
+        "current_lifecycle_count_gross_match":bool(life_parity),
+        "cutoff_membership_authority":"RECONSTRUCTED_NOT_ATTESTED",
+    }
 
 
 def plan(source):
@@ -226,9 +285,11 @@ def plan(source):
                    "VERIFIED_PUBLISHED_MONTH_MEMBERS")
         summaries[month]={"state":state,"observed_extract_members":actual["count"],
                           "published_members":count,"member_parity":parity,"authority_parity":authority,
-                          "source_reference_review_members":sum(r["Reference Review"] for r in rows)}
+                          "source_reference_review_members":sum(r["Reference Review"] for r in rows),
+                          "snapshot_diagnostics":snapshot_diagnostics(rows,row,life.get(month))}
         if state=="VERIFIED_PUBLISHED_MONTH_MEMBERS":
-            ready[month]=[{**r,"Membership State":INCLUSION,"Count Unit":1} for r in rows]
+            ready[month]=[{**r,"Membership State":INCLUSION,"Count Unit":1,
+                           "Verified At KST":text(row,"Verified At KST")} for r in rows]
     return {"months":summaries,"extract_unique_members":len(members),
             "legacy_unique_invoice_references":len(legacy),
             "extract_legacy_identity_overlap":len(members.keys() & legacy.keys()),
@@ -275,6 +336,132 @@ def analysis_config(original, field="분석 제외"):
     return result
 
 
+# A native review projection can be constructed from this plan, but this
+# module has no API write function. The field names/types below are the
+# proposed schema, not an assertion that they exist in Feishu.
+REVIEW_FIELDS = {
+    "Invoice No":1, "Source Key":1, "Month":1, "Gross KRW":2, "Net KRW":2,
+    "Count Unit":2, "AMEA":1, "H Contract":1, "PO Reference":1, "Source Table":1,
+    "Evidence State":1, "Reference Review":7, "Membership State":1,
+    "Verified At KST":1, "Extracted At UTC":1, "Received At UTC":1,
+    EXCLUDE:7, "제외 사유":1,
+}
+USER_FIELDS = {EXCLUDE,"제외 사유"}
+SOURCE_FIELDS = set(REVIEW_FIELDS)-USER_FIELDS
+
+
+def validate_review_member(row):
+    if not SOURCE_FIELDS<=row.keys():
+        raise DrilldownError("DRILLDOWN_REVIEW_MEMBER_SCHEMA")
+    key=text(row,"Source Key")
+    ident=text(row,"Invoice No")
+    if (not re.fullmatch(r"209126\d{6}",ident) or key!="REVENUE_MEMBER:"+ident
+            or not MONTH.fullmatch(text(row,"Month")) or
+            text(row,"Membership State")!=INCLUSION or won(row.get("Count Unit"))!=1
+            or won(row.get("Gross KRW"))<=0 or
+            won(row.get("Net KRW"))!=net_won(won(row.get("Gross KRW")))
+            or text(row,"Source Table")!=EXTRACT
+            or text(row,"Evidence State")!="FILENAME_NOTICE_UID_OBSERVED"
+            or not isinstance(row.get("Reference Review"),bool)
+            or timestamp(text(row,"Verified At KST"),kst=True) is None):
+        raise DrilldownError("DRILLDOWN_REVIEW_MEMBER_INVALID")
+    return key
+
+
+def review_materialization_plan(summary, ready, existing):
+    """Pure proposal for an additive projection, not an apply function.
+
+    Input existing records are normalized typed fields from a dedicated
+    review table, never raw canonical Invoice or Project records. Preserve
+    stable record IDs and user choices. A blocked or absent month retains
+    rows but is explicitly unavailable for current verified analysis. Any
+    missing previously verified member or revision of core evidence in a
+    ready month blocks that month rather than deleting or moving records.
+    The caller must display held-month status before exposing live charts.
+    """
+    before={}
+    for row in existing:
+        k=validate_review_member(row)
+        rid=text(row,"record_id")
+        if (k in before or not re.fullmatch(r"rec[A-Za-z0-9]+",rid)
+                or type(row.get(EXCLUDE)) is not bool
+                or not isinstance(row.get("제외 사유"),str)):
+            raise DrilldownError("DRILLDOWN_EXISTING_KEY_OR_MANUAL_INVALID")
+        before[k]=row
+    if len({r["record_id"] for r in before.values()})!=len(before):
+        raise DrilldownError("DRILLDOWN_EXISTING_RECORD_ID_DUPLICATE")
+    desired={}
+    for month,rows in ready.items():
+        for row in rows:
+            k=validate_review_member(row)
+            if (k in desired or text(row,"Month")!=month
+                    or summary["months"].get(month,{}).get("state")!="VERIFIED_PUBLISHED_MONTH_MEMBERS"
+                    or USER_FIELDS & row.keys()):
+                raise DrilldownError("DRILLDOWN_DESIRED_KEY_OR_SCOPE_INVALID")
+            desired[k]=row
+    # A member changing month/evidence is not a normal source-owned update;
+    # block both affected months. Never silently relocate manual selection.
+    blocked=set()
+    for key,row in before.items():
+        month=row["Month"]
+        other=desired.get(key)
+        if other is None:
+            if month in ready:
+                blocked.add(month)
+            continue
+        if any(row[field]!=other[field] for field in
+               ("Month","Invoice No","Gross KRW","Net KRW","AMEA","H Contract","PO Reference")):
+            blocked.update((month,other["Month"]))
+        if timestamp(other["Verified At KST"],kst=True)<timestamp(row["Verified At KST"],kst=True):
+            blocked.add(month)
+    creates=[];updates=[];unchanged=0;retained=0;view={}
+    months=set(summary["months"])|{r["Month"] for r in before.values()}
+    for month in sorted(months):
+        prev=[r for r in before.values() if r["Month"]==month]
+        if month in blocked or month not in ready:
+            retained+=len(prev)
+            view[month]={"state":"MEMBER_CHANGE_REVIEW" if month in blocked else "SOURCE_MONTH_NOT_READY",
+                         "retained_rows":len(prev),"analysis_enabled":False}
+            continue
+        rows=ready[month]
+        excluded={r["Source Key"] for r in prev if r[EXCLUDE]}
+        totals=member_totals(rows,excluded)
+        for row in rows:
+            key=row["Source Key"]
+            old=before.get(key)
+            patch={k:row[k] for k in SOURCE_FIELDS}
+            if old is None:
+                creates.append({**patch,EXCLUDE:False,"제외 사유":""})
+            elif all(old[k]==v for k,v in patch.items()):
+                unchanged+=1
+            else:
+                # Source-owned fields only, even when exclusion is false.
+                updates.append({"record_id":old["record_id"],"fields":patch})
+        view[month]={"state":"READY_FOR_REVIEW_PROJECTION","analysis_enabled":True,
+                     "original_count":totals["original"]["count"],
+                     "excluded_count":totals["excluded"]["count"],
+                     "selected_count":totals["selected"]["count"]}
+    public={"months":view,"proposed_creates":len(creates),"proposed_updates":len(updates),
+            "unchanged":unchanged,"retained_held_rows":retained,"proposed_deletes":0,
+            "business_writes":0,"manual_update_fields":0,
+            "existing_state":"SUPPLIED_SNAPSHOT_ONLY"}
+    return public,{"creates":creates,"updates":updates}
+
+
+def review_table_contract():
+    """One detail table; official/reference and analysis metrics stay separate."""
+    return {"table_name":REVIEW,"fields":dict(REVIEW_FIELDS),
+            "primary":"Invoice No","identity":"Source Key",
+            "manual_fields":sorted(USER_FIELDS),
+            "views":[{"name":"01 전체 집계 원본","conditions":[]},
+                     {"name":"02 분석 포함","conditions":[{"field_name":EXCLUDE,"operator":"is","value":False}]},
+                     {"name":"03 분석 제외","conditions":[{"field_name":EXCLUDE,"operator":"is","value":True}]}],
+            "charts":[{"name":label,"config":review_chart_config(metric,filtered=selected)}
+                      for metric,label0 in (("Count Unit","Invoice 건수"),("Net KRW","VAT 제외 Revenue (KRW)"))
+                      for selected,label in ((False,label0+" · 원래 집계"),(True,label0+" · 분석 합계"))],
+            "ui_gate":"CLICK_TO_MEMBER_EDIT_RESTORE_NOT_VERIFIED",
+            "deployment":"PLAN_ONLY"}
+
 def read_sources(session):
     from sales_metrics_sync import CSS_SHEET, UNIFIED_SHEET, req_sheet
     books={"CSS":CSS_SHEET,"UNIFIED":UNIFIED_SHEET}
@@ -309,7 +496,12 @@ def read_sources(session):
 
 def main():
     from sales_metrics_sync import sheets_session
-    summary,_=plan(read_sources(sheets_session()))
+    summary,ready=plan(read_sources(sheets_session()))
+    # Empty-target scenario only; actual existing review rows must be read
+    # before any approved materialization. No payload in CI.
+    proposal,_=review_materialization_plan(summary,ready,[])
+    summary["empty_target_projection_scenario"]=proposal
+    summary["review_contract_field_count"]=len(review_table_contract()["fields"])
     # No IDs, amounts, filenames, customer names or row-level details.
     print("CHART_DRILLDOWN_PLAN "+json.dumps(summary,sort_keys=True))
     print("CHART_DRILLDOWN_READ_ONLY business_writes=0")

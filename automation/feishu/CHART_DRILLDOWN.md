@@ -63,6 +63,43 @@ and adds an analysis checkbox to a copy. These functions are not live
 dashboard changes. The review table and analysis checkboxes do not yet
 exist by virtue of this code.
 
+## Follow-up: snapshot boundary and review projection plan
+
+Re-read on 2026-11-25: VAT-excluded source verified 2026-11-24 23:25:53
+KST, authority 23:25:56. Lifecycle snapshot 2026-11-25 10:35:07 KST
+now contains 40 November invoice references with count/gross parity to
+the Extract. Filtering Extract by its extraction timestamp <= VAT
+snapshot reproduces all three published totals (37 count, gross, net);
+receipt-time cutoff instead gives 39 and fails parity. Three additional
+members were extracted 2026-11-25 02:28:50–10:33:21 KST; observed
+receipt times 2026-11-24 16:02:42 through 2026-11-25 09:57:39 KST.
+No AMEA/H/PO filename-field differences in these three; no matching CMS
+in the inspected CSS List, legacy Revenue Invoice Base, Outstanding,
+eTax or receipt-reference columns. This is evidence of asynchronous
+refresh and late extraction, NOT proof of the exact past published
+key set, actual payment, or authorization to promote. The preceding
+observation that Lifecycle was also behind describes an earlier read.
+The 08:59 KST unified run 45514458303 failed Lifecycle at QQ_SOURCE_STALE,
+so its dependent monthly job skipped, while Payment passed. Do not
+bypass the freshness or canonical authority gates to repair this.
+
+The new snapshot_diagnostics classifies exact current parity, a
+timestamp-supported snapshot-lag candidate, or unexplained/incomplete
+parity. It does not enable a reconstructed stale month. The proposed
+review table has a stable invoice key, exact KRW and count unit,
+source references, verification timestamps, and two user-owned
+fields (checkbox and reason). review_materialization_plan is a pure
+create/update proposal for a dedicated review table, with no delete
+or API call. Existing rows and user fields persist; a missing or
+changed member, regressing verification time, or blocked month
+holds that month and disables current analysis. A future live
+implementation must render held-month status or suppress its chart
+before allowing any stale data to be mistaken for a current review.
+Native views: full, included, excluded; paired original and selected
+count/net charts. These configs are proposed, not applied. Actual
+click-to-member, edit and restore, permissions and refresh still
+require authorized tenant UI verification.
+
 ## Deployment gates
 
 1. Run offline tests. Approved merge enables manual main-only read-only
