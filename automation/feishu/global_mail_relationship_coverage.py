@@ -314,6 +314,184 @@ def unmatched_project_reference_metrics(canonical, qq, identities, tuple_keys, p
     return {axis:dict(counts) for axis,counts in out.items()}
 
 
+def mail_only_reference_audit(canonical,qq,crm,tuple_keys,projects,observed_amea):
+    """Partition all mail-only AMEA by literal, same-record evidence.
+
+    Exact QQ tuple crosswalks share a record-key observation; Message-ID is
+    never an identity join. No cross-product of multi-AMEA rows. A numeric
+    invoice label or structured invoice field is not a CMS crosswalk.
+    """
+    known={r["amea"] for r in projects}
+    expected=set(observed_amea)-known
+    members={}
+    records=[]
+    key_refs=defaultdict(set)
+    typed_parents=defaultdict(set)
+
+    def add_parent(kind,ident,pid):
+        typed_parents[(kind,ident)].add(pid)
+        if kind=="H":
+            typed_parents[("H_ROOT",re.sub(r"-B\d+$","",ident))].add(pid)
+
+    for r in projects:
+        for kind,ids in r["refs"].items():
+            mapped={"LIFECYCLE_X":"X_PROJECT","FINANCE_X":"X_PROJECT",
+                    "CMS":"EXPLICIT_CMS_NUMBER"}.get(kind,kind)
+            if mapped in {"H","SAM","X_PROJECT","QID","EXPLICIT_CMS_NUMBER"}:
+                for ident in ids:
+                    add_parent(mapped,ident,r["amea"])
+
+    def collect(pool,canonical_source,source_label):
+        for key,row in pool.items():
+            source=SOURCE_CODES[row["source_table"]] if canonical_source else source_label
+            if canonical_source:
+                identity=("CANONICAL",key)
+            elif source==QQ and key in tuple_keys:
+                identity=("CANONICAL",tuple_keys[key])
+            else:
+                identity=(source,key)
+            a_col="amea_numbers" if canonical_source else "AMEA"
+            h_col="h_project_numbers" if canonical_source else "H Project"
+            subj=value(row,"subject" if canonical_source else "Subject")
+            observed=subject_refs(subj)
+            a_tokens,a_state=keys(value(row,a_col),"AMEA*")
+            structured_a={ident for _,ident in a_tokens}
+            ids=structured_a|observed["AMEA"]
+            if not ids:
+                continue
+            key_refs[identity].add(frozenset(ids))
+            clean={}
+            review=set()
+            for kind,col in (("H",h_col),("SAM","sam_numbers" if canonical_source else "")):
+                tokens,state=keys(value(row,col),kind+"*") if col else (set(),"EMPTY")
+                structured={ident for _,ident in tokens}
+                subject=observed[kind]
+                if state not in ("EMPTY","OBSERVED") or (structured and subject and structured!=subject):
+                    review.add(kind)
+                elif structured or subject:
+                    clean[kind]=structured|subject
+            for kind in ("X_PROJECT","QID"):
+                if observed[kind]:
+                    clean[kind]=observed[kind]
+            # Explicit CMS labels and generic invoice number labels remain
+            # separate typed observations; never promote a bare number.
+            label=r"\s*(?:NO\.?|NUMBER|#|:)?\s*[:#]?\s*(\d{10,15})(?![\d-])"
+            cms=set(re.findall(r"\bCMS(?:\s+INVOICE)?"+label,subj.upper()))
+            invoice=set(re.findall(r"\bINVOICE"+label,subj.upper()))-cms
+            if cms:
+                clean["EXPLICIT_CMS_NUMBER"]=cms
+            if invoice:
+                clean["INVOICE_LABELLED_NUMBER"]=invoice
+            if canonical_source:
+                num,state=keys(value(row,"invoice_numbers"),"CMS*")
+                if state not in ("EMPTY","OBSERVED"):
+                    review.add("STRUCTURED_INVOICE_NUMBER")
+                elif num:
+                    clean["STRUCTURED_INVOICE_NUMBER"]={ident for _,ident in num}
+            date=value(row,"received_at" if canonical_source else "Received At")
+            day=None
+            if re.match(r"^\d{4}-\d{2}-\d{2}(?:$|[ T])",date):
+                try:
+                    day=dt.date.fromisoformat(date[:10])
+                except ValueError:
+                    pass
+            records.append((identity,source,ids,structured_a,a_state,clean,review,day))
+
+    collect(canonical,True,"")
+    collect(qq,False,QQ)
+    collect(crm,False,CRM)
+    conflicting_keys={k for k,sets in key_refs.items() if len(sets)>1}
+    for identity,source,ids,structured_a,a_state,clean,review,day in records:
+        singleton=(len(ids)==1 and a_state in ("EMPTY","OBSERVED")
+                   and identity not in conflicting_keys)
+        if singleton:
+            pid=next(iter(ids))
+            for kind,refs in clean.items():
+                if kind in {"H","SAM","X_PROJECT","QID","EXPLICIT_CMS_NUMBER"}:
+                    for ident in refs:
+                        add_parent(kind,ident,pid)
+        for pid in ids & expected:
+            m=members.setdefault(pid,{"rows":0,"keys":set(),"clean_keys":set(),
+                "sources":set(),"refs":defaultdict(set),"flags":set(),"latest":None})
+            m["rows"]+=1
+            m["keys"].add(identity)
+            m["sources"].add(source)
+            m["flags"].add("STRUCTURED_AMEA_REFERENCE" if pid in structured_a else "SUBJECT_ONLY_AMEA_ON_ROW")
+            if len(ids)>1:
+                m["flags"].add("MULTIPLE_AMEA_ROW_REVIEW")
+            if a_state not in ("EMPTY","OBSERVED"):
+                m["flags"].add("AMEA_FORMAT_REVIEW")
+            if identity in conflicting_keys:
+                m["flags"].add("EXACT_TUPLE_AMEA_DIFFERENCE_REVIEW")
+            if review:
+                m["flags"].add("RELATED_FIELD_REVIEW")
+            if singleton:
+                m["clean_keys"].add(identity)
+                for kind,refs in clean.items():
+                    m["refs"][kind].update(refs)
+            if day is not None:
+                m["latest"]=max(m["latest"] or day,day)
+
+    if set(members)!=expected:
+        raise MailAuditError("MAIL_ONLY_POPULATION_MISMATCH")
+    partition=Counter()
+    flags=Counter()
+    source_counts=Counter()
+    surface_counts=Counter()
+    reference_counts=Counter()
+    latest_year=Counter()
+    distinct=defaultdict(set)
+    for pid,m in members.items():
+        refs=m["refs"]
+        if refs.get("X_PROJECT"):
+            state="EXACT_X_LITERAL_COOBSERVATION"
+        elif refs.get("H") or refs.get("SAM"):
+            state="H_OR_SAM_LITERAL_COOBSERVATION"
+        elif refs.get("QID"):
+            state="QID_LITERAL_COOBSERVATION"
+        elif any(refs.get(k) for k in ("EXPLICIT_CMS_NUMBER","INVOICE_LABELLED_NUMBER","STRUCTURED_INVOICE_NUMBER")):
+            state="INVOICE_NUMBER_REFERENCE_ONLY"
+        elif m["clean_keys"]:
+            state="SINGLE_AMEA_NO_OTHER_CLEAN_REFERENCE"
+        else:
+            state="AMBIGUOUS_OR_FORMAT_REVIEW_ONLY"
+        partition[state]+=1
+        flags.update(m["flags"])
+        if m["clean_keys"]:
+            flags["HAS_CLEAN_SINGLETON_AMEA_RECORD_KEY"]+=1
+        if len(m["clean_keys"])>1:
+            flags["MULTIPLE_SINGLETON_RECORD_KEYS_NOT_INDEPENDENCE_PROOF"]+=1
+        if any(len(typed_parents.get((kind,ident),set())-{pid})>0
+               for kind,vals in refs.items() for ident in vals):
+            flags["OTHER_AMEA_TYPED_LITERAL_REVIEW"]+=1
+        if any(typed_parents.get(("H_ROOT",re.sub(r"-B\d+$","",h)),set())-{pid}
+               for h in refs.get("H",set())):
+            flags["OTHER_AMEA_H_ROOT_REVIEW"]+=1
+        if refs.get("H") and refs.get("SAM"):
+            flags["HAS_BOTH_H_AND_SAM_NO_PAIR_INFERRED"]+=1
+        source_counts.update(m["sources"])
+        surface_counts[str(len(m["sources"]))]+=1
+        for kind,vals in refs.items():
+            if vals:
+                reference_counts[kind]+=1
+                distinct[kind].update(vals)
+        latest_year[str(m["latest"].year) if m["latest"] else "UNKNOWN"]+=1
+    if sum(partition.values())!=len(expected):
+        raise MailAuditError("MAIL_ONLY_PARTITION_MISMATCH")
+    return {"mail_only_amea":len(expected),"candidate_partition":dict(partition),
+            "source_population":dict(source_counts),"source_surfaces_per_amea":dict(surface_counts),
+            "amea_with_typed_coobservations":dict(reference_counts),
+            "distinct_typed_coobserved_references":{k:len(v) for k,v in distinct.items()},
+            "review_and_evidence_flags":dict(flags),
+            "latest_parseable_mail_date_year_counts":dict(latest_year),
+            "same_row_observation_rule":"SINGLETON_VALID_AMEA_NO_EXACT_TUPLE_CONFLICT",
+            "message_id_identity_merge":"NOT_PERFORMED",
+            "invoice_number_cms_crosswalk":"NOT_INFERRED",
+            "h_sam_pair_assignment":"NOT_INFERRED",
+            "owner_payment_delivery_certification":"NOT_ATTESTED",
+            "business_writes":0}
+
+
 def audit(canonical_rows,tables,sources):
     canonical, tuple_keys = {},{}
     source_counts = Counter()
@@ -382,6 +560,8 @@ def audit(canonical_rows,tables,sources):
             "identity_projection":dict(identity_metrics),"tracker_mail_references":dict(tracker),
             "unmatched_project_reference_audit":unmatched_project_reference_metrics(
                 canonical,qq,identities,tuple_keys,project_rows),
+            "mail_only_reference_audit":mail_only_reference_audit(
+                canonical,qq,crm,tuple_keys,project_rows,observed_amea),
             "project_reference_population":{"nonmail":len(known),"mail":len(observed_amea),
                    "intersection":len(known&observed_amea),"mail_only":len(observed_amea-known),
                    "nonmail_only":len(known-observed_amea),"union":len(known|observed_amea)},
