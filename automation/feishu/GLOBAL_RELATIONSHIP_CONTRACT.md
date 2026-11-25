@@ -204,3 +204,22 @@ audit.
    entities and related evidence. Reuse existing native Feishu tables where
    sufficient. No new synthetic project rows and no production writes
    without explicit approval.
+
+
+## Follow-up: canonical mail read diagnostics and bounded recovery
+
+Main authenticated mail audit 45539385165 previously stopped at
+`MAIL_SHEETS_READ_FAILED`; the old error did not identify the failing
+phase or HTTP status. This change is limited to the existing read-only
+Canonical Mail Ledger reader. Logs contain only fixed phases, requested
+row counts, numeric HTTP statuses, bounded retries and aggregate progress;
+never request URLs, error bodies, credentials, identifiers or cell data.
+Retry transient quota/server/transport failures. Only oversize, timeout or
+transport failures may split a contiguous batch; auth/quota failures must
+not trigger splitting. Full allocated key scan, exact row identity, schema,
+metadata recheck and complete keyed payload coverage remain mandatory.
+Splitting has a depth, minimum size and overall batch limit; unresolved
+errors stop the audit without publishing a partial coverage result. No
+source writes, backfill, Feishu changes, new scheduled workflow or identity
+writer changes. The specific production failure remains unverified until
+an authenticated rerun provides the diagnostic evidence.
