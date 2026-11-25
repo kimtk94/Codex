@@ -390,21 +390,80 @@ def audit(canonical_rows,tables,sources):
             "payment_delivery_sif_po_certification":"NOT_ATTESTED"}
 
 
-def get_json(session,url):
+# All diagnostics are fixed phases, integer counts and HTTP status only.
+# Never emit request URLs, response bodies, exceptions or cell values.
+READ_PHASES={"META","HEADER","KEY_SCAN","PAYLOAD","META_RECHECK"}
+RETRY_HTTP={408,429,500,502,503,504}
+SPLIT_HTTP={408,413,504}
+KEY_CHUNK_ROWS=10000
+PAYLOAD_CHUNK_ROWS=2000
+MAX_SPLIT_DEPTH=3
+MIN_SPLIT_ROWS=125
+MAX_RANGE_BATCHES=350
+
+
+class MailSheetsReadError(MailAuditError):
+    def __init__(self,phase,rows,failure,can_split=False):
+        self.can_split=can_split
+        super().__init__(f"MAIL_SHEETS_READ_FAILED phase={phase} rows={rows} failure={failure}")
+
+
+def get_json(session,url,phase,rows=0):
+    if phase not in READ_PHASES or type(rows) is not int or rows<0:
+        raise MailAuditError("MAIL_READ_DIAGNOSTIC_SCOPE")
     for attempt in range(5):
-        r=session.get(url,timeout=60)
-        if r.ok:
-            return r.json()
-        if r.status_code not in (429,500,502,503,504) or attempt==4:
-            raise MailAuditError("MAIL_SHEETS_READ_FAILED")
+        try:
+            r=session.get(url,timeout=60)
+        except OSError:
+            # requests transport exceptions inherit OSError; never expose
+            # their messages, which may contain authenticated URLs.
+            error=MailSheetsReadError(phase,rows,"TRANSPORT",True)
+            retry=attempt<2
+        else:
+            if r.ok:
+                try:
+                    payload=r.json()
+                except ValueError:
+                    raise MailSheetsReadError(phase,rows,"INVALID_JSON") from None
+                if not isinstance(payload,dict):
+                    raise MailSheetsReadError(phase,rows,"INVALID_JSON_SHAPE")
+                return payload
+            status=r.status_code
+            if type(status) is not int or not 100<=status<=599:
+                raise MailSheetsReadError(phase,rows,"UNKNOWN_HTTP_STATUS")
+            error=MailSheetsReadError(phase,rows,"HTTP_"+str(status),status in SPLIT_HTTP)
+            # Oversize requests should be split, not retried unchanged.
+            # Persistent timeouts can also benefit from smaller chunks.
+            retry=status in RETRY_HTTP and attempt<(2 if status in SPLIT_HTTP else 4)
+        if not retry:
+            raise error from None
+        print(f"MAIL_SHEETS_RETRY phase={phase} rows={rows} attempt={attempt+1} "
+              f"failure={str(error).rsplit('failure=',1)[-1]}",flush=True)
         time.sleep(min(30,2**(attempt+1)))
-    raise MailAuditError("MAIL_SHEETS_READ_FAILED")
+    raise MailAuditError("MAIL_SHEETS_RETRY_BOUND")
+
+
+def bounded_reads(read_ranges,phase,start,end,pieces,depth=0):
+    """Yield contiguous complete batches or fail; never skip a failed row."""
+    ranges=[f"{a}{start}:{b}{end}" for a,b in pieces]
+    try:
+        matrices=read_ranges(ranges,phase,end-start+1)
+    except MailSheetsReadError as exc:
+        count=end-start+1
+        if not exc.can_split or depth>=MAX_SPLIT_DEPTH or count<2*MIN_SPLIT_ROWS:
+            raise
+        mid=(start+end)//2
+        print(f"MAIL_SHEETS_SPLIT phase={phase} rows={count} depth={depth+1}",flush=True)
+        yield from bounded_reads(read_ranges,phase,start,mid,pieces,depth+1)
+        yield from bounded_reads(read_ranges,phase,mid+1,end,pieces,depth+1)
+        return
+    yield start,end,matrices
 
 
 def read_canonical(session,book):
     root="https://sheets.googleapis.com/v4/spreadsheets/"+book
-    def meta():
-        obj=get_json(session,root+"?fields=spreadsheetId,sheets(properties(title,sheetId,gridProperties))")
+    def meta(phase):
+        obj=get_json(session,root+"?fields=spreadsheetId,sheets(properties(title,sheetId,gridProperties))",phase)
         if obj.get("spreadsheetId")!=book:
             raise MailAuditError("MAIL_CATALOG_ID_MISMATCH")
         p=[s["properties"] for s in obj.get("sheets",[]) if s["properties"].get("title")==TAB]
@@ -415,10 +474,15 @@ def read_canonical(session,book):
         if type(n)!=int or not 1<=n<=250000 or w!=27:
             raise MailAuditError("MAIL_GRID_OUT_OF_BOUND_OR_SCHEMA")
         return p[0]["sheetId"],n,w
-    def read_ranges(ranges):
+    range_batches=0
+    def read_ranges(ranges,phase,rows):
+        nonlocal range_batches
+        range_batches+=1
+        if range_batches>MAX_RANGE_BATCHES:
+            raise MailAuditError("MAIL_RANGE_BATCH_BOUND")
         query=urllib.parse.urlencode([("ranges","'"+TAB+"'!"+a) for a in ranges]+
                                      [("majorDimension","ROWS"),("valueRenderOption","FORMATTED_VALUE")])
-        obj=get_json(session,root+"/values:batchGet?"+query)
+        obj=get_json(session,root+"/values:batchGet?"+query,phase,rows)
         if obj.get("spreadsheetId")!=book or len(obj.get("valueRanges",[]))!=len(ranges):
             raise MailAuditError("MAIL_BATCH_RANGE_SET_MISMATCH")
         out=[]
@@ -431,56 +495,61 @@ def read_canonical(session,book):
                 raise MailAuditError("MAIL_BATCH_ROW_SCHEMA")
             out.append(vals)
         return out
-    initial=meta()
-    if read_ranges(["A1:AA1"])[0]!=[CANONICAL_HEADER]:
+    initial=meta("META")
+    if read_ranges(["A1:AA1"],"HEADER",1)[0]!=[CANONICAL_HEADER]:
         raise MailAuditError("MAIL_CANONICAL_SCHEMA_MISMATCH")
     # Scan the entire allocated key/source columns first. Then read only
     # necessary fields over the populated key extent; no body/attachments.
     expected={}
     seen=set()
-    for start in range(2,initial[1]+1,10000):
-        end=min(start+9999,initial[1])
-        matrix=read_ranges([f"A{start}:B{end}"])[0]
-        if len(matrix)>end-start+1:
-            raise MailAuditError("MAIL_KEY_SCAN_ROW_BOUND")
-        for i,row in enumerate(matrix,start):
-            k=str(row[0]) if row else ""
-            s=str(row[1]) if len(row)>1 else ""
-            if not k and not s:
-                continue
-            if not k or not s or k in seen:
-                raise MailAuditError("MAIL_KEY_SCAN_INVALID_OR_DUPLICATE")
-            expected[i]=(k,s);seen.add(k)
+    for first in range(2,initial[1]+1,KEY_CHUNK_ROWS):
+        last=min(first+KEY_CHUNK_ROWS-1,initial[1])
+        for start,end,matrices in bounded_reads(read_ranges,"KEY_SCAN",first,last,(("A","B"),)):
+            matrix=matrices[0]
+            if len(matrix)>end-start+1 or any(len(row)>2 for row in matrix):
+                raise MailAuditError("MAIL_KEY_SCAN_ROW_BOUND")
+            for i,row in enumerate(matrix,start):
+                k=str(row[0]) if row else ""
+                s=str(row[1]) if len(row)>1 else ""
+                if not k and not s:
+                    continue
+                if not k or not s or k in seen:
+                    raise MailAuditError("MAIL_KEY_SCAN_INVALID_OR_DUPLICATE")
+                expected[i]=(k,s);seen.add(k)
     if not expected:
         raise MailAuditError("MAIL_CANONICAL_NO_KEYED_ROWS")
+    print(f"MAIL_CANONICAL_KEYS_COMPLETE allocated_rows={initial[1]} keyed_rows={len(expected)} "
+          f"range_batches={range_batches}",flush=True)
     result=[]
     # ranges (column start/end, zero-based header indices)
     pieces=(("A","I",0,9),("K","M",10,13),("O","O",14,15),("R","U",17,21),
             ("W","X",22,24),("AA","AA",26,27))
-    for start in range(2,max(expected)+1,2000):
-        end=min(start+1999,max(expected))
-        ranges=[f"{a}{start}:{b}{end}" for a,b,_,_ in pieces]
-        matrices=read_ranges(ranges)
-        if any(len(m)>end-start+1 for m in matrices):
-            raise MailAuditError("MAIL_PAYLOAD_ROW_BOUND")
-        for i in range(end-start+1):
-            row={}
-            for matrix,(_,_,left,right) in zip(matrices,pieces):
-                cells=matrix[i] if i<len(matrix) else []
-                if len(cells)>right-left:
-                    raise MailAuditError("MAIL_PAYLOAD_COLUMN_BOUND")
-                row.update({CANONICAL_HEADER[j]:str(cells[j-left]) if j-left<len(cells) and cells[j-left] is not None else ""
-                            for j in range(left,right)})
-            pair=(row["canonical_key"],row["source_table"])
-            if start+i not in expected:
-                if any(row.values()):
-                    raise MailAuditError("MAIL_PAYLOAD_WITHOUT_KEY")
-                continue
-            if pair!=expected[start+i]:
-                raise MailAuditError("MAIL_KEY_CHANGED_DURING_READ")
-            result.append(row)
-    if len(result)!=len(expected) or meta()!=initial:
+    extent=max(expected)
+    columns=tuple((a,b) for a,b,_,_ in pieces)
+    for first in range(2,extent+1,PAYLOAD_CHUNK_ROWS):
+        last=min(first+PAYLOAD_CHUNK_ROWS-1,extent)
+        for start,end,matrices in bounded_reads(read_ranges,"PAYLOAD",first,last,columns):
+            if any(len(m)>end-start+1 for m in matrices):
+                raise MailAuditError("MAIL_PAYLOAD_ROW_BOUND")
+            for i in range(end-start+1):
+                row={}
+                for matrix,(_,_,left,right) in zip(matrices,pieces):
+                    cells=matrix[i] if i<len(matrix) else []
+                    if len(cells)>right-left:
+                        raise MailAuditError("MAIL_PAYLOAD_COLUMN_BOUND")
+                    row.update({CANONICAL_HEADER[j]:str(cells[j-left]) if j-left<len(cells) and cells[j-left] is not None else ""
+                                for j in range(left,right)})
+                pair=(row["canonical_key"],row["source_table"])
+                if start+i not in expected:
+                    if any(row.values()):
+                        raise MailAuditError("MAIL_PAYLOAD_WITHOUT_KEY")
+                    continue
+                if pair!=expected[start+i]:
+                    raise MailAuditError("MAIL_KEY_CHANGED_DURING_READ")
+                result.append(row)
+    if len(result)!=len(expected) or meta("META_RECHECK")!=initial:
         raise MailAuditError("MAIL_CANONICAL_READ_CHANGED")
+    print(f"MAIL_CANONICAL_PAYLOAD_COMPLETE keyed_rows={len(result)} range_batches={range_batches}",flush=True)
     return result
 
 
@@ -533,7 +602,11 @@ def main():
     started=dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
     session=sheets_session()
     sources=read_sources(session)
-    summary=audit(read_canonical(session,CSS_SHEET),read_feishu(),sources)
+    print(f"MAIL_NONMAIL_REFERENCES_COMPLETE sources={len(sources)}",flush=True)
+    canonical=read_canonical(session,CSS_SHEET)
+    tables=read_feishu()
+    print(f"MAIL_FEISHU_READ_COMPLETE tables={len(tables)}",flush=True)
+    summary=audit(canonical,tables,sources)
     summary["read_started_kst"]=started
     summary["read_finished_kst"]=dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
     print("GLOBAL_MAIL_RELATIONSHIP_COVERAGE "+json.dumps(summary,sort_keys=True))
