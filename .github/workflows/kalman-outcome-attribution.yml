@@ -98,6 +98,13 @@ jobs:
             --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
             --original-source original-source \
             --out outputs/kalman_outcome_attribution/regime_cash_replay_report.json
+      - name: Reproduce concentration and group-omission cash replays
+        run: |
+          python research/kalman_outcome_attribution/concentration_replay.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/concentration_replay_report.json
       - name: Publish only aggregate metadata, never input archives or row-level features
         uses: actions/upload-artifact@v4
         with:
@@ -108,5 +115,6 @@ jobs:
             outputs/kalman_outcome_attribution/kalman_ablation_report.json
             outputs/kalman_outcome_attribution/market_relative_report.json
             outputs/kalman_outcome_attribution/regime_cash_replay_report.json
+            outputs/kalman_outcome_attribution/concentration_replay_report.json
           if-no-files-found: error
           retention-days: 45
