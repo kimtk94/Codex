@@ -5,14 +5,29 @@ from native_revenue_review_pilot import *
 from test_dashboard_drilldown_plan import sources,inv
 
 def fixture():
-    return sources(rows=[inv("209126"+str(i+1).zfill(6)) for i in range(EXPECTED_COUNT)],
-                   count=EXPECTED_COUNT,gross=11000*EXPECTED_COUNT,net=10000*EXPECTED_COUNT)
+    out={}
+    offset=0
+    for month,count in EXPECTED_COUNTS.items():
+        s=sources(month=month,rows=[inv("209126"+str(offset+i+1).zfill(6),month=month)
+                                    for i in range(count)],
+                  count=count,gross=11000*count,net=10000*count)
+        for tab in ("BI Revenue Net VAT Monthly","Revenue Source Authority"):
+            for r in s[tab]:
+                field="Verified At KST" if tab=="BI Revenue Net VAT Monthly" else "Verified KST"
+                r[field]=month+"-15 09:00:00 KST"
+        s["BI Revenue Lifecycle Monthly"][0]["Snapshot KST"]=month+"-15 09:00:00 KST"
+        for tab,rows in s.items():
+            out.setdefault(tab,[]).extend(rows)
+        offset+=count
+    return out
 
 class Fake:
     def __init__(self,source):
         self.ts={OFFICIAL_ID:OFFICIAL,"tblOriginal":"Unrelated source"}
         self.ds={"blkOriginal":"Existing Dashboard"}
-        self.rows={OFFICIAL_ID:[{"record_id":"recOfficial","fields":snapshot(source)["official"]}]}
+        official=snapshot(source)["official"]
+        self.rows={OFFICIAL_ID:[{"record_id":"recOfficial"+str(i),"fields":official[m]}
+                               for i,m in enumerate(MONTHS)]}
         self.charts={}
         self.writes=[]
     def tables(self):return dict(self.ts)
@@ -44,7 +59,8 @@ class PilotTests(unittest.TestCase):
     def test_plan_matches_official_and_never_writes(self):
         result=reconcile(self.s,self.b)
         self.assertEqual(result["state"],"READY_NEW_REVIEW_PILOT")
-        self.assertEqual(result["members"],48)
+        self.assertEqual(result["members"],88)
+        self.assertEqual(result["expected_members_by_month"],{"2026-10":48,"2026-11":40})
         self.assertEqual(result["review_digest"],self.digest)
         self.assertEqual(self.b.writes,[])
         self.assertNotIn("209126000001",json.dumps(result))
@@ -53,7 +69,7 @@ class PilotTests(unittest.TestCase):
         original=copy.deepcopy(self.b.rows[OFFICIAL_ID])
         out=reconcile(self.s,self.b,"apply",self.digest)
         self.assertEqual(out["state"],"CREATED_FROZEN_REVIEW_PILOT")
-        self.assertEqual(len(self.b.rows["tblReview"]),48)
+        self.assertEqual(len(self.b.rows["tblReview"]),88)
         self.assertEqual(len(self.b.charts),5)
         self.assertEqual(self.b.rows[OFFICIAL_ID],original)
         self.assertEqual(self.b.ts["tblOriginal"],"Unrelated source")
@@ -63,7 +79,10 @@ class PilotTests(unittest.TestCase):
         writes=list(self.b.writes)
         out=reconcile(self.s,self.b,"apply",self.digest)
         self.assertEqual(out["state"],"EXISTING_SNAPSHOT_VERIFIED_NO_WRITES")
-        self.assertEqual(out["selected"],47)
+        self.assertEqual(out["selected"],87)
+        self.assertEqual(out["selection_by_month"],{
+            "2026-10":{"original":48,"excluded":1,"selected":47},
+            "2026-11":{"original":40,"excluded":0,"selected":40}})
         self.assertEqual(self.b.rows,before)
         self.assertEqual(self.b.writes,writes)
 
@@ -97,14 +116,65 @@ class PilotTests(unittest.TestCase):
             reconcile(self.s,self.b,"apply",self.digest)
         self.assertNotIn(TITLE,self.b.ds.values())
 
-    def test_charts_are_exact_month_and_selection_scope(self):
-        c=specs(snapshot(self.s)["stamp"])
+    def test_charts_are_month_grouped_and_selection_scoped(self):
+        c=specs(snapshot(self.s)["stamps"])
         for chart in c[1:]:
             cfg=chart["data_config"]
             self.assertEqual(cfg["table_name"],REVIEW)
-            self.assertIn({"field_name":"Month","operator":"is","value":MONTH},cfg["filter"]["conditions"])
+            self.assertEqual(cfg["group_by"][0]["field_name"],"Month")
+            self.assertIn({"field_name":"Membership State","operator":"is","value":INCLUSION},
+                          cfg["filter"]["conditions"])
             self.assertEqual(any(x["field_name"]==EXCLUDE for x in cfg["filter"]["conditions"]),
                              chart["name"].endswith("분석 합계"))
+
+    def test_november_source_mismatch_blocks_both_months(self):
+        self.s["CSS Tax Invoice Extract"].pop()
+        with self.assertRaisesRegex(DrilldownError,"SOURCE_MONTH_NOT_READY:2026-11"):
+            reconcile(self.s,self.b,"apply",self.digest)
+        self.assertFalse(self.b.writes)
+
+    def test_november_authority_missing_blocks(self):
+        self.s["Revenue Source Authority"]=[
+            r for r in self.s["Revenue Source Authority"] if r["Month"]!="2026-11"]
+        with self.assertRaisesRegex(DrilldownError,"SOURCE_MONTH_NOT_READY:2026-11"):
+            reconcile(self.s,self.b)
+        self.assertFalse(self.b.writes)
+
+    def test_november_official_mismatch_blocks_both_months(self):
+        self.b.rows[OFFICIAL_ID][1]["fields"]["Invoice Count"]=37
+        with self.assertRaisesRegex(DrilldownError,"OFFICIAL_CHART_TOTAL_MISMATCH:2026-11"):
+            reconcile(self.s,self.b,"apply",self.digest)
+        self.assertFalse(self.b.writes)
+
+    def test_reviewed_count_change_requires_new_approval(self):
+        count=41
+        nov=sources(month="2026-11",
+                    rows=[inv("209126"+str(49+i).zfill(6),month="2026-11") for i in range(count)],
+                    count=count,gross=11000*count,net=10000*count)
+        for tab,rows in nov.items():
+            if tab=="CSS Tax Invoice Extract":
+                self.s[tab]=self.s[tab][:48]+rows
+            elif tab!="Revenue Invoice Base":
+                self.s[tab]=[r for r in self.s[tab] if r["Month"]!="2026-11"]+rows
+        with self.assertRaisesRegex(DrilldownError,"EXPECTED_MEMBER_COUNT_CHANGED:2026-11"):
+            reconcile(self.s,self.b)
+        self.assertFalse(self.b.writes)
+
+    def test_legacy_october_dashboard_is_not_reused(self):
+        self.b.ds["blkLegacy"]=LEGACY_TITLE
+        with self.assertRaisesRegex(DrilldownError,"LEGACY_OCTOBER_PILOT_REQUIRES_REVIEW"):
+            reconcile(self.s,self.b,"apply",self.digest)
+        self.assertFalse(self.b.writes)
+
+    def test_november_exclusion_and_restore_independent(self):
+        reconcile(self.s,self.b,"apply",self.digest)
+        row=next(r for r in self.b.rows["tblReview"] if r["fields"]["Month"]=="2026-11")
+        row["fields"][EXCLUDE]=True
+        out=reconcile(self.s,self.b)
+        self.assertEqual(out["selection_by_month"]["2026-10"]["selected"],48)
+        self.assertEqual(out["selection_by_month"]["2026-11"]["selected"],39)
+        row["fields"][EXCLUDE]=False
+        self.assertEqual(reconcile(self.s,self.b)["selected"],88)
 
 if __name__=="__main__":
     unittest.main()
