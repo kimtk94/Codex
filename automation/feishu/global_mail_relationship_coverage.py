@@ -6,7 +6,7 @@ crosswalk; Message-ID, participant address, subject tokens and thread links
 are reference observations. No content, IDs or addresses leave aggregate logs.
 """
 from collections import Counter, defaultdict
-from email.utils import getaddresses
+from email.utils import getaddresses, parsedate_to_datetime
 import datetime as dt
 import hashlib
 import json
@@ -580,6 +580,41 @@ PAYLOAD_CHUNK_ROWS=2000
 MAX_SPLIT_DEPTH=3
 MIN_SPLIT_ROWS=125
 MAX_RANGE_BATCHES=350
+# This is a per-reader ceiling, not a reservation of the shared SA quota.
+# Leave room for other workflows that use the same Google credentials.
+READ_START_INTERVAL_SECONDS=2.0
+QUOTA_COOLDOWN_SECONDS=65
+MAX_QUOTA_COOLDOWN_SECONDS=180
+
+
+class ReadPacer:
+    """Space the starts of actual GET attempts, including retries."""
+    def __init__(self):
+        self.next_start=None
+
+    def wait(self):
+        if self.next_start is not None:
+            delay=self.next_start-time.monotonic()
+            if delay>0:
+                time.sleep(delay)
+        self.next_start=time.monotonic()+READ_START_INTERVAL_SECONDS
+
+
+def quota_cooldown(response):
+    """Honor bounded Retry-After (seconds or HTTP-date), never log the header."""
+    raw=getattr(response,"headers",{}).get("Retry-After","")
+    delay=0
+    if isinstance(raw,str) and len(raw)<=100:
+        try:
+            if re.fullmatch(r"\d+",raw.strip()):
+                delay=int(raw.strip())
+            elif raw.strip():
+                until=parsedate_to_datetime(raw.strip())
+                if until.tzinfo is not None:
+                    delay=(until-dt.datetime.now(dt.timezone.utc)).total_seconds()
+        except (ValueError,TypeError,OverflowError):
+            delay=0
+    return max(QUOTA_COOLDOWN_SECONDS,delay)
 
 
 class MailSheetsReadError(MailAuditError):
@@ -588,10 +623,13 @@ class MailSheetsReadError(MailAuditError):
         super().__init__(f"MAIL_SHEETS_READ_FAILED phase={phase} rows={rows} failure={failure}")
 
 
-def get_json(session,url,phase,rows=0):
+def get_json(session,url,phase,rows=0,pacer=None):
     if phase not in READ_PHASES or type(rows) is not int or rows<0:
         raise MailAuditError("MAIL_READ_DIAGNOSTIC_SCOPE")
     for attempt in range(5):
+        delay=min(30,2**(attempt+1))
+        if pacer is not None:
+            pacer.wait()
         try:
             r=session.get(url,timeout=60)
         except OSError:
@@ -615,11 +653,17 @@ def get_json(session,url,phase,rows=0):
             # Oversize requests should be split, not retried unchanged.
             # Persistent timeouts can also benefit from smaller chunks.
             retry=status in RETRY_HTTP and attempt<(2 if status in SPLIT_HTTP else 4)
+            if status==429 and retry:
+                delay=quota_cooldown(r)
+                # Do not violate a requested longer wait or exceed this
+                # bounded reader's recovery budget. Fail without splitting.
+                if delay>MAX_QUOTA_COOLDOWN_SECONDS:
+                    raise MailSheetsReadError(phase,rows,"HTTP_429_RETRY_AFTER_BOUND") from None
         if not retry:
             raise error from None
         print(f"MAIL_SHEETS_RETRY phase={phase} rows={rows} attempt={attempt+1} "
-              f"failure={str(error).rsplit('failure=',1)[-1]}",flush=True)
-        time.sleep(min(30,2**(attempt+1)))
+              f"failure={str(error).rsplit('failure=',1)[-1]} wait_seconds={int(delay)}",flush=True)
+        time.sleep(delay)
     raise MailAuditError("MAIL_SHEETS_RETRY_BOUND")
 
 
@@ -642,8 +686,9 @@ def bounded_reads(read_ranges,phase,start,end,pieces,depth=0):
 
 def read_canonical(session,book):
     root="https://sheets.googleapis.com/v4/spreadsheets/"+book
+    pacer=ReadPacer()
     def meta(phase):
-        obj=get_json(session,root+"?fields=spreadsheetId,sheets(properties(title,sheetId,gridProperties))",phase)
+        obj=get_json(session,root+"?fields=spreadsheetId,sheets(properties(title,sheetId,gridProperties))",phase,pacer=pacer)
         if obj.get("spreadsheetId")!=book:
             raise MailAuditError("MAIL_CATALOG_ID_MISMATCH")
         p=[s["properties"] for s in obj.get("sheets",[]) if s["properties"].get("title")==TAB]
@@ -662,7 +707,7 @@ def read_canonical(session,book):
             raise MailAuditError("MAIL_RANGE_BATCH_BOUND")
         query=urllib.parse.urlencode([("ranges","'"+TAB+"'!"+a) for a in ranges]+
                                      [("majorDimension","ROWS"),("valueRenderOption","FORMATTED_VALUE")])
-        obj=get_json(session,root+"/values:batchGet?"+query,phase,rows)
+        obj=get_json(session,root+"/values:batchGet?"+query,phase,rows,pacer=pacer)
         if obj.get("spreadsheetId")!=book or len(obj.get("valueRanges",[]))!=len(ranges):
             raise MailAuditError("MAIL_BATCH_RANGE_SET_MISMATCH")
         out=[]
