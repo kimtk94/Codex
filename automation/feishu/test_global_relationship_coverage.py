@@ -1,0 +1,193 @@
+"""Synthetic tests only; no business data or source calls."""
+import copy
+import json
+import unittest
+from unittest.mock import patch
+import global_relationship_coverage as g
+
+P="AMEA2026000001"
+Q="AMEA2026000002"
+H="H209SC26000001"
+X="X209SC26000001-Z01"
+X2="X209SC26000001-Z02"
+S="SAM20260000001"
+CMS="209126000001"
+QID="QID-2026-000001"
+QUOTE="a0PAbc123456789"
+OPP="OPP-2026-000001"
+
+def rows():
+    return {name:[] for name in g.SOURCES}
+
+class CoverageTests(unittest.TestCase):
+    def test_literal_keys_not_column_label_or_name(self):
+        self.assertEqual(g.keys(QID,"QID"),({("QID",QID)},"OBSERVED"))
+        self.assertEqual(g.keys(QID,"AMEA"),(set(),"FORMAT_REVIEW"))
+        self.assertEqual(g.keys(QUOTE+"AAA","QUOTE_OBJECT"),({("QUOTE_OBJECT",QUOTE)},"OBSERVED"))
+        self.assertEqual(g.keys(QUOTE.upper(),"QUOTE_OBJECT"),(set(),"FORMAT_REVIEW"))
+        self.assertEqual(g.keys("006123456789012","OPP_REF"),(set(),"FORMAT_REVIEW"))
+        self.assertEqual(g.keys("OPP-2026-1","OPP_ANY"),({("OPP_REF","OPP-2026-1")},"OBSERVED"))
+
+    def test_union_preserves_outside_baseline_without_owner_filter(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":S}]
+        s["BI Project Lifecycle Overview"]=[{"AMEA":Q,"Project / Sub-project":X}]
+        s["Feishu Latest Outstanding"]=[{"Quotation Number":Q,"Project Number":"X209SC26000001",
+                                           "CMS Invoice Number":CMS,"Sales":"OTHER_SALES"}]
+        before=copy.deepcopy(s)
+        out=g.coverage(s)
+        self.assertEqual(out["core_amea_union"],2)
+        self.assertEqual(out["css_sif_amea_baseline"],1)
+        self.assertEqual(out["core_amea_outside_css_sif"],1)
+        self.assertEqual(out["observed_reference_edges"]["CMS->AMEA"],1)
+        self.assertEqual(out["observed_reference_edges"]["CMS->X_REPORTED"],1)
+        self.assertEqual(out["observed_reference_edges"]["X_PROJECT->AMEA"],1)
+        self.assertFalse(out["owner_filter_applied"])
+        self.assertEqual(out["business_writes"],0)
+        self.assertEqual(s,before)
+        for ident in (P,Q,X,H,S,CMS):
+            self.assertNotIn(ident,json.dumps(out))
+
+    def test_multix_and_multisam_no_cross_product(self):
+        s=rows()
+        s["CSS Project Timeline"]=[{"project_id":P,"h_project_numbers":H+";H209SC26000002",
+                                      "sam_numbers":S+";SAM20260000002"}]
+        s["BI Project Lifecycle Overview"]=[{"AMEA":P,"Project / Sub-project":x} for x in (X,X2)]
+        out=g.coverage(s)
+        e=out["observed_reference_edges"]
+        self.assertEqual(e["AMEA->H"],2)
+        self.assertEqual(e["AMEA->SAM"],2)
+        self.assertEqual(e["X_PROJECT->AMEA"],2)
+        self.assertNotIn("H->SAM",e)
+        self.assertNotIn("X_PROJECT->SAM",e)
+        self.assertEqual(out["multiple_parent_candidate_review"],{})
+
+    def test_conflicting_amea_preserved_and_reviewed(self):
+        s=rows()
+        s["BI Project Lifecycle Overview"]=[{"AMEA":a,"Project / Sub-project":X} for a in (P,Q)]
+        out=g.coverage(s)
+        self.assertEqual(out["observed_reference_edges"]["X_PROJECT->AMEA"],2)
+        self.assertEqual(out["multiple_parent_candidate_review"],{"X_PROJECT->AMEA":1})
+        self.assertEqual(out["relationship_certification"],"NOT_ATTESTED_BY_THIS_AUDIT")
+
+    def test_quote_alias_and_repeated_line_dedup(self):
+        s=rows()
+        s["Quote Portfolio"]=[{"Approved AMEA ID":P,"Quote QID":QID,
+                               "Salesforce Quote ID (18)":QUOTE+"AAA","Opportunity ID":OPP}]
+        s["SFDC Quote Export"]=[{"Salesforce Record ID":QUOTE,"AMEA Quotation ID":QID,
+                                   "Opportunity ID":OPP,"Account ID":"","Contact ID":""}]
+        line={"SFDC Quotation ID":QID,"Quotation Product ID":"QD-2026-01",
+              "Opportunity ID":OPP,"Contact ID":"","*Account Id":""}
+        s["SFDC Email Quotation Raw"]=[line,line.copy()]
+        out=g.coverage(s)
+        self.assertEqual(out["observed_reference_edges"]["QID->QUOTE_OBJECT"],1)
+        self.assertEqual(out["multi_source_observed_edges"]["QID->QUOTE_OBJECT"],1)
+        self.assertEqual(out["observed_reference_edges"]["QID->OPP_REF"],1)
+        self.assertEqual(out["observed_reference_edges"]["QID->QUOTE_PRODUCT_REF"],1)
+        self.assertEqual(out["distinct_typed_identifiers"]["AMEA"],1)
+
+    def test_empty_sources_and_group_receipts_no_inferred_payment(self):
+        s=rows()
+        s["Feishu Latest Receipts"]=[{"CMS No.":CMS+";209126000002","CMS No. [2]":"",
+                                      "CMS No. [3]":""}]
+        out=g.coverage(s)
+        self.assertEqual(out["distinct_typed_identifiers"]["CMS"],2)
+        self.assertEqual(out["observed_reference_edges"],{})
+        self.assertEqual(out["sources"]["SFDC Raw - Account"]["population_status"],"NO_ROWS_OBSERVED")
+        self.assertEqual(out["field_observation_counts"]["Feishu Latest Receipts"]["CMS No. [2]"],{"EMPTY":1})
+
+    def test_partial_malformed_list_not_promoted(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H+";bad",
+                                       "sam_numbers":""}]
+        out=g.coverage(s)
+        self.assertEqual(out["distinct_typed_identifiers"]["H"],1)
+        self.assertNotIn("AMEA->H",out["observed_reference_edges"])
+        self.assertEqual(out["field_observation_counts"]["CSS Project Dashboard"]["h_project_numbers"],
+                         {"PARTIAL_FORMAT_REVIEW":1})
+
+    def test_missing_tab_or_fields_fail_closed(self):
+        s=rows()
+        del s["CSS Project Dashboard"]
+        with self.assertRaisesRegex(g.CoverageError,"SOURCE_SET_INCOMPLETE"):
+            g.coverage(s)
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P}]
+        with self.assertRaisesRegex(g.CoverageError,"SOURCE_FIELDS_INCOMPLETE"):
+            g.coverage(s)
+
+class ProjectRelationshipTests(unittest.TestCase):
+    def test_prepayment_expands_population_without_board_or_owner_filter(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":S}]
+        s["Feishu Latest Prepayments"]=[{"Quotation Number":Q,"Project Number":"X209SC26000999",
+                                          "CMS Invoice Number":CMS,"Sales":"OTHER_SALES"}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(out["core"]["amea"],1)
+        self.assertEqual(out["expanded"]["amea"],2)
+        self.assertEqual(out["outside_baseline"]["amea"],1)
+        self.assertEqual(out["expanded"]["finance_x"],1)
+        self.assertEqual(details[1]["x_observation_state"],"FINANCE_X_REFERENCE_ONLY")
+        self.assertFalse(out["owner_filter_applied"])
+        self.assertNotIn(CMS,json.dumps(out))
+
+    def test_h_root_candidate_and_exact_lifecycle_separate(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H+"-B01","sam_numbers":S}]
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X},
+                                    {"Contract Number":H,"Sub-Project Number":X2}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(details[0]["current_h_candidates"],{X:["H_ROOT_CANDIDATE_ONLY"],X2:["H_ROOT_CANDIDATE_ONLY"]})
+        self.assertEqual(out["expanded"]["any_direct_x"],0)
+        s["BI Project Lifecycle Overview"]=[{"AMEA":P,"Project / Sub-project":X}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(details[0]["current_online_exact_lifecycle_x"],[X])
+        self.assertEqual(details[0]["current_h_candidates"],{X2:["H_ROOT_CANDIDATE_ONLY"]})
+
+    def test_finance_base_and_suffixed_reference_not_inferred(self):
+        s=rows()
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X},
+                                    {"Contract Number":H,"Sub-Project Number":X2}]
+        s["Feishu Latest Outstanding"]=[{"Quotation Number":P,"Project Number":"X209SC26000001",
+                                          "CMS Invoice Number":CMS}]
+        s["Feishu Latest eTax"]=[{"Quotation Number":P,"Project Number":"X209SC26000001-Z03",
+                                  "CMS Invoice Num":CMS}]
+        out,details=g.project_relationships(s)
+        candidates=details[0]["finance_x_candidates"]
+        self.assertEqual(candidates[0]["current_x_candidates"],[X,X2])
+        self.assertEqual(candidates[1]["current_x_candidates"],[])
+        self.assertEqual(details[0]["current_online_exact_lifecycle_x"],[])
+        self.assertEqual(details[0]["invoice_cms"],[CMS])
+
+    def test_shared_reference_kept_and_receipt_not_payment(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":p,"h_project_numbers":H,"sam_numbers":S} for p in (P,Q)]
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X}]
+        s["Feishu Latest Outstanding"]=[{"Quotation Number":p,"Project Number":"X209SC26000001",
+                                          "CMS Invoice Number":CMS} for p in (P,Q)]
+        s["Feishu Latest Receipts"]=[{"CMS No.":CMS+";209126000002","CMS No. [2]":"","CMS No. [3]":""}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(out["shared_reference_counts"]["CMS"],1)
+        self.assertEqual(out["shared_reference_counts"]["H_ROOT"],1)
+        self.assertEqual(out["expanded"]["receipt_cms_reference"],2)
+        self.assertEqual(details[0]["current_h_candidates"],{X:["SHARED_H_ROOT_REVIEW"]})
+        self.assertEqual(details[0]["receipt_cms_references"],{CMS:["GROUP_OR_PARTIAL_CMS_CELL_REFERENCE"]})
+        self.assertEqual(out["payment_status"],"NOT_ATTESTED_BY_REFERENCE_OBSERVATION")
+
+    def test_invalid_anchor_not_silently_dropped_and_partial_reference_review(self):
+        s=rows()
+        s["CSS Project Timeline"]=[{"project_id":P,"h_project_numbers":H+";bad","sam_numbers":S},
+                                     {"project_id":"","h_project_numbers":H,"sam_numbers":S}]
+        out,details=g.project_relationships(s)
+        self.assertEqual(out["rows_without_valid_amea"]["CSS Project Timeline"],
+                         {"EMPTY_AMEA":1,"WITH_H_REFERENCE":1,"WITH_SAM_REFERENCE":1})
+        self.assertEqual(details[0]["refs"]["H"],{H:["CSS Project Timeline"]})
+        self.assertTrue(any(r["state"]=="PARTIAL_FORMAT_REVIEW" for r in details[0]["field_review"]))
+
+    def test_private_report_disabled_in_ci(self):
+        with patch.dict("os.environ",{"GITHUB_ACTIONS":"true"}):
+            with self.assertRaisesRegex(g.CoverageError,"FORBIDDEN_IN_CI"):
+                g.private_project_report("/not-created.json",{},[])
+
+if __name__=="__main__":
+    unittest.main()
