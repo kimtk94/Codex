@@ -72,3 +72,19 @@ and reconcile the six missing source references, recover source amounts
 and validate complete source freshness before proposing any production
 chart or monthly publication change. Existing original statement and
 invoice authority contracts are unchanged.
+
+
+## Invoice/issue-only evidence coverage (follow-up)
+
+The audit enumerates the union of original ready notices, Lifecycle open J+X,
+verified invoice J+X, original issue notices and cancellation notices. A
+verified invoice without a ready notice is issued evidence; an original issue
+notice without a verified extract is review-only; a cancellation-only key is
+review-only. None generates a positive Statement pending amount without an
+eligible ready notice. Each observed exact X holds a stale general project
+estimate once, never an unrelated X or an inferred residual. A verified invoice
+and issue notice for the same J+X are one member. Future-dated events remain
+outside the audit. Summary counts distinguish ready-notice keys from the
+expanded billing evidence population. No-J/ambiguous references remain review
+rather than invented J+X membership. Existing invoice evidence admission and
+read-only scope are unchanged; this is not an independent original MIME audit.
