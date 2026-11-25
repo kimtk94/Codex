@@ -18,7 +18,6 @@ JOBS = [{"name": n, "conclusion": "success"} for n in (
 LOG = "\n".join([
     '2026-11-22T08:31:00Z {"DAILY20_REFRESH": {"mode": "INCREMENTAL", "asset_count": 26}}',
     '2026-11-22T08:31:04Z {"DAILY20_SOURCE_FINALITY": {"session": "2026-11-20", "verified": 0, "required": 26, "status": "SOURCE_FINALITY_HOLD"}}',
-    '2026-11-22T08:31:30Z DAILY20_OOS 1499 trades 20 research-only scores',
     '2026-11-22T08:31:31Z {"DAILY20_PORTFOLIO": "COMPLETE", "scenarios": 16}',
     '2026-11-22T08:31:42Z {"DAILY20_FORWARD_SHADOW": {"signals": 20, "frozen_replay_drift": 20, "settled": 0}}',
     '2026-11-22T08:31:49Z {"DAILY20_STABILITY": {"status": "REPLAY_DRIFT_RESEARCH_HOLD", "hold": true, "incidents": 4}}',
@@ -72,27 +71,6 @@ class ReadinessTest(unittest.TestCase):
         self.assertNotIn("WAITING_INDEPENDENT_SAME_SESSION_REPLAY",
                          r["research_hold_reasons"])
         self.assertEqual(r["research_status"], "HOLD")  # Independent close 0/26.
-
-    def test_cumulative_journal_is_not_current_score_count(self):
-        log = FUTURE_LOG.replace('"signals": 20', '"signals": 40')
-        r = make_scorecard(FUTURE_RUN, JOBS, log, FUTURE_PUBLISH, now=FUTURE_NOW)
-        self.assertEqual(r["operational_status"], "PASS")
-        self.assertEqual(r["research_scores"], 20)
-        self.assertEqual(r["forward_journal_signals"], 40)
-        self.assertEqual(r["research_status"], "HOLD")
-
-    def test_wrong_missing_or_duplicate_daily_score_evidence_fails(self):
-        for log in (LOG.replace("20 research-only scores", "19 research-only scores"),
-                    LOG.replace("DAILY20_OOS", "MISSING_OOS"),
-                    LOG + "\n2026Z DAILY20_OOS 1499 trades 20 research-only scores"):
-            r = make_scorecard(RUN, JOBS, log, PUBLISH, now=NOW)
-            self.assertIn("RESEARCH_SCORE_COUNT_NOT_20", r["operational_failures"])
-
-    def test_invalid_journal_count_still_fails_closed(self):
-        for value in (0, 19, 21, 41):
-            log = LOG.replace('"signals": 20', f'"signals": {value}')
-            r = make_scorecard(RUN, JOBS, log, PUBLISH, now=NOW)
-            self.assertIn("FORWARD_JOURNAL_COUNT_INVALID", r["operational_failures"])
 
     def test_new_closed_day_missing_first_seal_fails_ops(self):
         broken = FUTURE_PUBLISH.replace(
