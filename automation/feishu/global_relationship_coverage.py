@@ -509,7 +509,9 @@ def registry_reference_audit(sources,evidence):
         n=value(r,"Invoice Number")
         q=quote18(value(r,"SFDC Quote ID"))
         p=value(r,"AMEA Project ID").upper()
-        if re.fullmatch(FORMATS["INVOICE_DOCUMENT_REF"],n) and q and re.fullmatch(FORMATS["AMEA"],p):
+        if re.fullmatch(FORMATS["INVOICE_DOCUMENT_REF"],n):
+            # Keep malformed parents in the comparison rather than letting a
+            # valid row hide a conflicting or missing parent for the same key.
             payment[n].add((q,p))
     invoice_refs={}
     for name in ("CSS Tax Invoice List","CSS Tax Invoice Extract"):
@@ -587,7 +589,7 @@ def registry_reference_audit(sources,evidence):
             opp=value(a,"Opportunity ID")
             if (value(a,"Approved AMEA ID").upper()!=p or len(p_amea.get(p,[]))!=1):
                 state="PORTFOLIO_AMEA_REVIEW"
-            elif (not re.fullmatch(FORMATS["QID"],qid) or not re.fullmatch(FORMATS["OPP_REF"],opp)
+            elif (not re.fullmatch(FORMATS["QID"],qid) or not re.fullmatch(FORMATS["OPP_REF"],opp.upper())
                     or qid!=value(b,"AMEA Quotation ID") or opp!=value(b,"Opportunity ID")
                     or len(p_qid.get(qid,[]))!=1 or len(e_qid.get(qid,[]))!=1):
                 state="QID_OPPORTUNITY_REFERENCE_REVIEW"
@@ -636,6 +638,124 @@ def registry_reference_audit(sources,evidence):
             "cms_identity":"NOT_INFERRED_FROM_DOCUMENT_NUMBER",
             "owner_payment_issuance_certification":"NOT_ATTESTED",
             "business_writes":0}
+
+
+def registry_expansion_audit(sources,evidence,projects):
+    """Partition nonmail AMEA outside the stored registry, without proposing writes."""
+    registry={value(r,"amea_quote_id").upper() for r in sources[REGISTRY_NAME]
+              if re.fullmatch(FORMATS["AMEA"],value(r,"amea_quote_id").upper())}
+    def index(rows,field,normalize=lambda x:x):
+        result=defaultdict(list)
+        for r in rows:
+            key=normalize(value(r,field))
+            if key:
+                result[key].append(r)
+        return result
+    p=sources["Quote Portfolio"]
+    e=sources["SFDC Quote Export"]
+    by_amea=index(p,"Approved AMEA ID",str.upper)
+    p_object=index(p,"Salesforce Quote ID (18)",quote18)
+    e_object=index(e,"Salesforce Record ID",quote18)
+    p_qid=index(p,"Quote QID")
+    e_qid=index(e,"AMEA Quotation ID")
+    opps=index(sources["SFDC Email Opportunities Raw"],"Opportunity ID")
+    rels=index(sources["SFDC Verified Relations"],"Quotation ID")
+    pay=defaultdict(set)
+    pay_amea=defaultdict(set)
+    for r in evidence["Payment & Tax Invoice"]:
+        n=value(r,"Invoice Number")
+        pid=value(r,"AMEA Project ID").upper()
+        if re.fullmatch(FORMATS["INVOICE_DOCUMENT_REF"],n):
+            pay[n].add((quote18(value(r,"SFDC Quote ID")),pid))
+            pay_amea[pid].add(n)
+    document=defaultdict(set)
+    for name in ("CSS Tax Invoice List","CSS Tax Invoice Extract"):
+        for r in evidence[name]:
+            n=value(r,"invoice_number")
+            if re.fullmatch(FORMATS["INVOICE_DOCUMENT_REF"],n):
+                document[n].add(value(r,"project_id").upper())
+    population={r["amea"] for r in projects}
+    if len(population)!=len(projects):
+        raise CoverageError("REGISTRY_EXPANSION_DUPLICATE_AMEA")
+    groups=Counter()
+    counts=Counter()
+    references=Counter()
+    source_counts=Counter()
+    exact_opp=set()
+    document_triples=set()
+    for r in projects:
+        pid=r["amea"]
+        if pid in registry:
+            continue
+        refs=r["refs"]
+        portfolio=by_amea.get(pid,[])
+        for kind in ("QID","H","SAM","SIF","LIFECYCLE_X","FINANCE_X","CMS"):
+            if refs.get(kind):
+                references[kind]+=1
+        if refs.get("LIFECYCLE_X") or refs.get("FINANCE_X"):
+            references["ANY_X"]+=1
+        if r["current_online_exact_lifecycle_x"]:
+            references["EXACT_CURRENT_LIFECYCLE"]+=1
+        if any(f["current_x_candidates"] for f in r["finance_x_candidates"]):
+            references["FINANCE_CURRENT_X_CANDIDATE"]+=1
+        if r["shared_reference_review"]:
+            references["SHARED_REFERENCE_REVIEW"]+=1
+        references["MULTIPLE_SOURCES" if len(r["source_tables"])>1 else "SINGLE_SOURCE"]+=1
+        source_counts.update(r["source_tables"])
+        if len(portfolio)>1:
+            state="PORTFOLIO_MULTIPLE_REVIEW"
+        elif portfolio:
+            a=portfolio[0]
+            q=quote18(value(a,"Salesforce Quote ID (18)"))
+            qid=value(a,"Quote QID")
+            opp=value(a,"Opportunity ID")
+            if not q or len(p_object.get(q,[]))!=1 or len(e_object.get(q,[]))!=1:
+                state="QUOTE_OBJECT_REVIEW"
+            elif (not re.fullmatch(FORMATS["QID"],qid)
+                    or not re.fullmatch(FORMATS["OPP_REF"],opp.upper())
+                    or len(p_qid.get(qid,[]))!=1 or len(e_qid.get(qid,[]))!=1
+                    or qid!=value(e_object[q][0],"AMEA Quotation ID")
+                    or opp!=value(e_object[q][0],"Opportunity ID")):
+                state="QID_OPPORTUNITY_REFERENCE_REVIEW"
+            else:
+                # Case-insensitive syntax checks above do not authorize
+                # case-folded identity joins; source values must match exactly.
+                exact_opp.add(opp)
+                counts["exact_quote_reference_projects"]+=1
+                if value(a,"Active")=="ACTIVE":
+                    counts["portfolio_active_label_observed"]+=1
+                if len(opps.get(opp,[]))==1:
+                    counts["opportunity_report_unique"]+=1
+                relation=rels.get(qid,[])
+                if len(relation)==1 and value(relation[0],"Opportunity ID")==opp:
+                    counts["verified_relation_reference_exact"]+=1
+                if value(e_object[q][0],"Account ID"):
+                    counts["export_account_reference_observed"]+=1
+                if value(e_object[q][0],"Contact ID"):
+                    counts["export_contact_reference_observed"]+=1
+                docs={(q,pid,n) for n in pay_amea[pid] if pay[n]=={(q,pid)} and document[n]=={pid}}
+                document_triples.update(docs)
+                state=("EXACT_DOCUMENT_QUOTE_REFERENCE_CANDIDATE" if docs
+                       else "EXACT_QUOTE_REFERENCE_ONLY")
+        elif r["current_online_exact_lifecycle_x"]:
+            state="EXACT_CURRENT_LIFECYCLE_NO_QUOTE"
+        elif refs.get("LIFECYCLE_X") or refs.get("FINANCE_X"):
+            state="X_REFERENCE_REVIEW_NO_QUOTE"
+        elif any(refs.get(k) for k in ("H","SAM","SIF")):
+            state="H_SAM_SIF_REFERENCE_NO_QUOTE"
+        else:
+            state="OTHER_REFERENCE_REVIEW"
+        groups[state]+=1
+    if sum(groups.values())!=len(population-registry):
+        raise CoverageError("REGISTRY_EXPANSION_PARTITION_MISMATCH")
+    return {"observed_nonmail_amea":len(population),"registry_amea":len(registry),
+            "registry_amea_in_population":len(population & registry),
+            "registry_amea_outside_population":len(registry-population),
+            "outside_registry_amea":len(population-registry),"candidate_partition":dict(groups),
+            "reference_coverage":dict(references),"source_coverage":dict(source_counts),
+            "quote_reference_counts":dict(counts),"distinct_exact_opportunity_refs":len(exact_opp),
+            "exact_document_quote_candidate_triples":len(document_triples),
+            "status":"CANDIDATE_REFERENCES_ONLY_NOT_AUTHORIZED_FOR_WRITES","business_writes":0}
 
 
 def read_sources(session,specs=SOURCES):
@@ -702,6 +822,7 @@ def main():
     summary = coverage(sources)
     summary["registry_reference_audit"] = registry_reference_audit(sources,evidence)
     summary["project_reference_coverage"], details = project_relationships(sources)
+    summary["registry_expansion_audit"] = registry_expansion_audit(sources,evidence,details)
     summary["read_started_kst"] = started
     summary["read_finished_kst"] = dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
     if args.private_project_report:
