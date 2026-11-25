@@ -473,6 +473,75 @@ class RegistryReferenceTests(unittest.TestCase):
         self.assertEqual(out["cohorts"]["NO_DIRECT_X"]["counts"]["has_h"],1)
         self.assertEqual(out["cohorts"]["NO_DIRECT_X"]["counts"]["shared_reference_review"],1)
 
+    def historical_audit(self,s):
+        _,details=g.project_relationships(s)
+        return g.registry_historical_h_sam_audit(s,details)
+
+    def test_h_sam_literal_agreement_and_dates_not_pair_or_status(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":S}]
+        s["CSS Project Timeline"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":S,
+                                     "received_at":"2025-10-01T01:00:00+09:00"},
+                                    {"project_id":P,"h_project_numbers":H,"sam_numbers":S,
+                                     "received_at":"2026-03-01 10:00:00"}]
+        before=copy.deepcopy(s)
+        out=self.historical_audit(s)
+        self.assertEqual(out["reference_states"],{"H_AND_SAM_CORROBORATED_LITERAL_REFERENCES":1})
+        self.assertEqual(out["distinct_h_contract_refs"],1)
+        self.assertEqual(out["distinct_sam_refs"],1)
+        self.assertEqual(out["timeline_rows_with_h_and_sam"],2)
+        self.assertEqual(out["latest_parseable_timeline_year_counts"],{"2026":1})
+        self.assertEqual(out["h_sam_pair_assignment"],"NOT_INFERRED_FROM_COOCCURRENCE")
+        self.assertEqual(out["same_stream_agreement"],"NOT_INDEPENDENT_EVIDENCE")
+        self.assertEqual(out["current_or_completed_status"],"NOT_ATTESTED")
+        self.assertEqual(s,before)
+        self.assertEqual(out["business_writes"],0)
+        for ident in (P,H,S):
+            self.assertNotIn(ident,json.dumps(out))
+
+    def test_h_sam_shared_root_and_sample_do_not_merge_amea(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H+"-B01","sam_numbers":S}]
+        s["CSS Project Timeline"]=[{"project_id":P,"h_project_numbers":H+"-B01","sam_numbers":S},
+                                    {"project_id":Q,"h_project_numbers":H+"-B02","sam_numbers":S}]
+        out=self.historical_audit(s)
+        self.assertEqual(out["reference_states"],{"SHARED_H_OR_SAM_REVIEW":2})
+        self.assertEqual(out["distinct_h_contract_refs"],2)
+        self.assertEqual(out["distinct_shared_h_roots"],1)
+        self.assertEqual(out["distinct_shared_sam_refs"],1)
+
+    def test_h_sam_partial_format_is_review_and_not_clean_cooccurrence(self):
+        s=rows()
+        s["CSS Project Dashboard"]=[{"project_id":P,"h_project_numbers":H,"sam_numbers":S}]
+        s["CSS Project Timeline"]=[{"project_id":P,"h_project_numbers":H+";bad","sam_numbers":S,
+                                     "received_at":"2026-02-30"}]
+        out=self.historical_audit(s)
+        self.assertEqual(out["reference_states"],{"H_SAM_FORMAT_REVIEW":1})
+        self.assertEqual(out["timeline_rows_with_h_and_sam"],0)
+        self.assertEqual(out["latest_parseable_timeline_year_counts"],{"UNKNOWN":1})
+
+    def test_h_sam_h_root_match_not_exact_suffix_or_x_assignment(self):
+        s=rows()
+        s["CSS Project Timeline"]=[{"project_id":P,"h_project_numbers":H+"-B01","sam_numbers":""}]
+        s["Feishu Latest Online"]=[{"Contract Number":H+"-B02","Sub-Project Number":X}]
+        out=self.historical_audit(s)
+        self.assertEqual(out["reference_states"],{"H_TIMELINE_REFERENCE_ONLY":1})
+        self.assertEqual(out["counts"]["h_root_observed_in_current_online"],1)
+        self.assertNotIn("exact_h_observed_in_current_online",out["counts"])
+        self.assertEqual(out["current_or_completed_status"],"NOT_ATTESTED")
+
+    def test_h_sam_excludes_quote_registry_and_direct_x(self):
+        s,e=self.fixture()
+        s["Quote Portfolio"][0]["Approved AMEA ID"]=Q
+        third="AMEA2026000003"
+        fourth="AMEA2026000004"
+        s["CSS Project Timeline"]=[{"project_id":pid,"h_project_numbers":H,"sam_numbers":S}
+                                   for pid in (P,Q,third,fourth)]
+        s["BI Project Lifecycle Overview"]=[{"AMEA":third,"Project / Sub-project":X}]
+        out=self.historical_audit(s)
+        self.assertEqual(out["amea"],1)
+        self.assertEqual(out["reference_states"],{"SHARED_H_OR_SAM_REVIEW":1})
+
     def test_duplicate_registry_key_fails_closed(self):
         s,e=self.fixture()
         s[g.REGISTRY_NAME].append(s[g.REGISTRY_NAME][0].copy())
