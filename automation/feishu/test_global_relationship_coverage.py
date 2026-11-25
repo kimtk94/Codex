@@ -330,7 +330,80 @@ class RegistryReferenceTests(unittest.TestCase):
             **{"Salesforce Quote ID (18)":g.quote18("a0P123456789012")}))
         _,details=g.project_relationships(s)
         out=g.registry_expansion_audit(s,e,details)
-        self.assertEqual(out["candidate_partition"],{"PORTFOLIO_MULTIPLE_REVIEW":1})
+        self.assertEqual(out["candidate_partition"],{"MULTI_QUOTE_NO_EXACT_REFERENCE_REVIEW":1})
+
+    def multi_fixture(self):
+        s,e=self.fixture()
+        s[g.REGISTRY_NAME]=[]
+        e["Payment & Tax Invoice"]=[]
+        s["SFDC Quote Export"][0].update({"IsActive":"1","Account ID":"account-one",
+                                         "Contact ID":"contact-one"})
+        other_quote=g.quote18("a0P123456789012")
+        other_qid="QID-2026-000002"
+        s["Quote Portfolio"].append(dict(s["Quote Portfolio"][0],
+            **{"Salesforce Quote ID (18)":other_quote,"Quote QID":other_qid,"Active":"INACTIVE"}))
+        s["SFDC Quote Export"].append(dict(s["SFDC Quote Export"][0],
+            **{"Salesforce Record ID":other_quote,"AMEA Quotation ID":other_qid,"IsActive":"0"}))
+        s["SFDC Verified Relations"].append(dict(s["SFDC Verified Relations"][0],
+                                                **{"Quotation ID":other_qid}))
+        return s,e
+
+    def multi_audit(self,s,e):
+        _,details=g.project_relationships(s)
+        return g.registry_expansion_audit(s,e,details)
+
+    def test_multi_quote_same_opportunity_preserves_both_rows(self):
+        s,e=self.multi_fixture()
+        before=copy.deepcopy((s,e))
+        out=self.multi_audit(s,e)
+        multi=out["multi_quote_reference_audit"]
+        self.assertEqual(out["candidate_partition"],{"MULTI_QUOTE_EXACT_SINGLE_OPPORTUNITY":1})
+        self.assertEqual(multi["quote_row_states"],{"EXACT_QUOTE_REFERENCE":2})
+        self.assertEqual(multi["counts"]["exact_quote_rows"],2)
+        self.assertEqual(multi["counts"]["activity_agreement_rows"],2)
+        self.assertEqual(multi["counts"]["groups_all_verified_relation_refs_exact"],1)
+        self.assertEqual(multi["observed_active_labels_per_fully_exact_amea"],{"1":1})
+        self.assertEqual(multi["primary_quote_selection"],"NOT_PERFORMED")
+        self.assertEqual(out["fully_exact_single_or_multi_quote_projects"],1)
+        self.assertEqual(out["distinct_opportunity_refs_single_and_fully_exact_multi"],1)
+        self.assertEqual(out["exact_document_quote_candidate_triples"],0)
+        self.assertEqual((s,e),before)
+        self.assertNotIn(P,json.dumps(out))
+        self.assertNotIn(QUOTE,json.dumps(out))
+
+    def test_multi_quote_account_contact_variation_is_review_not_merge(self):
+        s,e=self.multi_fixture()
+        s["SFDC Quote Export"][1].update({"Account ID":"account-two","Contact ID":"contact-two"})
+        out=self.multi_audit(s,e)["multi_quote_reference_audit"]["counts"]
+        self.assertEqual(out["groups_multiple_account_refs_review"],1)
+        self.assertEqual(out["groups_multiple_contact_refs_review"],1)
+        self.assertEqual(out["groups_single_opportunity_ref"],1)
+
+    def test_multi_quote_different_opportunity_is_review(self):
+        s,e=self.multi_fixture()
+        s["Quote Portfolio"][1]["Opportunity ID"]="Opp-2026-000002"
+        s["SFDC Quote Export"][1]["Opportunity ID"]="Opp-2026-000002"
+        out=self.multi_audit(s,e)
+        self.assertEqual(out["candidate_partition"],{"MULTI_QUOTE_EXACT_MULTIPLE_OPPORTUNITY_REVIEW":1})
+        self.assertEqual(out["multi_quote_reference_audit"]["counts"]["groups_multiple_opportunity_refs_review"],1)
+        self.assertEqual(out["distinct_opportunity_refs_single_and_fully_exact_multi"],2)
+
+    def test_multi_quote_partial_reference_stays_review(self):
+        s,e=self.multi_fixture()
+        s["SFDC Quote Export"].pop()
+        out=self.multi_audit(s,e)
+        self.assertEqual(out["candidate_partition"],{"MULTI_QUOTE_PARTIAL_REFERENCE_REVIEW":1})
+        self.assertEqual(out["multi_quote_reference_audit"]["counts"]["exact_quote_rows"],1)
+        self.assertEqual(out["fully_exact_single_or_multi_quote_projects"],0)
+
+    def test_multi_quote_activity_disagreement_or_unknown_is_not_certification(self):
+        s,e=self.multi_fixture()
+        s["SFDC Quote Export"][0]["IsActive"]="0"
+        s["SFDC Quote Export"][1]["IsActive"]=""
+        out=self.multi_audit(s,e)["multi_quote_reference_audit"]
+        self.assertEqual(out["counts"]["groups_with_activity_mismatch"],1)
+        self.assertEqual(out["counts"]["groups_with_activity_not_assessed"],1)
+        self.assertEqual(out["primary_quote_selection"],"NOT_PERFORMED")
 
     def test_duplicate_registry_key_fails_closed(self):
         s,e=self.fixture()
