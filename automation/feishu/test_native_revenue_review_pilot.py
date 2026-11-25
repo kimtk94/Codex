@@ -1,6 +1,7 @@
 import copy
 import json
 import unittest
+from unittest.mock import Mock,patch
 from native_revenue_review_pilot import *
 from test_dashboard_drilldown_plan import sources,inv
 
@@ -40,6 +41,9 @@ class Fake:
         self.writes.append("table")
         self.ts["tblReview"]=REVIEW;self.rows["tblReview"]=[]
         return "tblReview"
+    def bind_empty_recovery_table(self,t):
+        if t!=RECOVERY_TABLE or self.rows[t]:
+            fail("RECOVERY_TABLE_NOT_PROVEN_EMPTY")
     def create_members(self,t,rows):
         self.writes.append("members")
         for r in rows:
@@ -91,6 +95,55 @@ class PilotTests(unittest.TestCase):
             with self.assertRaises(DrilldownError):
                 reconcile(self.s,self.b,"apply",d)
         self.assertEqual(self.b.writes,[])
+
+    def test_approved_empty_table_recovery_and_completed_replay(self):
+        self.b.ts[RECOVERY_TABLE]=REVIEW
+        self.b.rows[RECOVERY_TABLE]=[]
+        with patch("native_revenue_review_pilot.RECOVERY_DIGEST",self.digest):
+            first=reconcile(self.s,self.b,"resume-empty",self.digest)
+            writes=list(self.b.writes)
+            second=reconcile(self.s,self.b,"resume-empty",self.digest)
+        self.assertEqual(first["state"],"RECOVERED_FROZEN_REVIEW_PILOT")
+        self.assertEqual(first["members"],90)
+        self.assertEqual(first["review_writes"],96)
+        self.assertEqual(writes,["members"]*4+["page"]+["block"]*5)
+        self.assertEqual(second["review_writes"],0)
+        self.assertEqual(self.b.writes,writes)
+
+    def test_recovery_refuses_wrong_table_digest_or_any_existing_row(self):
+        self.b.ts["tblOther"]=REVIEW
+        with self.assertRaisesRegex(DrilldownError,"RECOVERY_DIGEST_MISMATCH"):
+            reconcile(self.s,self.b,"resume-empty",self.digest)
+        with patch("native_revenue_review_pilot.RECOVERY_DIGEST",self.digest):
+            with self.assertRaisesRegex(DrilldownError,"RECOVERY_TABLE_ID"):
+                reconcile(self.s,self.b,"resume-empty",self.digest)
+            del self.b.ts["tblOther"]
+            self.b.ts[RECOVERY_TABLE]=REVIEW
+            self.b.rows[RECOVERY_TABLE]=[{"record_id":"recBlank","fields":{}}]
+            with self.assertRaisesRegex(DrilldownError,"NOT_PROVEN_EMPTY"):
+                reconcile(self.s,self.b,"resume-empty",self.digest)
+        self.assertFalse(self.b.writes)
+
+    def test_native_binding_requires_terminal_zero_and_separate_authorization(self):
+        request=Mock()
+        backend=NativeBackend(None,ROOT,request,None,allow_write=True)
+        backend.tables=lambda:{RECOVERY_TABLE:REVIEW}
+        backend.pages=lambda:{}
+        backend.fields=self.b.fields
+        with self.assertRaisesRegex(DrilldownError,"BIND_NOT_AUTHORIZED"):
+            backend.bind_empty_recovery_table(RECOVERY_TABLE)
+        request.assert_not_called()
+        backend.allow_empty_recovery=True
+        for page in ({},{"has_more":False,"items":[]},{"has_more":True,"total":0},
+                     {"has_more":False,"total":0,"items":[{}]},{"has_more":False,"total":False}):
+            request.return_value=page
+            with self.assertRaisesRegex(DrilldownError,"NOT_PROVEN_EMPTY"):
+                backend.bind_empty_recovery_table(RECOVERY_TABLE)
+            self.assertIsNone(backend.write_table)
+        request.return_value={"has_more":False,"total":0}
+        backend.bind_empty_recovery_table(RECOVERY_TABLE)
+        self.assertEqual(backend.write_table,RECOVERY_TABLE)
+        self.assertTrue(all(call.args[0]=="GET" for call in request.call_args_list))
 
     def test_official_mismatch_blocks(self):
         self.b.rows[OFFICIAL_ID][0]["fields"]["Invoice Count"]=47

@@ -4,6 +4,8 @@
 A dedicated frozen October-November 2026 analysis snapshot, not the official chart
 and not a recurring writer. Create only when both named targets are absent
 and the exact reviewed source digest and original monthly totals still match.
+An explicit one-time recovery can populate the independently verified empty
+table from run 45605295885 with the same frozen snapshot.
 Never update/delete existing tables, rows, views, or dashboard blocks.
 """
 import argparse
@@ -35,6 +37,8 @@ EXPECTED_COUNTS = {"2026-10":48,"2026-11":42}
 MONTHS = tuple(EXPECTED_COUNTS)
 EXPECTED_COUNT = sum(EXPECTED_COUNTS.values())
 DEFAULT_VIEW = "01 전체 집계 원본"
+RECOVERY_TABLE = "tblvAmPu7fpHHta1"
+RECOVERY_DIGEST = "7d0808b8d0880564164d5c59f5e4bdceab860fdcadb1624c3f89cfd0f55608de"
 # These are the only permissible business API write paths. The new table ID
 # is established by the create response + unique catalog readback.
 FIELD_SPECS = [{"field_name":name,"type":kind} for name,kind in REVIEW_FIELDS.items()]
@@ -242,10 +246,13 @@ def named_id(catalog,name):
 
 
 def reconcile(source,backend,mode="plan",expected_digest=""):
-    if mode not in {"plan","apply"}:
+    if mode not in {"plan","apply","resume-empty"}:
         fail("INVALID_MODE")
-    if mode=="apply" and not re.fullmatch(r"[0-9a-f]{64}",expected_digest):
+    if mode!="plan" and not re.fullmatch(r"[0-9a-f]{64}",expected_digest):
         fail("REVIEWED_DIGEST_REQUIRED")
+    recovery=mode=="resume-empty"
+    if recovery and expected_digest!=RECOVERY_DIGEST:
+        fail("RECOVERY_DIGEST_MISMATCH")
     snap=snapshot(source)
     if expected_digest and expected_digest!=snap["digest"]:
         fail("SOURCE_DIGEST_CHANGED")
@@ -256,6 +263,8 @@ def reconcile(source,backend,mode="plan",expected_digest=""):
     if named_id(pages,LEGACY_TITLE):
         fail("LEGACY_OCTOBER_PILOT_REQUIRES_REVIEW")
     t,p=named_id(tables,REVIEW),named_id(pages,TITLE)
+    if recovery and t!=RECOVERY_TABLE:
+        fail("RECOVERY_TABLE_ID_MISMATCH")
     charts=specs(snap["stamps"])
     public={"months":list(MONTHS),"members":EXPECTED_COUNT,
             "expected_members_by_month":EXPECTED_COUNTS,
@@ -264,7 +273,7 @@ def reconcile(source,backend,mode="plan",expected_digest=""):
             "target_table":t,"target_dashboard":p,"expected_new_chart_blocks":len(charts),
             "source_writes":0,"scheduled_sync":False,
             "ui_click_edit_restore":"NOT_TESTED"}
-    if t or p:
+    if (t or p) and not (recovery and t and not p):
         if not t or not p:
             if mode=="apply":
                 fail("PARTIAL_TARGET_REQUIRES_REVIEW")
@@ -288,16 +297,20 @@ def reconcile(source,backend,mode="plan",expected_digest=""):
         return {**public,**verify,"state":"EXISTING_SNAPSHOT_VERIFIED_NO_WRITES","review_writes":0}
     if mode=="plan":
         return {**public,"state":"READY_NEW_REVIEW_PILOT","review_writes":0}
-    # Recheck names immediately before each new resource. No existing
-    # resource can be adopted/modified by apply. Never retry a write.
+    # Recheck names before binding the single approved empty table or
+    # creating a fresh target. Neither mode retries an ambiguous write.
     if backend.tables()!=tables or backend.pages()!=pages:
         fail("TARGET_CATALOG_CHANGED")
-    t=backend.create_table()
-    after=backend.tables()
-    if t in tables or named_id(after,REVIEW)!=t or any(after.get(k)!=v for k,v in tables.items()):
-        fail("TABLE_CREATE_READBACK")
+    if recovery:
+        backend.bind_empty_recovery_table(t)
+    else:
+        t=backend.create_table()
+        after=backend.tables()
+        if t in tables or named_id(after,REVIEW)!=t or any(after.get(k)!=v for k,v in tables.items()):
+            fail("TABLE_CREATE_READBACK")
     check_schema(backend.fields(t))
-    if any(normalize(r) is not None for r in backend.records(t)):
+    initial_records=backend.records(t)
+    if (recovery and initial_records) or any(normalize(r) is not None for r in initial_records):
         fail("NEW_TABLE_NOT_EMPTY")
     for i in range(0,len(snap["rows"]),25):
         backend.create_members(t,[{**r,EXCLUDE:False,"제외 사유":""}
@@ -323,17 +336,18 @@ def reconcile(source,backend,mode="plan",expected_digest=""):
         any(final_pages.get(k)!=v for k,v in pages.items()) or
         named_id(final_tables,REVIEW)!=t or named_id(final_pages,TITLE)!=p):
         fail("FINAL_CATALOG_DRIFT")
-    return {**public,**final,"state":"CREATED_FROZEN_REVIEW_PILOT",
-            "target_table":t,"target_dashboard":p,"review_writes":2+len(charts)+len(snap["rows"]),
+    return {**public,**final,"state":"RECOVERED_FROZEN_REVIEW_PILOT" if recovery else "CREATED_FROZEN_REVIEW_PILOT",
+            "target_table":t,"target_dashboard":p,"review_writes":int(not recovery)+1+len(charts)+len(snap["rows"]),
             "review_write_unit":"new resources and records; not API requests"}
 
 
 class NativeBackend:
-    def __init__(self,token,root,request,runner,allow_write=False):
+    def __init__(self,token,root,request,runner,allow_write=False,allow_empty_recovery=False):
         if root!=ROOT:
             fail("WRONG_BASE")
         self.token=token;self.request=request;self.runner=runner
-        self.allow_write=allow_write;self.created_table=None;self.created_page=None
+        self.allow_write=allow_write;self.write_table=None;self.created_page=None
+        self.allow_empty_recovery=allow_empty_recovery
 
     def listing(self,path):
         out=[];seen=set();cursor=None
@@ -385,7 +399,7 @@ class NativeBackend:
         return self.listing(ROOT+"/tables/"+t+"/records")
 
     def create_table(self):
-        if not self.allow_write or self.created_table or named_id(self.tables(),REVIEW):
+        if not self.allow_write or self.allow_empty_recovery or self.write_table or named_id(self.tables(),REVIEW):
             fail("TABLE_WRITE_NOT_AUTHORIZED")
         result=self.request("POST",ROOT+"/tables",self.token,
             data={"table":{"name":REVIEW,"default_view_name":DEFAULT_VIEW,"fields":FIELD_SPECS}},
@@ -393,11 +407,24 @@ class NativeBackend:
         t=(result.get("table") or {}).get("table_id") or result.get("table_id")
         if not isinstance(t,str) or not re.fullmatch(r"tbl[A-Za-z0-9]+",t) or t==OFFICIAL_ID:
             fail("TABLE_CREATE_ID")
-        self.created_table=t
+        self.write_table=t
         return t
 
+    def bind_empty_recovery_table(self,t):
+        if (not self.allow_write or not self.allow_empty_recovery or self.write_table
+                or t!=RECOVERY_TABLE or named_id(self.tables(),REVIEW)!=t
+                or named_id(self.pages(),TITLE) or named_id(self.pages(),LEGACY_TITLE)):
+            fail("RECOVERY_BIND_NOT_AUTHORIZED")
+        check_schema(self.fields(t))
+        page=self.request("GET",ROOT+"/tables/"+t+"/records?page_size=1",self.token,
+                          action="revenue_pilot_verify_empty_table")
+        if (page.get("has_more") is not False or type(page.get("total")) is not int
+                or page["total"]!=0 or page.get("items",[])!=[] or page.get("page_token")):
+            fail("RECOVERY_TABLE_NOT_PROVEN_EMPTY")
+        self.write_table=t
+
     def create_members(self,t,rows):
-        if not self.allow_write or t!=self.created_table or named_id(self.tables(),REVIEW)!=t:
+        if not self.allow_write or t!=self.write_table or named_id(self.tables(),REVIEW)!=t:
             fail("ROW_WRITE_NOT_AUTHORIZED")
         if not 1<=len(rows)<=25:
             fail("ROW_BATCH_BOUND")
@@ -414,7 +441,7 @@ class NativeBackend:
 
     def create_page(self):
         from native_project_center import response_entity,dashboard_identity
-        if not self.allow_write or not self.created_table or self.created_page or named_id(self.pages(),TITLE):
+        if not self.allow_write or not self.write_table or self.created_page or named_id(self.pages(),TITLE):
             fail("DASHBOARD_WRITE_NOT_AUTHORIZED")
         r=response_entity(self.runner("+dashboard-create","--base-token",BASE,"--name",TITLE),"dashboard")
         if r.get("name")!=TITLE:
@@ -462,12 +489,12 @@ class NativeBackend:
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--mode",choices=("plan","apply"),default="plan")
+    parser.add_argument("--mode",choices=("plan","apply","resume-empty"),default="plan")
     parser.add_argument("--expected-digest",default="")
     args=parser.parse_args()
     if os.environ.get("FEISHU_BASE_APP_TOKEN")!=BASE:
         fail("WRONG_BASE")
-    if args.mode=="apply" and (os.environ.get("GITHUB_REF")!="refs/heads/main" or
+    if args.mode!="plan" and (os.environ.get("GITHUB_REF")!="refs/heads/main" or
             os.environ.get("GITHUB_EVENT_NAME")!="workflow_dispatch" or
             not re.fullmatch(r"[0-9a-f]{64}",args.expected_digest)):
         fail("APPLY_REQUIRES_REVIEWED_MAIN_DISPATCH")
@@ -476,7 +503,8 @@ def main():
     from native_dashboard_cli import cli
     source=read_sources(sheets_session())
     token,root=auth()
-    backend=NativeBackend(token,root,api,cli,allow_write=args.mode=="apply")
+    backend=NativeBackend(token,root,api,cli,allow_write=args.mode!="plan",
+                          allow_empty_recovery=args.mode=="resume-empty")
     result=reconcile(source,backend,args.mode,args.expected_digest)
     print("REVENUE_REVIEW_PILOT "+canonical_json(result))
     if result["state"]=="PARTIAL_TARGET_REQUIRES_REVIEW":
