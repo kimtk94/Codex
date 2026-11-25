@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
+from urllib.request import urlopen
 from pathlib import Path
 import sys
 import tempfile
@@ -28,7 +30,8 @@ from engine.market_data.yfinance_provider import YFinanceProvider
 from engine.features_v2_002.talib_features import build_talib_features
 
 START = "2024-01-01"
-DEFAULT_KEYS = ("yf_vix", "yf_spy", "yf_smh", "yf_usdkrw")
+DEFAULT_KEYS = tuple(sorted(US_KEYS | OTHER_KEYS))
+CBOE_VIX_HISTORY = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
 
 
 def request_from_asset(a, end):
@@ -72,7 +75,98 @@ def coverage(frame, cutoff=None):
         d["missing_xnys_labels"] = len(expected.difference(dates))
         d["missing_xnys_valid_closes"] = len(expected.difference(good))
         d["non_xnys_labels"] = len(dates.difference(expected))
+        d["non_xnys_finite_close_labels"] = len(good.difference(expected))
+        d["non_xnys_null_or_nonfinite_labels"] = d["non_xnys_labels"] - d["non_xnys_finite_close_labels"]
     return d
+
+
+def compare_feature_outputs(observed, bounded, staged, cutoff):
+    """Separate actual TA equality from exact canonical-source equality."""
+    mask = pd.to_datetime(observed.timestamp, utc=True).le(pd.Timestamp(cutoff, tz="UTC"))
+    prefix = observed.loc[mask].reset_index(drop=True)
+    ref = build_talib_features(prefix)
+    fresh = build_talib_features(bounded)
+    out = {"observed_prefix_rows": len(prefix), "bounded_rows": len(bounded),
+           "exact_output_identity": False, "bounded_repeat_identity": False,
+           "output_columns": len(staged.columns), "numeric_feature_columns": 0,
+           "finite_numeric_pairs": 0, "different_numeric_values": 0,
+           "missingness_changes": 0, "max_abs_feature_difference": None}
+    try:
+        pd.testing.assert_frame_equal(fresh, staged, check_exact=True)
+        out["bounded_repeat_identity"] = True
+    except AssertionError:
+        pass
+    try:
+        pd.testing.assert_frame_equal(ref, staged, check_exact=True)
+        out["exact_output_identity"] = True
+    except AssertionError:
+        pass
+    # Align on daily timestamp and symbol. Do not equate missing rows with zeros.
+    identity = ["timestamp", "symbol"]
+    a = ref.set_index(identity)
+    b = staged.set_index(identity)
+    common = a.index.intersection(b.index)
+    out["matched_feature_rows"] = len(common)
+    out["observed_only_feature_rows"] = len(a.index.difference(b.index))
+    out["bounded_only_feature_rows"] = len(b.index.difference(a.index))
+    maxima = []
+    for col in sorted(set(a.columns) & set(b.columns)):
+        if not col.startswith("talib_v2_"):
+            continue
+        x = a.loc[common, col].to_numpy(dtype=float)
+        y = b.loc[common, col].to_numpy(dtype=float)
+        out["numeric_feature_columns"] += 1
+        finite = np.isfinite(x) & np.isfinite(y)
+        out["finite_numeric_pairs"] += int(finite.sum())
+        out["different_numeric_values"] += int((x[finite] != y[finite]).sum())
+        out["missingness_changes"] += int((np.isfinite(x) != np.isfinite(y)).sum())
+        if finite.any():
+            maxima.append(float(np.max(np.abs(x[finite] - y[finite]))))
+    out["max_abs_feature_difference"] = max(maxima) if maxima else None
+    return out
+
+
+def compare_cboe_history(frame, cutoff):
+    """Current published Cboe history is an independent-source comparator,
+    not a timestamped certification of past point-in-time source finality."""
+    with urlopen(CBOE_VIX_HISTORY, timeout=30) as response:
+        if response.geturl() != CBOE_VIX_HISTORY:
+            raise ValueError("UNEXPECTED_CBOE_REDIRECT")
+        payload = response.read(2_000_001)
+    if len(payload) > 2_000_000:
+        raise ValueError("CBOE_HISTORY_TOO_LARGE")
+    c = pd.read_csv(io.BytesIO(payload))
+    if not {"DATE", "CLOSE"}.issubset(c.columns):
+        raise ValueError("CBOE_HISTORY_SCHEMA")
+    dates = pd.to_datetime(c.DATE, format="%m/%d/%Y", errors="raise")
+    if dates.duplicated().any():
+        raise ValueError("CBOE_DUPLICATE_DATES")
+    c = pd.Series(pd.to_numeric(c.CLOSE, errors="raise").to_numpy(), index=pd.DatetimeIndex(dates))
+    c = c.loc[(c.index >= pd.Timestamp(START)) & (c.index <= pd.Timestamp(cutoff))]
+    if c.empty or not np.isfinite(c).all() or (c <= 0).any():
+        raise ValueError("CBOE_INVALID_CUTOFF_HISTORY")
+    y = pd.Series(pd.to_numeric(frame.close, errors="coerce").to_numpy(),
+                  index=pd.DatetimeIndex(pd.to_datetime(frame.timestamp, utc=True).dt.tz_convert(None)))
+    if y.index.duplicated().any():
+        raise ValueError("YAHOO_DUPLICATE_DATES")
+    y = y.loc[(y.index >= pd.Timestamp(START)) & (y.index <= pd.Timestamp(cutoff))]
+    finite_y = y[np.isfinite(y)]
+    common = c.index.intersection(finite_y.index)
+    delta = (finite_y.loc[common] - c.loc[common]).abs()
+    expected = pd.DatetimeIndex(xcals.get_calendar("XNYS").sessions_in_range(START, cutoff))
+    if expected.tz is not None:
+        expected = expected.tz_convert(None)
+    return {"source": CBOE_VIX_HISTORY, "source_sha256": hashlib.sha256(payload).hexdigest(),
+            "cboe_dates": len(c), "cboe_last_date": str(c.index.max().date()),
+            "cboe_non_xnys_dates": len(c.index.difference(expected)),
+            "xnys_dates_missing_cboe": len(expected.difference(c.index)),
+            "yahoo_finite_dates": len(finite_y), "matched_finite_dates": len(common),
+            "yahoo_only_labels": len(y.index.difference(c.index)),
+            "yahoo_only_finite_dates": len(finite_y.index.difference(c.index)),
+            "cboe_dates_missing_yahoo_finite_close": len(c.index.difference(finite_y.index)),
+            "half_cent_agreement_count": int((delta <= .005).sum()),
+            "max_abs_close_difference": float(delta.max()) if len(delta) else None,
+            "native_calendar_certified": False, "source_finality_certified": False}
 
 
 def probe_asset(a, end, cutoff, folder, provider):
@@ -92,6 +186,12 @@ def probe_asset(a, end, cutoff, folder, provider):
         features = roundtrip(build_talib_features(frame), folder / (key + "-ta.parquet"))
         verdict = reconcile_staged_us(original_frame, frame, features, key=key,
                                       cutoff=cutoff, feature_builder=build_talib_features)
+        result["feature_output_comparison"] = compare_feature_outputs(original_frame, frame, features, cutoff)
+        if key == "yf_vix":
+            try:
+                result["cboe_history_comparison"] = compare_cboe_history(frame, cutoff)
+            except Exception as exc:
+                result["cboe_history_comparison"] = {"status": "UNAVAILABLE_HOLD", "error_type": type(exc).__name__}
         result["reconciliation"] = verdict
         result["feature_reproduction_verified"] = verdict["feature_reproduction_verified"]
         result["rsi_valid_rows"] = int(features.talib_v2_rsi14.notna().sum())
@@ -179,6 +279,9 @@ def main():
         report["plan"]["completed_xnys_session"])
     report["feature_reproduced_assets"] = sum(x.get("feature_reproduction_verified", False)
                                                for x in report["assets"])
+    report["us_exact_source_prefixes"] = sum(x.get("reconciliation", {}).get("prefix_identity_verified", False) for x in report["assets"])
+    report["us_exact_feature_outputs"] = sum(x.get("feature_output_comparison", {}).get("exact_output_identity", False) for x in report["assets"])
+    report["strict_us_coverage_qc_count"] = sum(x.get("coverage_qc_complete", False) for x in report["assets"])
     report["status"] = ("TECHNICAL_REPRODUCTION_RESEARCH_HOLD"
                         if report["feature_reproduced_assets"] == len(a.keys) and not report["clock_rollover"]
                         else "INCOMPLETE_PROBE_RESEARCH_HOLD")

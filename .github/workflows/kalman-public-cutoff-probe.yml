@@ -28,7 +28,6 @@ jobs:
       - name: Actual public provider and TA-Lib probe
         run: >-
           python research/kalman_market_refresh/provider_cutoff_probe.py
-          --keys yf_vix yf_spy yf_smh yf_usdkrw
           --out "${{ runner.temp }}/kalman-cutoff-probe/report.json"
       - name: Publish aggregate diagnostic metadata only
         if: always()
