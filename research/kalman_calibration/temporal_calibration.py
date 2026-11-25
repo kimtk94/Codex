@@ -165,7 +165,7 @@ def calibration_report(panels):
             for year in YEARS:
                 est,details=calibrate(f,year);fits[str(year)]=details
                 q=f.loc[f.year.eq(year)].copy()
-                q["temporal_sigmoid"]=np.nan if est is None else est.predict_proba(logit(q.raw).reshape(-1,1))[:,1]
+                q["temporal_sigmoid"]=np.nan if est is None or q.empty else est.predict_proba(logit(q.raw).reshape(-1,1))[:,1]
                 pieces.append(q)
             p=pd.concat(pieces)
             methods=("raw","symbol_prior","prior_corrected","temporal_sigmoid","oversold_ret5","low_rsi","momentum_ret1")
