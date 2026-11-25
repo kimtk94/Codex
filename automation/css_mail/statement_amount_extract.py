@@ -15,6 +15,7 @@ from email.utils import getaddresses
 
 import incremental_sync as css
 from unified_followup_sync import SRC, get, put
+from statement_source_coverage import read_full_source, select_candidates, same_notice
 from pending_statement_uid_amounts import amounts
 
 TAB = "CSS Statement Amount Extract"
@@ -36,30 +37,9 @@ def notice(subject):
     )
 
 def candidates(mail, invoice):
-    issued = set()
-    for r in invoice[1:]:
-        if cell(r,10) not in VALID_INVOICES: continue
-        m = SJ.search(cell(r,6))
-        if m: issued.add(m.group(1).upper()+"-"+m.group(2).upper())
-    result = {}
-    for r in mail[1:]:
-        if len(r)<16: continue  # Q (In-Reply-To) is omitted for original messages
-        if cell(r,3).upper() != "INBOX" or cell(r,6).lower() != CSS_FROM: continue
-        if cell(r,15) != "INBOUND" or cell(r,16).strip(): continue
-        subject = cell(r,9)
-        if REPLY.match(subject) or not notice(subject):continue
-        m = SJ.search(subject)
-        if not m:continue
-        j,x = m.group(1).upper(),m.group(2).upper()
-        key=j+"-"+x
-        if key in issued:continue
-        # Most recent revised statement supersedes earlier original notices.
-        if key not in result or (cell(r,5),cell(r,2)) > (
-            result[key]["date"],result[key]["uid"]):
-            result[key] = {"key":key,"x":x,"j":j,"date":cell(r,5),
-                           "uid":cell(r,2),"uidvalidity":cell(r,4),
-                           "subject":subject}
-    return result
+    """Original pending notices only; issue-notice-only stays separate."""
+    pending, _, _ = select_candidates(mail, invoice)
+    return pending
 
 def original_identity(msg, key):
     subject=str(msg.get("Subject",""))
@@ -208,20 +188,32 @@ def sync_verified_pending(session, statement_rows, invoice_rows):
 
 def main():
     session=css.authorize()
-    mail=get(session,SRC,"CSS Git Ingest","A1:R10000")
-    invoices=get(session,SRC,"CSS Tax Invoice Extract","A1:L10000")
-    previous=get(session,SRC,TAB,"A1:K2000")
+    from tax_invoice_extract import HEADER as INVOICE_HEADER
+    mail=read_full_source(session,SRC,"CSS Git Ingest",css.COLS)
+    invoices=read_full_source(session,SRC,"CSS Tax Invoice Extract",INVOICE_HEADER)
+    previous=read_full_source(session,SRC,TAB,HEAD)
     if not mail or cell(mail[0],0)!="ingest_key":
         raise RuntimeError("Unexpected QQ mail staging schema")
     if not invoices or cell(invoices[0],0)!="invoice_number":
         raise RuntimeError("Unexpected QQ invoice schema")
     if not previous or previous[0]!=HEAD:
         raise RuntimeError("Unexpected Statement amount schema")
-    wanted=candidates(mail,invoices)
+    wanted,issue_only,scan=select_candidates(mail,invoices)
     known={cell(r,0):r for r in previous[1:] if cell(r,0)}
-    # Only retain the latest verified evidence for a given Statement key.
+    if len(known)!=len(previous)-1:
+        raise RuntimeError("STATEMENT_PREVIOUS_KEY_DUPLICATE_OR_EMPTY")
+    # An issued notice without a verified filename is neither a new Pending
+    # nor a proven Actual. If an old verified pending record would otherwise
+    # survive this ambiguous state, stop before writes rather than erase it.
+    if any(k in known and cell(known[k],8)=="AMOUNT_VERIFIED" for k in issue_only):
+        raise RuntimeError("STATEMENT_EXISTING_PENDING_ISSUE_NOTICE_REVIEW")
+    print("STATEMENT_SOURCE_COVERAGE staged_rows="+str(scan["mail_rows"])+
+          " pending_candidates="+str(len(wanted))+" issue_notice_only="+str(len(issue_only)),
+          flush=True)
+    # Same UID alone is insufficient across mailbox UIDVALIDITY changes or
+    # revised notices. Re-fetch unless all three source evidence fields agree.
     queue=[v for v in wanted.values() if
-        v["key"] not in known or cell(known[v["key"]],6)!=v["uid"] or
+        v["key"] not in known or not same_notice(known[v["key"]],v) or
         cell(known[v["key"]],8)!="AMOUNT_VERIFIED"]
     queue.sort(key=lambda x:x["date"],reverse=True)
     limit=min(max(int(os.getenv("CSS_STATEMENT_AMOUNT_BATCH","40")),1),100)
@@ -270,7 +262,7 @@ def main():
     if len(check)!=len(out) or check[0]!=HEAD:
         raise RuntimeError("Statement amount post-write verification failed")
     sync_verified_pending(session, out, invoices)
-    current=[known[k] for k in wanted if k in known and cell(known[k],6)==wanted[k]["uid"]]
+    current=[known[k] for k in wanted if k in known and same_notice(known[k],wanted[k])]
     verified=[r for r in current if cell(r,8)=="AMOUNT_VERIFIED"]
     print("STATEMENT_AMOUNT_EXTRACT_PASS pending_statements="+str(len(wanted))+
           " verified="+str(len(verified))+
