@@ -171,3 +171,19 @@ edit, refresh, access controls and source-field edit protection still need
 separate tenant verification; filtered views and personal selection remain
 future work. If November grows beyond 40 before approval, review the new
 cohort and update the frozen contract before applying.
+
+
+## Follow-up: reviewed 90-member October–November snapshot
+
+The 2026-11-25 19:43 KST recovery of Unified run 45580654641 passed all
+five jobs. Official monthly write/readback now reports 48 October and 42
+November invoices, with VAT-excluded authority and lifecycle parity.
+Drilldown run 45595995557 previously reported two post-cutoff November
+members; plan 45597961283 subsequently stopped at the fixed 40-member
+November gate. Update the frozen scope to 48+42=90 only. The earlier
+88-member scope is superseded; any further count change still fails closed.
+The new plan must verify the exact current members, authority, actual
+Feishu monthly rows and target absence, and generate a fresh digest.
+No previous digest may be reused; a subsequent explicit apply must use
+that reviewed digest. All existing write, catalog, partial-target and
+manual-state protection remains in force. This is not recurring sync.
