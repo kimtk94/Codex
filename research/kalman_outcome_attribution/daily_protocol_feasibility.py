@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from outcome_profile import ARCHIVES, KEY, load_archive, load_original, csv
 from protocol_feasibility import HIGH_RISK, compare, bear_episodes, rolling_feasibility, paired_date_diagnostic
+from daily_gate_risk import analyze as gate_risk
 
 CORE="SPY QQQ QLD IWM AAPL MSFT AMZN GOOGL META NVDA AMD AVGO MU TSLA PLTR IONQ COIN MSTR JPM XOM".split()
 
@@ -121,6 +122,8 @@ def report(raw,result,train):
             "annual":{str(i):{"bull":compare(x.loc[x.signal_date.str[:4].eq(str(i))]),
                               "bear":compare(y.loc[y.signal_date.str[:4].eq(str(i))])} for i in (2024,2025,2026)},
             "bull_date_diagnostic":paired_date_diagnostic(x,cal),
+            "daily_gate_risk":{"BULL":gate_risk(x,"BULL",cal),
+                               "BEAR":gate_risk(y,"BEAR",cal)},
             "rolling_252_session_feasibility":rolling_feasibility(x,y,cal,episodes)}
     return {"schema":"kalman-all-daily-protocol-feasibility-v1",
         "input_sha256":{k:v[2] for k,v in ARCHIVES.items()},
