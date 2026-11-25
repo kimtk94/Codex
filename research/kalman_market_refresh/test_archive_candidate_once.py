@@ -98,6 +98,71 @@ class PrivateArchiveContracts(unittest.TestCase):
         self.assertFalse(report["eligible_for_archive"])
         self.assertEqual(self.client.writes, [])
 
+    def attest_fixture(self):
+        for name, value in (("OWNER_ATTESTED_SLOT", TARGET),
+                            ("OWNER_ATTESTED_SESSION", SESSION)):
+            p = patch.object(archive, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        p = patch.object(archive, "utc_day", return_value=archive.OWNER_ATTESTED_UTC_DAY)
+        p.start()
+        self.addCleanup(p.stop)
+        self.client.meta.pop("parents")
+
+    def test_exact_attested_hidden_parent_save_and_final_readback(self):
+        self.attest_fixture()
+        pre = archive.preflight(self.client, TARGET, SESSION)
+        self.assertTrue(pre["eligible_for_archive"])
+        self.assertFalse(pre["candidate_slot_checks"]["parent_visible"])
+        self.assertFalse(pre["candidate_slot_checks"]["parent_matches"])
+        self.assertEqual(pre["candidate_slot_checks"]["parent_evidence"],
+                         "EXACT_OWNER_ATTESTED_SLOT_PARENT_HIDDEN")
+        r = self.store()
+        self.assertTrue(r["remote_sha256_verified"])
+        self.assertTrue(r["owner_side_postwrite_verification_required"])
+        self.assertEqual(r["parent_evidence"], "EXACT_OWNER_ATTESTED_SLOT_PARENT_HIDDEN")
+        self.assertEqual(self.client.data, self.candidate)
+        with self.assertRaisesRegex(ValueError, "UNAPPROVED_OR_CONSUMED"):
+            self.store()
+        self.assertEqual(len(self.client.writes), 2)
+
+    def test_attestation_rejects_visible_mismatch_or_empty_parents(self):
+        self.attest_fixture()
+        for wrong in (["wrong"], [], None):
+            self.client.meta["parents"] = wrong
+            r = archive.preflight(self.client, TARGET, SESSION)
+            self.assertFalse(r["eligible_for_archive"])
+            self.assertEqual(r["candidate_slot_checks"]["parent_evidence"], "VISIBLE_PARENT_MISMATCH")
+            with self.assertRaisesRegex(ValueError, "UNAPPROVED_OR_CONSUMED"):
+                self.store()
+        self.assertEqual(self.client.writes, [])
+
+    def test_attestation_expires_and_is_exact_slot_and_session(self):
+        self.attest_fixture()
+        with patch.object(archive, "utc_day", return_value="2099-01-01"):
+            self.assertFalse(archive.preflight(self.client, TARGET, SESSION)["eligible_for_archive"])
+            with self.assertRaisesRegex(ValueError, "UNAPPROVED_OR_CONSUMED"):
+                self.store()
+        for target, session in ((TARGET+"other", SESSION), (TARGET, "2026-11-24")):
+            meta = dict(self.client.meta, id=target, name=f"UNFILLED_market_candidate_{session}.zip")
+            checks = archive.target_checks(meta, target, session)
+            self.assertEqual(checks["parent_evidence"], "UNVERIFIED_HIDDEN_PARENT")
+            self.assertFalse(checks["parent_gate_passed"])
+        self.assertEqual(self.client.writes, [])
+
+    def test_attestation_does_not_relax_permissions_or_seed(self):
+        self.attest_fixture()
+        self.client.meta["permissions"].append({"type": "anyone", "role": "reader"})
+        self.assertFalse(archive.preflight(self.client, TARGET, SESSION)["eligible_for_archive"])
+        with self.assertRaisesRegex(ValueError, "NOT_FILE_SCOPED"):
+            self.store()
+        self.client.meta["permissions"].pop()
+        self.client.data = b"changed seed"
+        self.assertFalse(archive.preflight(self.client, TARGET, SESSION)["eligible_for_archive"])
+        with self.assertRaisesRegex(ValueError, "SEED_CHANGED_OR_CONSUMED"):
+            self.store()
+        self.assertEqual(self.client.writes, [])
+
     def test_preflight_rejects_canonical_id(self):
         with self.assertRaisesRegex(ValueError, "UNAPPROVED_CANDIDATE_TARGET"):
             archive.preflight(self.client, archive.ORIGINAL_ID, SESSION)
@@ -108,6 +173,8 @@ class PrivateArchiveContracts(unittest.TestCase):
         self.assertEqual(self.client.data, self.candidate)
         self.assertEqual(self.client.writes, [("bytes", TARGET), ("name", TARGET)])
         self.assertTrue(r["remote_sha256_verified"])
+        self.assertFalse(r["owner_side_postwrite_verification_required"])
+        self.assertEqual(r["parent_evidence"], "DIRECT_PARENT_MATCH")
         self.assertTrue(r["private_candidate_archive_persisted"])
         self.assertFalse(r["original_drive_zip_replaced"])
         self.assertFalse(r["ready_for_pit_training"])
