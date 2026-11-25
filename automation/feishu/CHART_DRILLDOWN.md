@@ -145,3 +145,29 @@ must be tested in actual UI; the default table view is the fallback for edits.
 Future verified months and changing membership need a separate approved
 publication barrier so a partly written month cannot appear complete. The
 initial one-time frozen snapshot avoids this failure mode.
+
+
+## Follow-up: October–November frozen pilot (supersedes October-only scope)
+
+The 2026-11-25 11:51 KST recovery of Unified run 45514458303 passed
+Lifecycle, VAT recalculation, authority, Monthly Tax Invoice write/readback
+and trends. The verified October and November counts are 48 and 40;
+November's previous 37-member published snapshot is superseded. These
+are observations from that run, not a certification of later source state.
+
+The pilot now requires both months independently to pass current Extract,
+Lifecycle, canonical authority and actual Feishu monthly-row count/gross/net
+and display parity. One blocked month prevents creation of the entire pilot.
+The frozen 88-member scope is deliberate; a changed month count requires
+review rather than silent expansion. The digest includes both months' exact
+members and official values. One dedicated review table and a single
+`Revenue 집계 검토 · 2026-10~11 스냅샷` dashboard present the two month
+points via grouped SUM. The table is limited to these exact members, not a
+live current-month projection. An old October-only page or partial target
+blocks creation; never append to or replace an existing snapshot. Shared
+checkboxes and exclusion reasons are retained on verification. No schedule,
+original Revenue, source rows, or permissions are changed. Actual UI click,
+edit, refresh, access controls and source-field edit protection still need
+separate tenant verification; filtered views and personal selection remain
+future work. If November grows beyond 40 before approval, review the new
+cohort and update the frozen contract before applying.
