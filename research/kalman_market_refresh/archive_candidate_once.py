@@ -31,20 +31,62 @@ def digest(blob):
     return hashlib.sha256(blob).hexdigest()
 
 
-def validate_target(meta, target_id, expected_session):
-    if (not FILE_ID.fullmatch(target_id) or target_id == ORIGINAL_ID
-            or meta.get("id") != target_id
-            or meta.get("parents") != [CANDIDATE_FOLDER_ID]
-            or meta.get("name") != f"UNFILLED_market_candidate_{expected_session}.zip"
-            or meta.get("mimeType") != "application/zip"
-            or meta.get("trashed") is not False
-            or meta.get("capabilities", {}).get("canEdit") is not True):
-        raise ValueError("UNAPPROVED_OR_CONSUMED_CANDIDATE_SLOT")
+def target_checks(meta, target_id, expected_session):
+    """Report only safe booleans / visibility states, never private metadata."""
     permissions = meta.get("permissions")
-    if (not isinstance(permissions, list) or len(permissions) != 2
-            or sorted(p.get("role", "") for p in permissions) != ["owner", "writer"]
-            or any(p.get("type") != "user" for p in permissions)):
+    capabilities = meta.get("capabilities")
+    return {
+        "id_is_noncanonical": bool(FILE_ID.fullmatch(target_id)) and target_id != ORIGINAL_ID,
+        "id_matches": meta.get("id") == target_id,
+        "parent_visible": "parents" in meta,
+        "parent_matches": meta.get("parents") == [CANDIDATE_FOLDER_ID],
+        "name_matches": meta.get("name") == f"UNFILLED_market_candidate_{expected_session}.zip",
+        "mime_matches": meta.get("mimeType") == "application/zip",
+        "trashed_flag_visible": "trashed" in meta,
+        "not_trashed": meta.get("trashed") is False,
+        "edit_capability_visible": isinstance(capabilities, dict) and "canEdit" in capabilities,
+        "can_edit": isinstance(capabilities, dict) and capabilities.get("canEdit") is True,
+        "permissions_visible": isinstance(permissions, list),
+        "permissions_exact_owner_writer": (
+            isinstance(permissions, list) and len(permissions) == 2
+            and sorted(p.get("role", "") for p in permissions) == ["owner", "writer"]
+            and all(p.get("type") == "user" for p in permissions)),
+    }
+
+
+def validate_target(meta, target_id, expected_session):
+    checks = target_checks(meta, target_id, expected_session)
+    if not all(checks[k] for k in (
+            "id_is_noncanonical", "id_matches", "parent_matches", "name_matches",
+            "mime_matches", "not_trashed", "can_edit")):
+        print(json.dumps({"candidate_slot_checks": checks}, sort_keys=True))
+        raise ValueError("UNAPPROVED_OR_CONSUMED_CANDIDATE_SLOT")
+    if not checks["permissions_exact_owner_writer"]:
+        print(json.dumps({"candidate_slot_checks": checks}, sort_keys=True))
         raise ValueError("CANDIDATE_SLOT_NOT_FILE_SCOPED")
+
+
+def preflight(client, target_id, expected_session):
+    """No write methods called, even if an observation is absent or mismatched."""
+    if not FILE_ID.fullmatch(target_id) or target_id == ORIGINAL_ID:
+        raise ValueError("UNAPPROVED_CANDIDATE_TARGET")
+    if date.fromisoformat(expected_session).isoformat() != expected_session:
+        raise ValueError("INVALID_EXPECTED_SESSION")
+    checks = target_checks(client.metadata(target_id), target_id, expected_session)
+    # Only read the file body if its basic identity and expected seed name match.
+    seed_matches = False
+    if checks["id_matches"] and checks["name_matches"] and checks["mime_matches"]:
+        seed_matches = digest(client.download(target_id)) == ORIGINAL_SHA256
+    report = {
+        "schema": "kalman-private-candidate-preflight-v1",
+        "candidate_slot_checks": checks,
+        "seed_sha256_matches": seed_matches,
+        "eligible_for_archive": all(checks.values()) and seed_matches,
+        "read_only": True,
+        "production_writes": False,
+        "ready_for_pit_training": False,
+    }
+    return report
 
 
 def validate_candidate(original, candidate, audit, expected_session):
@@ -122,9 +164,13 @@ def save_once(client, *, original, candidate, audit, target_id, expected_session
 
 
 class DriveClient:
-    def __init__(self):
+    def __init__(self, *, read_only=False):
         from googleapiclient.discovery import build
-        self.service = build("drive", "v3", credentials=parse_google_credentials(),
+        credentials = parse_google_credentials()
+        if read_only:
+            credentials = credentials.with_scopes(["https://www.googleapis.com/auth/drive.readonly"])
+        self.read_only = read_only
+        self.service = build("drive", "v3", credentials=credentials,
                              cache_discovery=False)
 
     def metadata(self, file_id):
@@ -146,6 +192,8 @@ class DriveClient:
         return out.getvalue()
 
     def write_bytes(self, file_id, data):
+        if self.read_only:
+            raise RuntimeError("READ_ONLY_CLIENT")
         from googleapiclient.http import MediaIoBaseUpload
         self.service.files().update(
             fileId=file_id, supportsAllDrives=True,
@@ -154,20 +202,32 @@ class DriveClient:
         ).execute(num_retries=0)
 
     def rename(self, file_id, name):
+        if self.read_only:
+            raise RuntimeError("READ_ONLY_CLIENT")
         self.service.files().update(fileId=file_id, supportsAllDrives=True,
                                     body={"name": name}, fields="id").execute(num_retries=0)
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--original", required=True)
-    p.add_argument("--candidate", required=True)
-    p.add_argument("--audit", required=True)
+    p.add_argument("--preflight-only", action="store_true")
+    p.add_argument("--original")
+    p.add_argument("--candidate")
+    p.add_argument("--audit")
     p.add_argument("--target-id", required=True)
     p.add_argument("--expected-session", required=True)
-    p.add_argument("--run-id", required=True)
+    p.add_argument("--run-id")
     p.add_argument("--out", required=True)
     a = p.parse_args()
+    if a.preflight_only:
+        if any((a.original, a.candidate, a.audit, a.run_id)):
+            p.error("preflight cannot accept archive-write inputs")
+        report = preflight(DriveClient(read_only=True), a.target_id, a.expected_session)
+        json_write(a.out, report)
+        print(json.dumps(report))
+        return
+    if not all((a.original, a.candidate, a.audit, a.run_id)):
+        p.error("archive requires original, candidate, audit and run ID")
     original, candidate = Path(a.original).read_bytes(), Path(a.candidate).read_bytes()
     audit = json.loads(Path(a.audit).read_text())
     # Validate offline before accessing the service or its credentials.
