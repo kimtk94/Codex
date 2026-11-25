@@ -230,7 +230,11 @@ def audit(source,as_of):
     expected=defaultdict(lambda:{"statement_count":0,"verified_amount_count":0,
                                  "verified_amount_krw_vat_basis_unknown":0,
                                  "amount_unknown_count":0,"due_or_past_count":0})
-    keys=set(notices)|lifecycle_open
+    # A verified invoice or an original issue notice is a relevant billing
+    # observation even when its Statement-ready notice or Lifecycle row is
+    # missing. Never let that omission release the same X's general estimate.
+    # Cancellation-only keys are review evidence, not positive billing.
+    keys=set(notices)|lifecycle_open|set(invoices)|set(issue_notices)|set(cancellations)
     for key in sorted(keys):
         x=key[5:]
         events=sorted(set(notices.get(key,[])))
@@ -247,7 +251,7 @@ def audit(source,as_of):
         actual=invoices.get(key,{})
         actual_notice=issue_notices.get(key,[])
         conflict_after_issue=(latest is not None and any(t<latest[0] for _,t in actual.values()))
-        cancelled=(latest is not None and any(t>=latest[0] for t in cancellations[key]))
+        cancelled=any(latest is None or t>=latest[0] for t in cancellations.get(key,[]))
         if actual:
             state="ISSUED_VERIFIED_REVIEW" if conflict_after_issue or cancelled or (
                 known_amount is not None and sum(a for a,_ in actual.values())!=known_amount
@@ -322,6 +326,10 @@ def audit(source,as_of):
     summary={
         "as_of_kst":as_of.isoformat(),"auto_issue_days_assumed":DAYS,
         "statement_source_keys":len(notices),"mail_rows":len(source[MAIL]),
+        "billing_evidence_keys":len(keys),
+        "verified_invoice_keys_without_ready_notice":len(set(invoices)-set(notices)),
+        "issue_notice_keys_without_ready_notice":len(set(issue_notices)-set(notices)),
+        "evidence_only_keys_without_ready_or_open_projection":len(keys-set(notices)-lifecycle_open),
         "statement_states":dict(Counter(r["state"] for r in rows)),
         "pending_without_lifecycle":sum(r["state"].startswith("STATEMENT_PENDING") and
                                          not r["exact_lifecycle_x_observed"] for r in rows),
