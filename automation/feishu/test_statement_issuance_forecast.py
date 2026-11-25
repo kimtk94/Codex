@@ -72,6 +72,64 @@ class StatementForecastTests(unittest.TestCase):
         self.assertEqual(out["baseline_forecast_held_x"],1)
         self.assertEqual(out["active_pending_x"],0)
 
+    def test_invoice_only_holds_stale_general_forecast(self):
+        s=src();s[m.INVOICE]=[invoice()];s[m.PROJECT]=[project()]
+        out,details=m.audit(s,NOW)
+        self.assertEqual(out["statement_source_keys"],0)
+        self.assertEqual(out["billing_evidence_keys"],1)
+        self.assertEqual(out["verified_invoice_keys_without_ready_notice"],1)
+        self.assertEqual(out["statement_states"],{"ISSUED_VERIFIED":1})
+        self.assertEqual(out["baseline_forecast_held_x"],1)
+        self.assertEqual(out["months"]["2026-11"]["general_forecast_after_statement_hold"]["krw"],0)
+        self.assertEqual(out["months"]["2026-11"]["held_project_estimate_not_added_to_statement"]["krw"],10000)
+        self.assertEqual(details["statement_members"][0]["invoice_count"],1)
+        self.assertEqual(details["statement_members"][0]["expected_issue_month"],"")
+        self.assertIsNone(details["statement_members"][0]["verified_statement_krw_vat_basis_unknown"])
+        self.assertEqual(out["active_pending_x"],0)
+
+    def test_issue_notice_only_holds_forecast_without_inventing_amount(self):
+        s=src();s[m.MAIL]=[mail(subject=ISSUE+J)];s[m.PROJECT]=[project()]
+        out,d=m.audit(s,NOW)
+        self.assertEqual(out["issue_notice_keys_without_ready_notice"],1)
+        self.assertEqual(out["evidence_only_keys_without_ready_or_open_projection"],1)
+        self.assertEqual(out["statement_states"],{"ISSUE_NOTICE_AMOUNT_REVIEW":1})
+        self.assertEqual(out["baseline_forecast_held_x"],1)
+        self.assertEqual(out["active_pending_x"],0)
+        self.assertEqual(d["statement_members"][0]["invoice_count"],0)
+        self.assertIsNone(d["statement_members"][0]["verified_statement_krw_vat_basis_unknown"])
+
+    def test_cancel_only_is_review_not_pending(self):
+        s=src();s[m.MAIL]=[mail(subject="Notice: Statement cancelled "+J)]
+        s[m.PROJECT]=[project()]
+        out,_=m.audit(s,NOW)
+        self.assertEqual(out["statement_states"],{"CANCELLATION_REVIEW":1})
+        self.assertEqual(out["active_pending_x"],0)
+        self.assertEqual(out["baseline_forecast_held_x"],1)
+
+    def test_issue_and_invoice_only_same_key_deduplicated(self):
+        s=src();s[m.MAIL]=[mail(subject=ISSUE+J)]
+        s[m.INVOICE]=[invoice()];s[m.PROJECT]=[project()]
+        out,d=m.audit(s,NOW)
+        self.assertEqual(out["billing_evidence_keys"],1)
+        self.assertEqual(out["statement_states"],{"ISSUED_VERIFIED":1})
+        self.assertEqual(len(d["statement_members"]),1)
+
+    def test_invoice_only_does_not_hold_unrelated_exact_x(self):
+        s=src();s[m.INVOICE]=[invoice()]
+        s[m.PROJECT]=[project(),project(x="X209SC26000001-Z02",krw=20000)]
+        out,_=m.audit(s,NOW)
+        self.assertEqual(out["baseline_forecast_held_x"],1)
+        self.assertEqual(out["months"]["2026-11"]["general_forecast_after_statement_hold"]["krw"],20000)
+
+    def test_future_invoice_not_counted_as_observed_issue(self):
+        s=src();s[m.INVOICE]=[dict(invoice(),received_at="2026-12-01T10:00:00+09:00")]
+        s[m.PROJECT]=[project()]
+        out,_=m.audit(s,NOW)
+        self.assertEqual(out["source_review"]["INVOICE_AFTER_AS_OF"],1)
+        self.assertEqual(out["billing_evidence_keys"],0)
+        self.assertEqual(out["baseline_forecast_held_x"],0)
+        self.assertEqual(out["months"]["2026-11"]["general_forecast_after_statement_hold"]["krw"],10000)
+
     def test_issued_and_separate_j_preserved(self):
         s=src();s[m.MAIL]=[mail(),mail(j=J2,uid="102")]
         s[m.STATEMENT]=[amount(),amount(j=J2,uid="102",krw=22000)]
