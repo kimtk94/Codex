@@ -96,22 +96,18 @@ jobs:
           print('MARKET_STATUS',r['status'])
           print('FRED_COMPLETENESS',r['macro_completeness'])
           if r['macro_completeness']!='FRED_READY_CURRENT_REVISED':
-              print('::warning::FRED latest revisions not fully updated; market data still saved but macro not PIT-ready')
+              print('::warning::FRED latest revisions not fully updated; market candidate is temporary; macro is not PIT-ready')
           PY
-      - name: Update only the pre-shared private research Drive ZIP
-        env:
-          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
-          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
-          KALMAN_MARKET_REFRESH_FILE_ID: '1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd'
+      - name: Verify candidate bundle and record HOLD metadata (no Drive replacement)
         run: |
-          python research/kalman_market_refresh/refresh_ci.py publish \
+          python research/kalman_market_refresh/refresh_ci.py candidate \
             --file "$RUNNER_TEMP/kalman_market_research.zip" \
-            --file-id "$KALMAN_MARKET_REFRESH_FILE_ID"
+            --status outputs/kalman_market_refresh/candidate_status.json
       - name: Upload metadata only, never publish price snapshots to Actions
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kalman-market-refresh-metadata
-          path: outputs/kalman_market_refresh/readiness.json
+          path: outputs/kalman_market_refresh/*.json
           retention-days: 30
           if-no-files-found: warn
