@@ -167,7 +167,7 @@ def normalize(record):
     return {**out,"record_id":rid}
 
 
-def verify_members(records,expected):
+def inspect_members(records,expected):
     desired={r["Source Key"]:r for r in expected}
     observed={}
     seen=set()
@@ -187,7 +187,12 @@ def verify_members(records,expected):
         if any(row[k]!=desired[key][k] for k in SOURCE_FIELDS):
             fail("REVIEW_MEMBER_READBACK_MISMATCH")
         observed[key]=row
-    if set(observed)!=set(desired):
+    return observed,blank
+
+
+def verify_members(records,expected):
+    observed,blank=inspect_members(records,expected)
+    if len(observed)!=len(expected):
         fail("REVIEW_MEMBER_SET_INCOMPLETE")
     exclusions={k for k,r in observed.items() if r[EXCLUDE]}
     totals=member_totals(expected,exclusions)
@@ -261,7 +266,22 @@ def reconcile(source,backend,mode="plan",expected_digest=""):
             "ui_click_edit_restore":"NOT_TESTED"}
     if t or p:
         if not t or not p:
-            fail("PARTIAL_TARGET_REQUIRES_REVIEW")
+            if mode=="apply":
+                fail("PARTIAL_TARGET_REQUIRES_REVIEW")
+            detail={**public,"state":"PARTIAL_TARGET_REQUIRES_REVIEW","review_writes":0,
+                    "observed_members":None,"missing_members":None}
+            if t:
+                try:
+                    check_schema(backend.fields(t))
+                    rows,blank=inspect_members(backend.records(t),snap["rows"])
+                except DrilldownError:
+                    print("REVENUE_REVIEW_PILOT "+canonical_json(detail),file=sys.stderr)
+                    raise
+                detail.update(observed_members=len(rows),missing_members=EXPECTED_COUNT-len(rows),
+                              observed_by_month={m:sum(row["Month"]==m for row in rows.values())
+                                                 for m in MONTHS},
+                              blank_nonmember_rows=blank)
+            return detail
         check_schema(backend.fields(t))
         verify=verify_members(backend.records(t),snap["rows"])
         backend.verify_page(p,charts)
@@ -320,8 +340,17 @@ class NativeBackend:
         for _ in range(200):
             query=urllib.parse.urlencode({"page_size":100,**({"page_token":cursor} if cursor else {})})
             obj=self.request("GET",path+"?"+query,self.token,action="revenue_pilot_list")
+            # Feishu may omit items on an empty records table. Accept only
+            # an explicit zero total on the first and terminal records page.
+            if (path.endswith("/records") and cursor is None and "items" not in obj
+                    and type(obj.get("total")) is int and obj["total"]==0
+                    and obj.get("has_more") is False and not obj.get("page_token")):
+                return []
             if not isinstance(obj.get("items"),list) or type(obj.get("has_more")) is not bool:
-                fail("INCOMPLETE_LIST")
+                resource=path.rsplit("/",1)[-1]
+                fail("INCOMPLETE_LIST:"+resource+":items="+type(obj.get("items")).__name__
+                     +":has_more="+type(obj.get("has_more")).__name__
+                     +":zero_total="+str(type(obj.get("total")) is int and obj["total"]==0))
             out.extend(obj["items"])
             if not obj["has_more"]:
                 return out
@@ -450,6 +479,8 @@ def main():
     backend=NativeBackend(token,root,api,cli,allow_write=args.mode=="apply")
     result=reconcile(source,backend,args.mode,args.expected_digest)
     print("REVENUE_REVIEW_PILOT "+canonical_json(result))
+    if result["state"]=="PARTIAL_TARGET_REQUIRES_REVIEW":
+        fail("PARTIAL_TARGET_REQUIRES_REVIEW")
 
 
 if __name__=="__main__":

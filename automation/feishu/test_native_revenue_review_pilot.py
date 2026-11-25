@@ -116,6 +116,49 @@ class PilotTests(unittest.TestCase):
             reconcile(self.s,self.b,"apply",self.digest)
         self.assertNotIn(TITLE,self.b.ds.values())
 
+    def test_partial_table_plan_counts_verified_rows_without_writes(self):
+        t=self.b.create_table()
+        row=snapshot(self.s)["rows"][0]
+        self.b.create_members(t,[{**row,EXCLUDE:True,"제외 사유":"private reason"}])
+        self.b.rows[t].append({"record_id":"recBlank","fields":{}})
+        before=copy.deepcopy(self.b.rows)
+        writes=list(self.b.writes)
+        out=reconcile(self.s,self.b)
+        self.assertEqual(out["state"],"PARTIAL_TARGET_REQUIRES_REVIEW")
+        self.assertEqual((out["observed_members"],out["missing_members"]),(1,89))
+        self.assertEqual(out["observed_by_month"],{"2026-10":1,"2026-11":0})
+        self.assertEqual(out["blank_nonmember_rows"],1)
+        self.assertNotIn("private reason",json.dumps(out))
+        self.assertEqual(self.b.rows,before)
+        self.assertEqual(self.b.writes,writes)
+        self.b.rows[t][0]["fields"]["Net KRW"]+=1
+        with self.assertRaises(DrilldownError):
+            reconcile(self.s,self.b)
+
+    def test_partial_page_plan_reports_unknown_members(self):
+        self.b.ds["blkReview"]=TITLE
+        out=reconcile(self.s,self.b)
+        self.assertIsNone(out["observed_members"])
+        self.assertEqual(out["target_dashboard"],"blkReview")
+        self.assertEqual(self.b.writes,[])
+
+    def test_only_explicit_empty_records_page_can_omit_items(self):
+        path=ROOT+"/tables/tblReview/records"
+        def listing(responses, resource=path):
+            pages=iter(responses)
+            backend=NativeBackend(None,ROOT,lambda *a,**kw:next(pages),None)
+            return backend.listing(resource)
+        empty={"has_more":False,"total":0}
+        self.assertEqual(listing([empty]),[])
+        for bad in ({},{"has_more":False},{**empty,"items":None},{**empty,"total":False},
+                    {**empty,"total":2},{**empty,"page_token":"more"},{**empty,"has_more":True}):
+            with self.subTest(bad=bad), self.assertRaisesRegex(DrilldownError,"INCOMPLETE_LIST"):
+                listing([bad])
+        with self.assertRaisesRegex(DrilldownError,"INCOMPLETE_LIST"):
+            listing([empty],ROOT+"/tables")
+        with self.assertRaisesRegex(DrilldownError,"INCOMPLETE_LIST"):
+            listing([{"has_more":True,"items":[{}],"page_token":"next"},empty])
+
     def test_charts_are_month_grouped_and_selection_scoped(self):
         c=specs(snapshot(self.s)["stamps"])
         for chart in c[1:]:
