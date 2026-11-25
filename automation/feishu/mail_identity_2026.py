@@ -8,6 +8,7 @@ No name-only matching, no inference of invoice payment, no outgoing mail or SFDC
 """
 import collections
 import datetime as dt
+import json
 import os
 import re
 import sys
@@ -141,16 +142,28 @@ def quote_opportunity_index(export, portfolio):
         raw = text(row, "Opportunity ID")
         return raw if OPP_REF_RE.fullmatch(raw) or OPP_OBJECT_RE.fullmatch(raw) else ""
     raw = collections.defaultdict(list)
+    export_qids = collections.Counter()
     for row in export:
         key = object_key(row, "Salesforce Record ID")
+        q = qid(row, "AMEA Quotation ID")
         if key:
             raw[key].append(row)
+        # Count every row with this QID, including malformed object IDs.
+        # Matching one object ID must not hide another row for the same QID.
+        if QID_RE.fullmatch(q):
+            export_qids[q] += 1
     owners = collections.defaultdict(set)
+    portfolio_qid_objects = collections.defaultdict(set)
+    portfolio_object_qids = collections.defaultdict(set)
     for row in portfolio:
         pid = text(row, "Approved AMEA ID").upper()
+        oid, q = object_key(row, "Salesforce Quote ID (18)"), qid(row, "Quote QID")
+        if QID_RE.fullmatch(q):
+            portfolio_qid_objects[q].add(oid)
+        if oid:
+            portfolio_object_qids[oid].add(q)
         if not PROJECT_RE.fullmatch(pid):
             continue
-        oid, q = object_key(row, "Salesforce Quote ID (18)"), qid(row, "Quote QID")
         if oid:
             owners[("object", oid)].add(pid)
         if QID_RE.fullmatch(q):
@@ -165,6 +178,9 @@ def quote_opportunity_index(export, portfolio):
         op = opp(row)
         candidates = raw.get(oid, [])
         if (not oid or not QID_RE.fullmatch(q) or not op or len(candidates) != 1
+                or export_qids[q] != 1
+                or portfolio_qid_objects[q] != {oid}
+                or portfolio_object_qids[oid] != {q}
                 or owners[("object", oid)] != {pid} or owners[("qid", q)] != {pid}
                 or qid(candidates[0], "AMEA Quotation ID") != q
                 or opp(candidates[0]) != op):
@@ -433,6 +449,83 @@ def same(old, expected):
                if key != "Last Sync KST")
 
 
+def read_identity_target(token, root):
+    """Read an existing derived table for a complete plan; never create it."""
+    tables = list_all(root + "/tables", token, "identity_plan_tables")
+    matches = [r for r in tables if r.get("name") == TABLE]
+    if len(matches) > 1:
+        raise SafeError("IDENTITY_DUPLICATE_TABLE")
+    if not matches:
+        return None, []
+    tid = matches[0].get("table_id")
+    if not isinstance(tid, str) or not re.fullmatch(r"tbl[A-Za-z0-9]+", tid):
+        raise SafeError("IDENTITY_TARGET_ID_INVALID")
+    path = root + "/tables/" + urllib.parse.quote(tid, safe="")
+    return tid, list_all(path + "/records", token, "identity_plan_records")
+
+
+def identity_change_summary(existing, desired):
+    """Compare full unbounded membership, emitting counts, never values/keys.
+
+    Last Sync KST and user-owned fields outside SCHEMA do not affect a diff.
+    Existing rows outside the current desired set are retained, not deleted.
+    """
+    bykey = {}
+    for item in existing:
+        fields = item.get("fields") or {}
+        key = field_text(fields.get("Mail Key"))
+        if not key:
+            continue
+        if key in bykey:
+            raise SafeError("IDENTITY_DUPLICATE_MAIL_KEY")
+        bykey[key] = fields
+    seen = set()
+    changes = collections.Counter()
+    field_changes = collections.Counter()
+    for row in desired:
+        key = row.get("Mail Key")
+        if (not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key)
+                or key in seen or not set(row) <= set(SCHEMA)):
+            raise SafeError("IDENTITY_DESIRED_KEY_OR_FIELD_INVALID")
+        seen.add(key)
+        if key not in bykey:
+            changes["creates"] += 1
+            if field_text(row.get("Opportunity ID")):
+                changes["new_rows_with_opportunity"] += 1
+            continue
+        old = bykey[key]
+        changed = {k for k, v in row.items() if k != "Last Sync KST"
+                   and field_text(old.get(k)) != str(v).strip()}
+        if not changed:
+            changes["unchanged"] += 1
+            continue
+        changes["updates"] += 1
+        field_changes.update(changed)
+        if changed - {"Opportunity ID"}:
+            changes["updates_with_other_fields"] += 1
+        if "Opportunity ID" in changed:
+            before = field_text(old.get("Opportunity ID"))
+            after = field_text(row.get("Opportunity ID"))
+            if not before and after:
+                changes["opportunity_added"] += 1
+            elif before and not after:
+                changes["opportunity_removed"] += 1
+            elif before and after:
+                changes["opportunity_replaced"] += 1
+    counts = ("creates", "updates", "unchanged", "new_rows_with_opportunity",
+              "updates_with_other_fields", "opportunity_added",
+              "opportunity_removed", "opportunity_replaced")
+    return {**{k: changes[k] for k in counts},
+            "existing": len(bykey), "desired": len(seen),
+            "existing_only_retained": len(set(bykey) - seen),
+            "field_changes": dict(sorted(field_changes.items()))}
+
+
+def require_safe_opportunity_changes(summary):
+    if summary["opportunity_removed"] or summary["opportunity_replaced"]:
+        raise SafeError("IDENTITY_EXISTING_OPPORTUNITY_CHANGE_REVIEW")
+
+
 def get_or_create_table(token, root):
     tables = list_all(root + "/tables", token, "identity_list_tables")
     matches = [r for r in tables if r.get("name") == TABLE]
@@ -490,6 +583,8 @@ def ensure_views(token, tid, path):
 
 def changes(token, path, records, limit):
     existing = list_all(path + "/records", token, "identity_list_records")
+    # Recheck against the actual pre-write snapshot, not the prior plan.
+    require_safe_opportunity_changes(identity_change_summary(existing, records))
     bykey = {}
     for x in existing:
         key = field_text((x.get("fields") or {}).get("Mail Key"))
@@ -602,10 +697,23 @@ def main():
     print("IDENTITY_QUOTE_OPPORTUNITY_PLAN linked_mail=" +
           str(sum(bool(r["Opportunity ID"]) for r in desired)) +
           " portfolio_review_amea=" + str(len(idx["quote_review"])))
+    target_id, existing = read_identity_target(token, root)
+    summary = identity_change_summary(existing, desired)
+    summary["target"] = "EXISTING" if target_id else "ABSENT"
+    summary["batch_limit"] = limit
+    summary["deferred_by_limit"] = max(0, summary["creates"] + summary["updates"] - limit)
+    summary["existing_opportunity_review"] = bool(
+        summary["opportunity_removed"] or summary["opportunity_replaced"])
+    print("IDENTITY_CHANGE_PLAN " + json.dumps(summary, sort_keys=True))
     if mode == "plan":
         print("IDENTITY_PLAN_PASS writes=0")
         return
+    # A destructive or conflicting Opportunity change is not a normal
+    # scheduled enrichment. Stop before schema, view, or record writes.
+    require_safe_opportunity_changes(summary)
     tid, path = get_or_create_table(token, root)
+    if target_id and tid != target_id:
+        raise SafeError("IDENTITY_TARGET_CHANGED")
     ensure_views(token, tid, path)
     creates, updates, unchanged = changes(token, path, desired, limit)
     batch_apply(token, path, creates, updates)
