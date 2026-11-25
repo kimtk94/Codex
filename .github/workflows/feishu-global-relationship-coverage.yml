@@ -6,6 +6,9 @@ on:
       - 'automation/feishu/test_global_relationship_coverage.py'
       - 'automation/feishu/global_mail_relationship_coverage.py'
       - 'automation/feishu/test_global_mail_relationship_coverage.py'
+      - 'automation/feishu/unified_reference_search.py'
+      - 'automation/feishu/test_unified_reference_search.py'
+      - 'automation/feishu/UNIFIED_REFERENCE_SEARCH.md'
       - 'automation/feishu/GLOBAL_RELATIONSHIP_CONTRACT.md'
       - '.github/workflows/feishu-global-relationship-coverage.yml'
   workflow_dispatch:
@@ -34,6 +37,7 @@ jobs:
           python-version: '3.11'
       - run: python3 -m unittest discover -s automation/feishu -p test_global_relationship_coverage.py -v
       - run: python3 -m unittest discover -s automation/feishu -p test_global_mail_relationship_coverage.py -v
+      - run: python3 -m unittest discover -s automation/feishu -p test_unified_reference_search.py -v
   coverage:
     needs: offline
     if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.scope == 'project' && needs.offline.result == 'success' }}
