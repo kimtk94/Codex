@@ -152,6 +152,11 @@ jobs:
             --results-sha256 256467e4ed8d3979c1f8c28993f9aed1fb7f4f16135879d1809b870456c8622f \
             --anchor "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
             --out outputs/kalman_outcome_attribution/settlement_reconciliation_report.json
+      - name: Reproduce historical feasibility without modifying preregistered thresholds
+        run: |
+          python research/kalman_outcome_attribution/protocol_feasibility.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/protocol_feasibility_report.json
       - name: Publish only aggregate metadata, never input archives or row-level features
         uses: actions/upload-artifact@v4
         with:
@@ -164,5 +169,6 @@ jobs:
             outputs/kalman_outcome_attribution/regime_cash_replay_report.json
             outputs/kalman_outcome_attribution/concentration_replay_report.json
             outputs/kalman_outcome_attribution/settlement_reconciliation_report.json
+            outputs/kalman_outcome_attribution/protocol_feasibility_report.json
           if-no-files-found: error
           retention-days: 45
