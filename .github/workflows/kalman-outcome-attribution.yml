@@ -71,6 +71,17 @@ jobs:
             --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
             --original-source original-source \
             --out outputs/kalman_outcome_attribution/exact_ohlc_report.json
+      - name: Independently reproduce causal Kalman versus EMA ablation
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_outcome_attribution/kalman_ablation.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/kalman_ablation_report.json
       - name: Publish only aggregate metadata, never input archives or row-level features
         uses: actions/upload-artifact@v4
         with:
@@ -78,5 +89,6 @@ jobs:
           path: |
             outputs/kalman_outcome_attribution/aggregate_report.json
             outputs/kalman_outcome_attribution/exact_ohlc_report.json
+            outputs/kalman_outcome_attribution/kalman_ablation_report.json
           if-no-files-found: error
           retention-days: 45
