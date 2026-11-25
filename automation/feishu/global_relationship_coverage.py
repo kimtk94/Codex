@@ -883,6 +883,137 @@ def registry_expansion_audit(sources,evidence,projects):
             "status":"CANDIDATE_REFERENCES_ONLY_NOT_AUTHORIZED_FOR_WRITES","business_writes":0}
 
 
+def registry_nonquote_project_audit(sources,projects):
+    """Classify AMEA without a Portfolio quote and outside the stored registry.
+
+    Exact Lifecycle X observations, finance-base candidates, and historical
+    references have different evidence strength. Do not infer completed,
+    paid, owner, invoice issued, or an X/SAM assignment.
+    """
+    registry={value(r,"amea_quote_id").upper() for r in sources[REGISTRY_NAME]
+              if re.fullmatch(FORMATS["AMEA"],value(r,"amea_quote_id").upper())}
+    quoted={value(r,"Approved AMEA ID").upper() for r in sources["Quote Portfolio"]
+            if re.fullmatch(FORMATS["AMEA"],value(r,"Approved AMEA ID").upper())}
+    ids={r["amea"] for r in projects}
+    if len(ids)!=len(projects):
+        raise CoverageError("REGISTRY_NONQUOTE_DUPLICATE_AMEA")
+
+    # Preserve the actual exact X and full H observed in the Online row.
+    # This is a chain of references, not a CSS H assignment.
+    online_h=defaultdict(set)
+    online_rows=Counter()
+    online_invalid_h=set()
+    online_x=set()
+    for row in sources[ONLINE]:
+        xs,xstate=keys(value(row,"Sub-Project Number"),"X_PROJECT")
+        hs,hstate=keys(value(row,"Contract Number"),"H")
+        if xstate!="OBSERVED" or len(xs)!=1:
+            continue
+        x=next(iter(xs))[1]
+        online_x.add(x)
+        online_rows[x]+=1
+        if hstate=="OBSERVED" and len(hs)==1:
+            online_h[x].add(next(iter(hs))[1])
+        else:
+            online_invalid_h.add(x)
+
+    cohorts=defaultdict(Counter)
+    states=defaultdict(Counter)
+    source_counts=defaultdict(Counter)
+    distinct_exact=set()
+    h_pairs=set()
+    for r in projects:
+        if r["amea"] in registry or r["amea"] in quoted:
+            continue
+        refs=r["refs"]
+        exact=set(r["current_online_exact_lifecycle_x"])
+        life=set(refs.get("LIFECYCLE_X",{}))
+        finance=r["finance_x_candidates"]
+        has_direct_x=bool(life or refs.get("FINANCE_X"))
+        cohort=("CURRENT_LIFECYCLE" if exact else "X_REVIEW" if has_direct_x
+                else "NO_DIRECT_X")
+        count=cohorts[cohort]
+        count["amea"]+=1
+        source_counts[cohort].update(r["source_tables"])
+        for kind in ("LIFECYCLE_X","FINANCE_X","H","SAM","SIF","CMS"):
+            if refs.get(kind):
+                count["has_"+kind.lower()]+=1
+        if len(r["source_tables"])>1:
+            count["multiple_sources"]+=1
+        if r["shared_reference_review"]:
+            count["shared_reference_review"]+=1
+        if r["current_h_candidates"]:
+            count["h_root_current_candidate_only"]+=1
+
+        finance_match=any(f["current_x_candidates"] for f in finance)
+        finance_multi=any(len(f["current_x_candidates"])>1 for f in finance)
+        finance_missing=any(not f["current_x_candidates"] for f in finance)
+        life_shared=any(x["kind"]=="LIFECYCLE_X" for x in r["shared_reference_review"])
+        life_absent=bool(life-online_x)
+        if finance_match:
+            count["finance_current_candidate"]+=1
+        if finance_multi:
+            count["finance_multiple_current_candidates"]+=1
+        if finance_missing:
+            count["finance_reported_x_without_current_candidate"]+=1
+        if any(set(f["current_x_candidates"]) & exact for f in finance):
+            count["finance_candidate_intersects_exact_lifecycle_x"]+=1
+        if any(FINANCE<=set(f["sources"]) for f in finance):
+            count["same_reported_x_in_outstanding_and_etax"]+=1
+        if life_absent:
+            count["lifecycle_x_not_current"]+=1
+        if life_shared:
+            count["lifecycle_x_shared_amea_review"]+=1
+        if r["receipt_cms_references"]:
+            count["receipt_cms_reference_observed"]+=1
+        if any("SINGLE_CMS_CELL_REFERENCE" in flags for flags in r["receipt_cms_references"].values()):
+            count["receipt_single_cms_cell_reference"]+=1
+        if any("GROUP_OR_PARTIAL_CMS_CELL_REFERENCE" in flags for flags in r["receipt_cms_references"].values()):
+            count["receipt_group_or_partial_cms_cell_reference"]+=1
+
+        if exact:
+            states[cohort]["EXACT_CURRENT_LIFECYCLE"]+=1
+            distinct_exact.update(exact)
+            # Require one exact Online row and one fully valid H; do not
+            # silently accept a duplicate row or a sibling suffix.
+            clean={x for x in exact if online_rows[x]==1
+                   and len(online_h[x])==1 and x not in online_invalid_h}
+            if clean==exact:
+                count["all_exact_x_have_unique_online_h_reference"]+=1
+            elif clean:
+                count["some_exact_x_have_unique_online_h_reference"]+=1
+            else:
+                count["no_unique_online_h_reference_review"]+=1
+            if clean!=exact:
+                count["online_h_reference_review"]+=1
+            h_pairs.update((x,next(iter(online_h[x]))) for x in clean)
+        elif has_direct_x:
+            code=("SHARED_LIFECYCLE_REVIEW" if life_shared
+                  else "LIFECYCLE_X_NOT_CURRENT" if life_absent
+                  else "FINANCE_MULTIPLE_CURRENT_CANDIDATES" if finance_multi
+                  else "FINANCE_SINGLE_CURRENT_CANDIDATE" if finance_match
+                  else "FINANCE_NO_CURRENT_X" if finance
+                  else "OTHER_X_REFERENCE_REVIEW")
+            states[cohort][code]+=1
+        else:
+            states[cohort]["NO_DIRECT_X"]+=1
+
+    expected=len(ids-registry-quoted)
+    if sum(v["amea"] for v in cohorts.values())!=expected or any(
+            sum(states[k].values())!=v["amea"] for k,v in cohorts.items()):
+        raise CoverageError("REGISTRY_NONQUOTE_PARTITION_MISMATCH")
+    return {"outside_registry_without_portfolio_amea":expected,
+            "cohorts":{k:{"counts":dict(v),"reference_states":dict(states[k]),
+                          "source_coverage":dict(source_counts[k])}
+                       for k,v in sorted(cohorts.items())},
+            "distinct_exact_current_lifecycle_x":len(distinct_exact),
+            "distinct_exact_online_x_h_reference_pairs":len(h_pairs),
+            "current_status":"ONLINE_REFERENCE_OBSERVATION_NOT_DELIVERY_CERTIFICATION",
+            "historical_status":"NOT_INFERRED_FROM_CURRENT_ONLINE_ABSENCE",
+            "payment_owner_issuance_certification":"NOT_ATTESTED",
+            "business_writes":0}
+
+
 def read_sources(session,specs=SOURCES):
     # Reuse existing authorized GET-only reader. Prove bounds against actual
     # grid metadata first; a sparse tab cannot silently exceed a fixed limit.
@@ -948,6 +1079,7 @@ def main():
     summary["registry_reference_audit"] = registry_reference_audit(sources,evidence)
     summary["project_reference_coverage"], details = project_relationships(sources)
     summary["registry_expansion_audit"] = registry_expansion_audit(sources,evidence,details)
+    summary["registry_nonquote_project_audit"] = registry_nonquote_project_audit(sources,details)
     summary["read_started_kst"] = started
     summary["read_finished_kst"] = dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
     if args.private_project_report:
