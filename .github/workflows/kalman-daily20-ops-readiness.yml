@@ -10,8 +10,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - research/kalman_daily20/ops_readiness.py
-      - research/kalman_daily20/test_ops_readiness.py
+      - automation/kalman_ops_scorecard/ops_readiness.py
+      - automation/kalman_ops_scorecard/test_ops_readiness.py
       - .github/workflows/kalman-daily20-ops-readiness.yml
 
 permissions:
@@ -29,9 +29,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Read-only offline contracts (no token used)
         run: |
-          cd research/kalman_daily20
+          cd automation/kalman_ops_scorecard
           python -m unittest -v test_ops_readiness.py
           python -m py_compile ops_readiness.py
       - name: PR integration check of a real main-run GitHub job-log download
@@ -39,7 +41,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python research/kalman_daily20/ops_readiness.py \
+          python automation/kalman_ops_scorecard/ops_readiness.py \
             --out output/daily20/ops_readiness_pr_smoke.json
       - name: Summarize latest main Daily20 research run (never promote strategy)
         if: github.event_name != 'pull_request'
@@ -48,11 +50,11 @@ jobs:
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           if [ -n "$SOURCE_RUN_ID" ]; then
-            python research/kalman_daily20/ops_readiness.py \
+            python automation/kalman_ops_scorecard/ops_readiness.py \
               --run-id "$SOURCE_RUN_ID" \
               --out output/daily20/ops_readiness.json
           else
-            python research/kalman_daily20/ops_readiness.py \
+            python automation/kalman_ops_scorecard/ops_readiness.py \
               --out output/daily20/ops_readiness.json
           fi
       - name: Persist audit-only status to GitHub artifacts
