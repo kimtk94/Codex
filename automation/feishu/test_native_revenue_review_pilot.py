@@ -223,6 +223,14 @@ class PilotTests(unittest.TestCase):
             self.assertEqual(any(x["field_name"]==EXCLUDE for x in cfg["filter"]["conditions"]),
                              chart["name"].endswith("분석 합계"))
 
+    def test_chart_diagnostic_reports_structure_and_hides_unexpected_labels(self):
+        expected=canonical_json({"group_by":[{"field_name":"Month"}]})
+        out=chart_diagnostic({"group_by":[{"field_name":"Month","title":"private note"}],
+                              "text":"x"*90},expected)
+        self.assertEqual(out["group_by"][0],{"field_name":"Month","title":{"string_length":12}})
+        self.assertEqual(out["text"],{"string_length":90})
+        self.assertNotIn("private",json.dumps(out))
+
     def test_november_source_mismatch_blocks_both_months(self):
         self.s["CSS Tax Invoice Extract"].pop()
         with self.assertRaisesRegex(DrilldownError,"SOURCE_MONTH_NOT_READY:2026-11"):

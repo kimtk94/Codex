@@ -245,6 +245,22 @@ def named_id(catalog,name):
     return ids[0] if ids else None
 
 
+def chart_diagnostic(value,expected):
+    """Describe a backend chart config, retaining only known static values."""
+    if isinstance(value,dict):
+        return {k:chart_diagnostic(v,expected) for k,v in value.items()
+                if isinstance(k,str) and re.fullmatch(r"[a-z][a-z0-9_]{0,40}",k)}
+    if isinstance(value,list):
+        return [chart_diagnostic(v,expected) for v in value[:16]]
+    if isinstance(value,str):
+        if len(value)<80 and canonical_json(value) in expected:
+            return value
+        return {"string_length":len(value)}
+    if isinstance(value,bool) or value is None:
+        return value
+    return type(value).__name__
+
+
 def reconcile(source,backend,mode="plan",expected_digest=""):
     if mode not in {"plan","apply","resume-empty"}:
         fail("INVALID_MODE")
@@ -293,6 +309,7 @@ def reconcile(source,backend,mode="plan",expected_digest=""):
             return detail
         check_schema(backend.fields(t))
         verify=verify_members(backend.records(t),snap["rows"])
+        print("REVENUE_MEMBER_READBACK "+canonical_json({**verify,"target_dashboard":p,"target_table":t}))
         backend.verify_page(p,charts)
         return {**public,**verify,"state":"EXISTING_SNAPSHOT_VERIFIED_NO_WRITES","review_writes":0}
     if mode=="plan":
@@ -474,6 +491,7 @@ class NativeBackend:
         current=inventory(self.runner,"+dashboard-block-list",p)
         if len(current)!=len(charts):
             fail("CHART_COUNT_MISMATCH")
+        differences=[]
         for chart in charts:
             hits=[i for i,r in current.items() if r.get("name")==chart["name"]]
             if len(hits)!=1:
@@ -481,10 +499,21 @@ class NativeBackend:
             bid=hits[0]
             r=response_entity(self.runner("+dashboard-block-get","--base-token",BASE,
                 "--dashboard-id",p,"--block-id",bid),"block")
-            if (block_id(r)!=bid or r.get("name")!=chart["name"] or r.get("type")!=chart["type"]
-                    or not isinstance(r.get("data_config"),dict)
-                    or config_patch(r["data_config"],chart["data_config"])):
-                fail("CHART_CONFIG_MISMATCH")
+            if block_id(r)!=bid or r.get("name")!=chart["name"] or r.get("type")!=chart["type"]:
+                fail("CHART_IDENTITY_MISMATCH")
+            actual=r.get("data_config")
+            expected=chart["data_config"]
+            if not isinstance(actual,dict):
+                differences.append({"chart":chart["name"],"data_config":type(actual).__name__})
+                continue
+            changed=config_patch(actual,expected)
+            if changed:
+                differences.append({"chart":chart["name"],"keys":sorted(changed),
+                    "observed":chart_diagnostic({k:actual.get(k) for k in changed},canonical_json(expected))})
+        if differences:
+            print("REVENUE_CHART_READBACK "+canonical_json({"dashboard":p,"blocks":len(current),
+                  "matching":len(charts)-len(differences),"differences":differences}))
+            fail("CHART_CONFIG_MISMATCH")
 
 
 def main():
