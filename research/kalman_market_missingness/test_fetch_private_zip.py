@@ -2,12 +2,14 @@ import hashlib
 import unittest
 from unittest.mock import patch
 from fetch_private_zip import (PINNED_CANDIDATE_ID, PINNED_CANDIDATE_SHA256,
-                               APPROVED_READONLY_ARCHIVES, verify_pinned_candidate, download)
+                               APPROVED_READONLY_ARCHIVES, PINNED_CANDIDATE_ARCHIVE,
+                               verify_pinned_candidate, download)
 
 
 class PinnedArchiveContract(unittest.TestCase):
     def test_exact_owner_verified_candidate_identity(self):
-        self.assertEqual(APPROVED_READONLY_ARCHIVES[PINNED_CANDIDATE_ID],
+        self.assertNotIn(PINNED_CANDIDATE_ID,APPROVED_READONLY_ARCHIVES)
+        self.assertEqual(PINNED_CANDIDATE_ARCHIVE,
                          ('market_candidate_HOLD_2026-11-24_GH45533778910.zip', 2151240))
         self.assertEqual(PINNED_CANDIDATE_SHA256,
                          '62b08e06a84caef53889f17bf75afde5bb2d2cd01e9adc5c6433b9c2e7c89722')
@@ -23,6 +25,10 @@ class PinnedArchiveContract(unittest.TestCase):
     def test_unknown_id_rejected_before_network(self):
         with self.assertRaisesRegex(ValueError,'UNAPPROVED_DRIVE_FILE'):
             download('unapproved_id','unused')
+        with self.assertRaisesRegex(ValueError,'UNAPPROVED_DRIVE_FILE'):
+            download(PINNED_CANDIDATE_ID,'unused')
+        with self.assertRaisesRegex(ValueError,'UNAPPROVED_DRIVE_FILE'):
+            download('unapproved_id','unused',verified_candidate=True)
 
 
 if __name__=='__main__':unittest.main()
