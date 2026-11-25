@@ -227,6 +227,70 @@ class ExternalScheduleProbeTests(unittest.TestCase):
 
 
 
+class SavedHeartbeatTests(unittest.TestCase):
+    def setUp(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from external_schedule_probe import probe, write_report
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "report.json"
+        self.report = probe(clock(25, 8, 20), "fixture-only",
+                            env={}, fetch=fake_api(), sleep=lambda _: None)
+        write_report(self.path, self.report)
+
+    def check(self, when=None, **kwargs):
+        from external_schedule_probe import check_saved_report
+        return check_saved_report(self.path, when or clock(25, 8, 30), **kwargs)
+
+    def rewrite(self, **kwargs):
+        from external_schedule_probe import write_report
+        write_report(self.path, {**self.report, **kwargs})
+
+    def test_fresh_valid_report_is_not_host_or_seal_proof(self):
+        before = self.path.read_bytes()
+        result, code = self.check()
+        self.assertEqual(code, 0)
+        self.assertEqual(result["heartbeat_status"],
+                         "FRESH_DELIVERY_WINDOWS_OK_NOT_SEAL_PROOF")
+        self.assertFalse(result["host_independence_verified"])
+        self.assertFalse(result["original_first_and_replay_roles_verified"])
+        self.assertEqual(result["scientific_approval"], "HOLD")
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_stale_missing_future_and_previous_day_fail(self):
+        self.assertEqual(self.check(clock(25, 9, 6))[0]["reason"], "STALE_HEARTBEAT")
+        self.assertEqual(self.check(clock(26, 8, 30))[0]["reason"],
+                         "WRONG_REPORT_VERSION_OR_DATE")
+        self.assertEqual(self.check(clock(25, 8, 19))[0]["reason"],
+                         "FUTURE_REPORT_TIMESTAMP")
+        self.path.unlink()
+        self.assertEqual(self.check()[0]["reason"], "MISSING_HEARTBEAT")
+
+    def test_fresh_hold_stays_hold(self):
+        self.rewrite(status="SCHEDULE_DELIVERY_HOLD")
+        result, code = self.check()
+        self.assertEqual(code, 2)
+        self.assertEqual(result["heartbeat_status"], "FRESH_DELIVERY_HOLD")
+
+    def test_malformed_or_overclaimed_report_fails_closed(self):
+        self.path.write_text("{")
+        self.assertEqual(self.check()[1], 2)
+        self.rewrite(scientific_approval="PASS")
+        self.assertEqual(self.check()[0]["reason"], "UNVERIFIED_REPORT_BOUNDARIES")
+        self.rewrite(delivery_window_observations=[])
+        self.assertEqual(self.check()[0]["reason"], "INCONSISTENT_REPORT_EVIDENCE")
+        self.rewrite(workflow_observations=[])
+        self.assertEqual(self.check()[1], 2)
+
+    def test_grace_and_maximum_age_boundary(self):
+        self.assertEqual(self.check(clock(25, 8, 14))[1], 3)
+        self.assertEqual(self.check(clock(25, 9, 5))[1], 0)
+        self.assertEqual(self.check(max_age_minutes=0)[1], 2)
+        self.assertEqual(self.check(clock(29, 12, 0))[1], 3)
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

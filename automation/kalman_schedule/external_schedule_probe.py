@@ -174,12 +174,108 @@ def write_report(path, report):
             tmp.unlink(missing_ok=True)
 
 
+def check_saved_report(path, now, *, max_age_minutes=45):
+    """Read-only freshness check; not host identity, signature or seal proof."""
+    result = {"heartbeat_status": "HEARTBEAT_UNKNOWN_HOLD",
+              "reason": None, "target_utc_date": None,
+              "report_age_seconds": None, "scientific_approval": "HOLD",
+              "host_independence_verified": False,
+              "original_first_and_replay_roles_verified": False,
+              "production_writes": False, "live_execution": False}
+
+    def hold(reason):
+        return {**result, "reason": reason}, 2
+
+    if now.tzinfo is None or now.utcoffset() is None:
+        return hold("CLOCK_WITHOUT_TIMEZONE")
+    now = now.astimezone(timezone.utc)
+    result["target_utc_date"] = now.date().isoformat()
+    if (now.date() < FIRST_AUDIT_DAY or now.weekday() not in (1, 2, 3, 4, 5)
+            or now.time().replace(tzinfo=None) < AUDIT_AFTER):
+        return {**result, "heartbeat_status": "NOT_DUE",
+                "reason": "TODAY_UTC_SLOTS_NOT_DUE"}, 3
+    if type(max_age_minutes) is not int or not 1 <= max_age_minutes <= 1440:
+        return hold("INVALID_MAX_AGE")
+    try:
+        with Path(path).open("rb") as handle:
+            payload = handle.read(1_048_577)
+        if len(payload) > 1_048_576:
+            return hold("REPORT_TOO_LARGE")
+        report = json.loads(payload)
+        if not isinstance(report, dict):
+            return hold("MALFORMED_REPORT")
+        if (report.get("probe_version") != VERSION
+                or report.get("target_utc_date") != result["target_utc_date"]):
+            return hold("WRONG_REPORT_VERSION_OR_DATE")
+        stamp = datetime.fromisoformat(report["observed_at_utc"])
+        if stamp.tzinfo is None or stamp.utcoffset() is None:
+            return hold("UNVERIFIED_REPORT_TIMESTAMP")
+        stamp = stamp.astimezone(timezone.utc)
+        if stamp.date() != now.date() or stamp.time().replace(tzinfo=None) < AUDIT_AFTER:
+            return hold("WRONG_OBSERVATION_DATE_OR_WINDOW")
+        age = (now - stamp).total_seconds()
+        result["report_age_seconds"] = age
+        if age < 0:
+            return hold("FUTURE_REPORT_TIMESTAMP")
+        if age > max_age_minutes * 60:
+            return hold("STALE_HEARTBEAT")
+        if (report.get("scientific_approval") != "HOLD"
+                or any(report.get(key) is not False for key in
+                       ("production_writes", "live_execution", "strategy_promoted",
+                        "host_independence_verified",
+                        "original_first_and_replay_roles_verified"))):
+            return hold("UNVERIFIED_REPORT_BOUNDARIES")
+        if report.get("status") in ("API_EVIDENCE_UNAVAILABLE_HOLD",
+                                    "SCHEDULE_DELIVERY_HOLD"):
+            return {**result, "heartbeat_status": "FRESH_DELIVERY_HOLD",
+                    "reason": report["status"]}, 2
+        if exit_code(report) != 0:
+            return hold("INCONSISTENT_REPORT_STATUS")
+        # Re-evaluate the reported metadata before accepting a fresh success.
+        rows = report["workflow_observations"]
+        ids = []
+        if not isinstance(rows, list) or len(rows) != 2:
+            return hold("INCONSISTENT_REPORT_EVIDENCE")
+        for row in rows:
+            if (row["state"] != "active" or row["observed_deliveries"] != 2
+                    or len(row["runs"]) != 2 or row["problems"]):
+                return hold("INCONSISTENT_REPORT_EVIDENCE")
+            for run in row["runs"]:
+                if (type(run["run_id"]) is not int or run["run_id"] <= 0
+                        or run["status"] != "completed"
+                        or run["conclusion"] != "success"):
+                    return hold("INCONSISTENT_REPORT_EVIDENCE")
+                ids.append(run["run_id"])
+        if len(set(ids)) != 4 or report.get("problem_codes") != []:
+            return hold("INCONSISTENT_REPORT_EVIDENCE")
+        checked = assess_delivery_windows({**report, "status": COUNT_OK}, stamp)
+        if (exit_code(checked) != 0
+                or checked["delivery_window_observations"]
+                != report["delivery_window_observations"]):
+            return hold("INCONSISTENT_REPORT_EVIDENCE")
+        return {**result,
+                "heartbeat_status": "FRESH_DELIVERY_WINDOWS_OK_NOT_SEAL_PROOF",
+                "reason": "LOCAL_METADATA_ONLY"}, 0
+    except FileNotFoundError:
+        return hold("MISSING_HEARTBEAT")
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        return hold("UNREADABLE_OR_MALFORMED_HEARTBEAT")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", required=True, help="Local metadata JSON only")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--out", help="Local metadata JSON only")
+    mode.add_argument("--check-existing", help="Read-only local heartbeat verification")
+    parser.add_argument("--max-age-minutes", type=int, default=45)
     args = parser.parse_args()
-    report = probe(datetime.now(timezone.utc), os.environ.get("GH_TOKEN", ""),
-                   env=os.environ)
+    now = datetime.now(timezone.utc)
+    if args.check_existing:
+        verdict, code = check_saved_report(args.check_existing, now,
+                                           max_age_minutes=args.max_age_minutes)
+        print(json.dumps(verdict, sort_keys=True))
+        return code
+    report = probe(now, os.environ.get("GH_TOKEN", ""), env=os.environ)
     write_report(args.out, report)
     print(json.dumps(report, sort_keys=True))
     return exit_code(report)

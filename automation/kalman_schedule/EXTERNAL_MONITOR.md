@@ -35,6 +35,23 @@ assertion of independent scientific validation.
   host_independence_verified remains false until independent deployment
   evidence is reviewed outside this code.
 
+## Independent freshness check (not deployed)
+
+Use a separate host monitoring task after the 17:20 KST probe, for example
+17:30 KST with the proposed 45-minute freshness limit:
+
+    python3 automation/kalman_schedule/external_schedule_probe.py --check-existing /approved/local/path/kalman-delivery.json --max-age-minutes 45
+
+This command only reads the local report, requires no token, and never
+rewrites it. Missing, stale, future-dated, malformed, inconsistent and
+previous-date reports exit 2; fresh delivery HOLD also exits 2. Fresh
+successful registration evidence exits 0, not a scientific approval,
+signed attestation or proof of independent host operation. A real
+external alert delivery test, host scheduling, clock correctness and
+local file access controls are still required. The checker cannot detect
+its own host failure; alert on checker non-delivery from a separate
+authorized monitoring service.
+
 ## Verification
 
 The existing schedule-delivery audit offline test suite includes synthetic
