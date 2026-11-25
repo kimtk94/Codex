@@ -1,0 +1,107 @@
+{
+  "version": "kalman-challenger-prequential-v1",
+  "research_only": true,
+  "approved_live": false,
+  "source_finality_certified": false,
+  "retrospective_cutoff_session": "2026-11-23",
+  "activation": "externally anchored after review, before first eligible XNYS open; no historical seal or catch-up",
+  "universe": [
+    "SPY",
+    "QQQ",
+    "QLD",
+    "IWM",
+    "AAPL",
+    "MSFT",
+    "AMZN",
+    "GOOGL",
+    "META",
+    "NVDA",
+    "AMD",
+    "AVGO",
+    "MU",
+    "TSLA",
+    "PLTR",
+    "IONQ",
+    "COIN",
+    "MSTR",
+    "JPM",
+    "XOM"
+  ],
+  "excluded_16": [
+    "QLD",
+    "IONQ",
+    "COIN",
+    "MSTR"
+  ],
+  "families": [
+    "K1",
+    "K3",
+    "K1+K3"
+  ],
+  "cohorts": [
+    20,
+    16
+  ],
+  "cost_bps": [
+    30,
+    50
+  ],
+  "initial_equity": 100000,
+  "regime": {
+    "market_context": "prior completed XNYS session",
+    "up_pullback": "SPY above SMA200 AND ret20 > 0.02 AND ret5 <= 0",
+    "side_high_bull": "SPY above SMA200 AND ret20 <= 0.02 AND VIX >= 20",
+    "ranking": "signal close MOM20 descending; ticker ascending tie break",
+    "signal_cycles": "independent K1/K3 four-session calendar clocks; no signal before prior fourth close; no replacement of vetoed slots"
+  },
+  "execution": {
+    "entry": "next-session open research proxy; no claim of same-open executable quote",
+    "atr": "14 completed daily true ranges through signal close, simple average",
+    "stop_atr": 0.75,
+    "target_atr": 2.25,
+    "min_net_rr": 2,
+    "min_stop": 0.005,
+    "max_stop": 0.03,
+    "max_target": 0.08,
+    "max_hold_sessions": 4,
+    "max_reserved_slots": 5,
+    "allocation_per_slot": 0.2,
+    "gap_stop": "opening price",
+    "gap_target": "target cap",
+    "both_touch": "stop first",
+    "cost": "linear and exact half-cost RR gate; exact half-cost multiplicative realized return",
+    "cash": "single shared cash book per scenario; no borrowing; no same-day close funding of open buys; reserve early proceeds/slot until fourth close"
+  },
+  "primary": {
+    "candidate": "20_30_K1+K3",
+    "comparator": "20_30_K1",
+    "estimand": "arithmetic mean paired daily net equity return difference, including actual cash-only days; never substitute missing days",
+    "direction": "positive",
+    "looks": [
+      126,
+      252,
+      504
+    ],
+    "alpha_by_look": {
+      "126": 0,
+      "252": 0.02,
+      "504": 0.03
+    },
+    "method": "two-sided null-centered joint circular moving-block mean test, fixed block 20, 10000 draws, plus-one p; positive mean additionally required",
+    "min_active_nonoverlap_four_session_groups": 20,
+    "min_active_calendar_months": 8,
+    "formal_promotion": false
+  },
+  "secondary": "K3, 16-name and 50bp scenarios descriptive; K2 separate frozen protocol required; future exposure-matched SPY/QQQ control required before economic-alpha claim",
+  "coverage": "all XNYS sessions; explicit missing evidence HOLD; no retrospective seals; complete prefix through fixed look and all corresponding fourth-session maturities required",
+  "evidence": "journal and separate independently retrieved anchor index hash-pinned; per-event publication timestamps before deadline; input and settlement hashes refer to external evidence; validator does not authenticate anchor provider or re-execute ledger",
+  "source_gates": [
+    "#884 reproducibility",
+    "#907 independent price finality",
+    "#1045 native scheduler",
+    "PIT universe",
+    "SIP quote/execution",
+    "reviewed curve exporter"
+  ],
+  "approval": "research-only contract; no signal writer, schedule, broker or Drive writes; activation and independent evidence must be supplied by future protected producer"
+}

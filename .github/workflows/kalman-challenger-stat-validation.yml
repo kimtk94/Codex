@@ -1,0 +1,258 @@
+name: Kalman challenger statistical validation contracts
+on:
+  pull_request:
+    paths:
+      - 'research/kalman_daily20/challenger_stat_validation.py'
+      - 'research/kalman_daily20/challenger_overfit_validation.py'
+      - 'research/kalman_daily20/challenger_prequential.py'
+      - 'research/kalman_daily20/challenger_forward_producer.py'
+      - 'research/kalman_daily20/challenger_benchmark_validation.py'
+      - 'research/kalman_daily20/challenger_factor_attribution.py'
+      - 'research/kalman_daily20/challenger_cohort_exclusion.py'
+      - 'research/kalman_daily20/challenger_decision_consolidation.py'
+      - 'research/kalman_daily20/CHALLENGER_RESEARCH_DECISION.md'
+      - 'research/kalman_daily20/challenger_execution_audit.py'
+      - 'research/kalman_daily20/challenger_sip_quote_audit.py'
+      - 'research/kalman_daily20/challenger_archive_audit.py'
+      - 'research/kalman_daily20/challenger_private_archive_worker.py'
+      - 'research/kalman_daily20/challenger_prequential_protocol.json'
+      - '.github/workflows/kalman-challenger-stat-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  synthetic-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install research numerical dependency
+        run: python -m pip install numpy==2.3.5 'pandas>=2.2,<3' 'exchange-calendars>=4.7,<5' 'pyarrow>=17,<25'
+      - name: Validate synthetic statistical contracts only
+        run: python research/kalman_daily20/challenger_stat_validation.py --self-test
+
+      - name: Validate DSR CSCV and block-max contracts on synthetic data
+        run: python research/kalman_daily20/challenger_overfit_validation.py --self-test
+
+      - name: Validate prospective prequential contracts (synthetic only)
+        run: python research/kalman_daily20/challenger_prequential.py --self-test
+
+      - name: Validate cash ledger and RR2 contracts (synthetic only)
+        run: python research/kalman_daily20/challenger_forward_producer.py --self-test
+      - name: Validate archive and handoff contracts (synthetic only)
+        run: python research/kalman_daily20/challenger_archive_audit.py --self-test
+      - name: Validate private archive worker with fake provider (no credentials)
+        run: python research/kalman_daily20/challenger_private_archive_worker.py --self-test
+      - name: Validate actual previous handoff inputs without contacting Drive
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/kimtk94/Codex/actions/artifacts/14925618540/zip > "${RUNNER_TEMP}/worker-rehearsal.zip"
+          gh api repos/kimtk94/Codex/actions/artifacts/14926472628/zip > "${RUNNER_TEMP}/worker-handoff.zip"
+          python research/kalman_daily20/challenger_private_archive_worker.py --verify-inputs-only \
+            --rehearsal "${RUNNER_TEMP}/worker-rehearsal.zip" \
+            --rehearsal-sha256 f53adabd142cc3bd2c28443f902ac352ee22be2897f072928f6470ac20520117 \
+            --handoff "${RUNNER_TEMP}/worker-handoff.zip" \
+            --handoff-sha256 aa3d925378eb4a7a1148cc44d419edfc162cbe45151cdae4f4819eb3b1d397f5 \
+            --run 45407879115 --commit 373261a0f4375e0b56002b69f68589fe8e557a09
+      - name: Validate exposure and risk matched benchmark contracts (synthetic only)
+        run: python research/kalman_daily20/challenger_benchmark_validation.py --self-test
+      - name: Validate execution stress and bar ordering contracts (synthetic only)
+        run: python research/kalman_daily20/challenger_execution_audit.py --self-test
+      - name: Validate SIP quote and fixed price bounds (synthetic only, no API credentials)
+        run: python research/kalman_daily20/challenger_sip_quote_audit.py --self-test
+      - name: Validate exposure-aware factor attribution (synthetic only)
+        run: python research/kalman_daily20/challenger_factor_attribution.py --self-test
+      - name: Validate fixed cohort exclusion and cash conservation (synthetic only)
+        run: python research/kalman_daily20/challenger_cohort_exclusion.py --self-test
+      - name: Validate fail-closed research decision consistency (synthetic only)
+        run: python research/kalman_daily20/challenger_decision_consolidation.py --self-test
+      - name: Fetch pinned historical artifacts (same repository, read only)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/kimtk94/Codex/actions/artifacts/14914498151/zip > "${RUNNER_TEMP}/challenger-data.zip"
+          gh api repos/kimtk94/Codex/actions/artifacts/14915426739/zip > "${RUNNER_TEMP}/challenger-research.zip"
+          printf '%s  %s\n' 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf "${RUNNER_TEMP}/challenger-data.zip" c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f "${RUNNER_TEMP}/challenger-research.zip" | sha256sum -c -
+      - name: Verify original archive identities and bytes (GitHub only)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/archive-audit"
+          ln "${RUNNER_TEMP}/challenger-data.zip" "${RUNNER_TEMP}/archive-audit/source_data.zip"
+          ln "${RUNNER_TEMP}/challenger-research.zip" "${RUNNER_TEMP}/archive-audit/source_research.zip"
+          gh api repos/kimtk94/Codex/actions/artifacts/14926365571/zip > "${RUNNER_TEMP}/archive-audit/historical_rehearsal.zip"
+          while read -r role artifact; do
+            gh api "repos/kimtk94/Codex/actions/artifacts/${artifact}" > "${RUNNER_TEMP}/archive-audit/${role}.json"
+          done <<'ARTIFACTS'
+          source_data 14914498151
+          source_research 14915426739
+          historical_rehearsal 14926365571
+          ARTIFACTS
+          python research/kalman_daily20/challenger_archive_audit.py --github-dir "${RUNNER_TEMP}/archive-audit" --meta-dir "${RUNNER_TEMP}/archive-audit" --out "${RUNNER_TEMP}/challenger-audit-report/github_archive_audit.json"
+      - name: Rehearse frozen historical data (never produce prospective events)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          python research/kalman_daily20/challenger_forward_producer.py --mode rehearse \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --source-id 'run-45383657032-artifacts-14914498151-14915426739' --out "${RUNNER_TEMP}/challenger-rehearsal"
+      - name: Evaluate frozen strategies against exposure risk and timing matched benchmarks
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          python research/kalman_daily20/challenger_benchmark_validation.py \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --reference "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --out "${RUNNER_TEMP}/challenger-benchmark/benchmark_validation.json"
+      - name: Evaluate fixed admitted cohort execution stress and 15m coverage requirements
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          python research/kalman_daily20/challenger_execution_audit.py \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --reference "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --out "${RUNNER_TEMP}/challenger-execution/execution_audit.json"
+      - name: Evaluate fixed-cohort hypothetical ask stress and targeted coverage (no SIP calls)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          python research/kalman_daily20/challenger_sip_quote_audit.py \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --reference "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --out "${RUNNER_TEMP}/challenger-quote-audit/quote_headroom.json"
+      - name: Evaluate historical factor proxy attribution on pinned archives
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/challenger_factor_attribution.py \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --reference "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --out "${RUNNER_TEMP}/challenger-factor/factor_attribution.json"
+      - name: Evaluate all fixed admitted-cohort exclusions (no replacement)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/challenger_cohort_exclusion.py \
+            --data "${RUNNER_TEMP}/challenger-data.zip" --data-sha256 6b5cec11a98fd160496d476ff7f773a3be8ecdaf49867cadadef9d20da6d36cf \
+            --research "${RUNNER_TEMP}/challenger-research.zip" --research-sha256 c6e711b7db3f91d5081947f95b320fe3cbbddfeb671df97edf9a24a4ff5f2d6f \
+            --reference "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --out "${RUNNER_TEMP}/challenger-exclusion/cohort_exclusion.json"
+      - name: Consolidate six historical reports without promotion
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          python research/kalman_daily20/challenger_decision_consolidation.py \
+            --rehearsal "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --benchmark "${RUNNER_TEMP}/challenger-benchmark/benchmark_validation.json" \
+            --execution "${RUNNER_TEMP}/challenger-execution/execution_audit.json" \
+            --quote "${RUNNER_TEMP}/challenger-quote-audit/quote_headroom.json" \
+            --factor "${RUNNER_TEMP}/challenger-factor/factor_attribution.json" \
+            --exclusion "${RUNNER_TEMP}/challenger-exclusion/cohort_exclusion.json" \
+            --out "${RUNNER_TEMP}/challenger-decision/research_decision.json"
+      - name: Upload aggregate research decision (not an approval)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-research-decision-hold-not-forward
+          path: ${{ runner.temp }}/challenger-decision/research_decision.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload aggregate fixed cohort exclusion diagnostics
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-locked-cohort-exclusion-not-forward
+          path: ${{ runner.temp }}/challenger-exclusion/cohort_exclusion.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload aggregate factor attribution only
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-factor-proxy-attribution-not-forward
+          path: ${{ runner.temp }}/challenger-factor/factor_attribution.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload aggregate hypothetical quote audit (no private rows)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-quote-headroom-not-forward
+          path: ${{ runner.temp }}/challenger-quote-audit/quote_headroom.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload aggregate execution audit (no private market data)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-execution-risk-audit-not-forward
+          path: ${{ runner.temp }}/challenger-execution/execution_audit.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload aggregate benchmark report only
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-matched-benchmark-validation-not-forward
+          path: ${{ runner.temp }}/challenger-benchmark/benchmark_validation.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload aggregate rehearsal report only
+        id: rehearsal
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-historical-rehearsal-not-forward
+          path: ${{ runner.temp }}/challenger-rehearsal/historical_rehearsal.json
+          if-no-files-found: error
+          retention-days: 21
+
+      - name: Read back new rehearsal and prepare private archive handoff
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REHEARSAL_ARTIFACT: ${{ steps.rehearsal.outputs.artifact-id }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REHEARSAL_ARTIFACT" =~ ^[0-9]+$ ]]
+          for attempt in 1 2 3 4 5; do
+            if gh api "repos/kimtk94/Codex/actions/artifacts/${REHEARSAL_ARTIFACT}" > "${RUNNER_TEMP}/handoff-meta.json" &&
+               gh api "repos/kimtk94/Codex/actions/artifacts/${REHEARSAL_ARTIFACT}/zip" > "${RUNNER_TEMP}/handoff.zip"; then
+              break
+            fi
+            if [[ "$attempt" == 5 ]]; then exit 1; fi
+            sleep 3
+          done
+          python research/kalman_daily20/challenger_archive_audit.py \
+            --handoff-report "${RUNNER_TEMP}/challenger-rehearsal/historical_rehearsal.json" \
+            --handoff-meta "${RUNNER_TEMP}/handoff-meta.json" --handoff-zip "${RUNNER_TEMP}/handoff.zip" \
+            --expected-run "$GITHUB_RUN_ID" --expected-commit "$EXPECTED_HEAD" \
+            --out "${RUNNER_TEMP}/challenger-audit-report/archive_handoff.json"
+      - name: Publish sanitized archive audit and handoff (no Drive credentials or IDs)
+        if: github.repository == 'kimtk94/Codex' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: challenger-archive-audit-and-handoff-not-forward
+          path: ${{ runner.temp }}/challenger-audit-report/
+          if-no-files-found: error
+          retention-days: 90
