@@ -249,5 +249,72 @@ class BoundedReadTests(unittest.TestCase):
         with self.assertRaisesRegex(m.MailSheetsReadError,"HTTP_403"):
             list(m.bounded_reads(read,"PAYLOAD",2,501,(("A","I"),)))
 
+class MailOnlyReferenceTests(unittest.TestCase):
+    def result(self,rows,table=None,source=None):
+        return m.audit(rows,table if table is not None else tables(),
+                       source if source is not None else sources())["mail_only_reference_audit"]
+
+    def test_singleton_typed_refs_and_untyped_invoice_separation(self):
+        row=canonical(subject="X209SC26000001-Z03 CMS 209126000001 Invoice 209126000002",
+                      sam_numbers="SAM20260000001",invoice_numbers="209126000003",
+                      received_at="2025-06-01T10:00:00+09:00")
+        out=self.result([row])
+        self.assertEqual(out["mail_only_amea"],1)
+        self.assertEqual(out["candidate_partition"],{"EXACT_X_LITERAL_COOBSERVATION":1})
+        self.assertEqual(out["amea_with_typed_coobservations"],{
+            "H":1,"SAM":1,"X_PROJECT":1,"EXPLICIT_CMS_NUMBER":1,
+            "INVOICE_LABELLED_NUMBER":1,"STRUCTURED_INVOICE_NUMBER":1})
+        self.assertEqual(out["latest_parseable_mail_date_year_counts"],{"2025":1})
+        self.assertEqual(out["invoice_number_cms_crosswalk"],"NOT_INFERRED")
+        for value in (P,H,"209126000001",MID):
+            self.assertNotIn(value,json.dumps(out))
+
+    def test_multi_amea_does_not_cross_join_h_sam_or_x(self):
+        out=self.result([canonical(amea_numbers=P+";"+Q,
+                                    subject="X209SC26000001-Z01",sam_numbers="SAM20260000001")])
+        self.assertEqual(out["candidate_partition"],{"AMBIGUOUS_OR_FORMAT_REVIEW_ONLY":2})
+        self.assertEqual(out["amea_with_typed_coobservations"],{})
+        self.assertEqual(out["review_and_evidence_flags"]["MULTIPLE_AMEA_ROW_REVIEW"],2)
+
+    def test_subject_only_and_qq_only_members_are_included(self):
+        t=tables()
+        t[m.QQ]=[{"Mail Key":OTHER,"Subject":Q+" QID-2026-000001"}]
+        out=self.result([canonical(amea_numbers="",h_project_numbers="",subject=P)],t)
+        self.assertEqual(out["mail_only_amea"],2)
+        self.assertEqual(out["candidate_partition"],{"SINGLE_AMEA_NO_OTHER_CLEAN_REFERENCE":1,
+                                                     "QID_LITERAL_COOBSERVATION":1})
+        self.assertEqual(out["source_population"],{"STAGING":1,m.QQ:1})
+
+    def test_exact_tuple_conflicting_amea_excludes_both_clean_edges(self):
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"AMEA":Q,"H Project":H}]
+        out=self.result([canonical()],t)
+        self.assertEqual(out["candidate_partition"],{"AMBIGUOUS_OR_FORMAT_REVIEW_ONLY":2})
+        self.assertEqual(out["review_and_evidence_flags"]["EXACT_TUPLE_AMEA_DIFFERENCE_REVIEW"],2)
+        self.assertEqual(out["amea_with_typed_coobservations"],{})
+
+    def test_exact_tuple_match_is_one_key_not_independent_evidence(self):
+        t=tables()
+        t[m.QQ]=[{"Mail Key":KEY,"AMEA":P,"H Project":H,"Message ID":MID}]
+        out=self.result([canonical()],t)
+        self.assertEqual(out["source_surfaces_per_amea"],{"2":1})
+        self.assertNotIn("MULTIPLE_SINGLETON_RECORD_KEYS_NOT_INDEPENDENCE_PROOF",
+                         out["review_and_evidence_flags"])
+        self.assertEqual(out["candidate_partition"],{"H_OR_SAM_LITERAL_COOBSERVATION":1})
+
+    def test_other_amea_h_root_and_known_project_do_not_merge(self):
+        s=sources()
+        s["CSS Project Dashboard"]=[{"project_id":Q,"h_project_numbers":H+"-B01","sam_numbers":""}]
+        out=self.result([canonical(h_project_numbers=H+"-B02")],source=s)
+        self.assertEqual(out["mail_only_amea"],1)
+        self.assertEqual(out["review_and_evidence_flags"]["OTHER_AMEA_H_ROOT_REVIEW"],1)
+        self.assertNotIn("OTHER_AMEA_TYPED_LITERAL_REVIEW",out["review_and_evidence_flags"])
+
+    def test_malformed_related_field_and_bare_numeric_subject_not_promoted(self):
+        out=self.result([canonical(h_project_numbers=H+";bad",subject="phone 209126000001")])
+        self.assertEqual(out["candidate_partition"],{"SINGLE_AMEA_NO_OTHER_CLEAN_REFERENCE":1})
+        self.assertEqual(out["amea_with_typed_coobservations"],{})
+        self.assertEqual(out["review_and_evidence_flags"]["RELATED_FIELD_REVIEW"],1)
+
 if __name__=="__main__":
     unittest.main()
