@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'plan is read-only; apply creates only the reviewed frozen October pilot'
+        description: 'plan is read-only; apply creates only the reviewed frozen October-November pilot'
         required: true
         type: choice
         default: plan
