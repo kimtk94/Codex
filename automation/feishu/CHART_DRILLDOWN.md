@@ -116,3 +116,32 @@ require authorized tenant UI verification.
    exclusion of one and multiple members, unknown values, restoration,
    same-source chart interactions, access control and refresh. Verify
    no operational values changed. Never log member payloads.
+
+## Initial native pilot: frozen October 2026 snapshot
+
+A new, explicitly scoped native provisioning module is included. Current
+connector recheck still finds October 48 with full count/gross/net/authority
+parity; November 40 Extract/Lifecycle vs 37 published and remains blocked.
+The pilot is intentionally a single reviewed October snapshot, not an automatic
+Revenue sync. The actual Feishu Monthly Tax Invoice row must match exact count,
+gross/net and both display values before a plan can be approved. The plan
+returns a SHA-256 digest of the sorted 48 evidence rows and canonical values;
+no private member identifiers or amounts in logs.
+
+After explicit approval and merge, dispatch Feishu Revenue Review Pilot on
+main with mode=plan. Review digest, target catalog, and source/official parity.
+Only an explicitly approved dispatch mode=apply with that exact digest may
+create the new Revenue Invoice Review table (default full list view), insert
+48 rows in bounded batches, verify schema and every contributing field,
+then create Revenue 집계 검토 · 2026-10 스냅샷 with a dated notice and four
+native original/selected count and net charts. Original and selected charts
+share the same unique members; only selected charts filter the checkbox.
+No updates, deletions, schedules, changes to existing official charts, or
+append to a preexisting snapshot. If both named targets exist, verify only;
+partial targets stop for manual review, never retry blind creation. The
+checkbox and reason are shared native fields. Filtered views, editable
+click-to-detail behavior, cross-filter configuration, permissions and refresh
+must be tested in actual UI; the default table view is the fallback for edits.
+Future verified months and changing membership need a separate approved
+publication barrier so a partly written month cannot appear complete. The
+initial one-time frozen snapshot avoids this failure mode.
