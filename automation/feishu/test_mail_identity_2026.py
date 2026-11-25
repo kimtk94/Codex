@@ -3,6 +3,7 @@
 import datetime as dt
 import unittest
 from zoneinfo import ZoneInfo
+from unittest.mock import patch
 
 import mail_identity_2026 as m
 from qq_mail_ingest import SafeError
@@ -32,8 +33,12 @@ def fixture_refs():
              "Company / Account": "기타대학교"},
         ],
         "quotes": [
-            {"AMEA Quotation ID": "AMEA2026042239", "Opportunity ID": "006AAA",
-             "Account Name": "고려대학교"}
+            {"Salesforce Record ID": "a0PAbc123456789", "AMEA Quotation ID": "QID-2026-000001",
+             "Opportunity ID": "OPP-2026-000001"}
+        ],
+        "quote_portfolio": [
+            {"Salesforce Quote ID (18)": "a0PAbc123456789AAA", "Quote QID": "QID-2026-000001",
+             "Approved AMEA ID": "AMEA2026042239", "Opportunity ID": "OPP-2026-000001"}
         ],
         "projects": [
             {"project_id": "AMEA2026042239", "h_project_numbers": "H209SC26065705",
@@ -69,7 +74,8 @@ class MailIdentityTests(unittest.TestCase):
         self.assertEqual(row["Relationship Status"], "LINKED")
         self.assertEqual(row["Account ID"], "001123")
         self.assertEqual(row["Contact ID"], "003123")
-        self.assertEqual(row["Opportunity ID"], "006AAA")
+        self.assertEqual(row["Opportunity ID"], "OPP-2026-000001")
+        self.assertIn("EXACT_AMEA_QID_QUOTE_OBJECT_OPPORTUNITY_REFERENCE", row["Evidence"])
         self.assertEqual(row["Project ID"], "AMEA2026042239")
 
     def test_css_sender_project_match_not_contact_exact(self):
@@ -191,6 +197,163 @@ class MailIdentityTests(unittest.TestCase):
         self.assertTrue(m.same({"Mail Key": [{"text":"a"*64}],
                                 "Project ID": [{"text":"AMEA2026042239"}]}, entry))
         self.assertFalse(m.same({"Mail Key": "a"*64}, entry))
+
+class QuoteOpportunityBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.a = "AMEA2026042239"
+        self.q = "QID-2026-000001"
+        self.o = "OPP-2026-000001"
+        self.x = "a0PAbc123456789"
+        self.export = {"Salesforce Record ID": self.x, "AMEA Quotation ID": self.q,
+                       "Opportunity ID": self.o}
+        self.portfolio = {"Salesforce Quote ID (18)": self.x+"AAA", "Quote QID": self.q,
+                          "Approved AMEA ID": self.a, "Opportunity ID": self.o}
+
+    def test_qid_is_not_amea_and_requires_portfolio_bridge(self):
+        refs, review = m.quote_opportunity_index([self.export], [])
+        self.assertEqual(dict(refs), {})
+        self.assertEqual(review, set())
+        refs, review = m.quote_opportunity_index([self.export], [self.portfolio])
+        self.assertEqual(refs[self.a], [{"Opportunity ID":self.o}])
+        self.assertEqual(review, set())
+
+    def test_mismatched_qid_object_case_opp_and_duplicate_export_block(self):
+        for exports, portfolio in (
+            ([dict(self.export, **{"AMEA Quotation ID":"QID-2026-000002"})], self.portfolio),
+            ([dict(self.export, **{"Salesforce Record ID":self.x.upper()})], self.portfolio),
+            ([dict(self.export, **{"Opportunity ID":"OPP-2026-000002"})], self.portfolio),
+            ([self.export,self.export.copy()], self.portfolio),
+            ([self.export], dict(self.portfolio, **{"Opportunity ID":""})),
+        ):
+            with self.subTest(case=exports[0]):
+                refs, review = m.quote_opportunity_index(exports, [portfolio])
+                self.assertFalse(refs[self.a])
+                self.assertEqual(review,{self.a})
+
+    def test_duplicate_qid_under_other_export_object_blocks(self):
+        for other in ("a0PAbc123456780", "invalid"):
+            with self.subTest(other=other):
+                refs, review = m.quote_opportunity_index(
+                    [self.export, dict(self.export, **{"Salesforce Record ID": other})],
+                    [self.portfolio])
+                self.assertFalse(refs[self.a])
+                self.assertEqual(review, {self.a})
+
+    def test_portfolio_qid_object_collision_even_without_amea(self):
+        for changes in (
+            {"Salesforce Quote ID (18)": "a0PAbc123456780AAA", "Approved AMEA ID": ""},
+            {"Quote QID": "QID-2026-000002", "Approved AMEA ID": ""},
+        ):
+            with self.subTest(changes=changes):
+                refs, review = m.quote_opportunity_index(
+                    [self.export], [self.portfolio, dict(self.portfolio, **changes)])
+                self.assertFalse(refs[self.a])
+                self.assertEqual(review, {self.a})
+
+    def test_same_quote_shared_amea_not_auto_assigned(self):
+        other="AMEA2026042240"
+        refs, review = m.quote_opportunity_index([self.export], [self.portfolio,
+            dict(self.portfolio, **{"Approved AMEA ID":other})])
+        self.assertEqual(dict(refs),{})
+        self.assertEqual(review,{self.a,other})
+
+    def test_multiple_valid_quotes_and_opportunity_conflict(self):
+        x2="a0PAbc123456780"
+        q2="QID-2026-000002"
+        e2={"Salesforce Record ID":x2,"AMEA Quotation ID":q2,"Opportunity ID":self.o}
+        p2={"Salesforce Quote ID (18)":x2+"AAA","Quote QID":q2,
+            "Approved AMEA ID":self.a,"Opportunity ID":self.o}
+        refs,review=m.quote_opportunity_index([self.export,e2],[self.portfolio,p2])
+        self.assertEqual({r["Opportunity ID"] for r in refs[self.a]},{self.o})
+        self.assertFalse(review)
+        e2["Opportunity ID"]=p2["Opportunity ID"]="OPP-2026-000002"
+        refs,review=m.quote_opportunity_index([self.export,e2],[self.portfolio,p2])
+        idx=fixture_refs(); idx["quotes"]=refs; idx["quote_review"]=review
+        row=m.decorate(mail("Project "+self.a),idx,NOW)
+        self.assertEqual(row["Opportunity ID"],"")
+        self.assertEqual(row["Project ID"],self.a)
+        self.assertIn("MULTIPLE_QUOTE_OPPORTUNITY_CANDIDATES",row["Evidence"])
+
+    def test_bad_quote_row_keeps_project_reference_in_review(self):
+        idx=fixture_refs()
+        idx["quote_review"]={self.a}
+        row=m.decorate(mail("Project "+self.a),idx,NOW)
+        self.assertEqual(row["Project ID"],self.a)
+        self.assertEqual(row["Opportunity ID"],"")
+        self.assertEqual(row["Review State"],"REVIEW")
+        self.assertIn("QUOTE_PORTFOLIO_EXPORT_REFERENCE_REVIEW",row["Evidence"])
+
+
+class IdentityChangePlanTests(unittest.TestCase):
+    @staticmethod
+    def row(key, opp="", **extra):
+        return {"Mail Key": key * 64, "Opportunity ID": opp, **extra}
+
+    @classmethod
+    def existing(cls, key, opp="", **extra):
+        return {"record_id": "rec" + key, "fields": cls.row(key, opp, **extra)}
+
+    def test_full_diff_preserves_manual_fields_and_existing_only(self):
+        existing = [
+            self.existing("a", **{"Subject": "old", "Manual Note": "keep"}),
+            self.existing("b", "OPP-OLD"),
+            self.existing("c", "OPP-OLD"),
+            self.existing("d", **{"Last Sync KST": "old"}),
+            self.existing("e", "OPP-RETAINED"),
+        ]
+        desired = [
+            self.row("a", "OPP-NEW", Subject="new"),
+            self.row("b"),
+            self.row("c", "OPP-REPLACEMENT"),
+            self.row("d", **{"Last Sync KST": "new"}),
+            self.row("f", "OPP-NEW"),
+        ]
+        summary = m.identity_change_summary(existing, desired)
+        self.assertEqual(summary["existing"], 5)
+        self.assertEqual(summary["desired"], 5)
+        self.assertEqual(summary["creates"], 1)
+        self.assertEqual(summary["updates"], 3)
+        self.assertEqual(summary["unchanged"], 1)
+        self.assertEqual(summary["existing_only_retained"], 1)
+        self.assertEqual(summary["opportunity_added"], 1)
+        self.assertEqual(summary["opportunity_removed"], 1)
+        self.assertEqual(summary["opportunity_replaced"], 1)
+        self.assertEqual(summary["new_rows_with_opportunity"], 1)
+        self.assertEqual(summary["updates_with_other_fields"], 1)
+        self.assertEqual(summary["field_changes"], {"Opportunity ID": 3, "Subject": 1})
+        self.assertEqual(existing[0]["fields"]["Manual Note"], "keep")
+        with self.assertRaisesRegex(SafeError, "IDENTITY_EXISTING_OPPORTUNITY_CHANGE_REVIEW"):
+            m.require_safe_opportunity_changes(summary)
+
+    def test_additive_enrichment_passes(self):
+        summary = m.identity_change_summary([self.existing("a")], [self.row("a", "OPP-NEW")])
+        self.assertEqual(summary["opportunity_added"], 1)
+        m.require_safe_opportunity_changes(summary)
+
+    def test_duplicate_keys_and_unowned_fields_fail(self):
+        with self.assertRaisesRegex(SafeError, "IDENTITY_DUPLICATE_MAIL_KEY"):
+            m.identity_change_summary([self.existing("a"), self.existing("a")], [])
+        for desired in ([self.row("a"), self.row("a")],
+                        [self.row("a", **{"Manual Note": "not writable"})]):
+            with self.assertRaisesRegex(SafeError, "IDENTITY_DESIRED_KEY_OR_FIELD_INVALID"):
+                m.identity_change_summary([], desired)
+
+    def test_plan_reads_existing_or_absent_without_writes(self):
+        with patch.object(m, "api") as write, patch.object(m, "list_all") as read:
+            read.return_value = []
+            self.assertEqual(m.read_identity_target("token", "/base"), (None, []))
+            read.side_effect = [[{"name": m.TABLE, "table_id": "tblTest"}],
+                                [self.existing("a")]]
+            self.assertEqual(m.read_identity_target("token", "/base"),
+                             ("tblTest", [self.existing("a")]))
+            write.assert_not_called()
+
+    def test_apply_rechecks_destructive_change_before_writing(self):
+        with patch.object(m, "list_all", return_value=[self.existing("a", "OPP-OLD")]), \
+                patch.object(m, "api") as write:
+            with self.assertRaisesRegex(SafeError, "IDENTITY_EXISTING_OPPORTUNITY_CHANGE_REVIEW"):
+                m.changes("token", "/table", [self.row("a")], 100)
+            write.assert_not_called()
 
 
 if __name__ == "__main__":

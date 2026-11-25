@@ -55,7 +55,8 @@ jobs:
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
-      FEISHU_IDENTITY_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      # Rollout gate: scheduled runs remain read-only until the new full diff is reviewed.
+      FEISHU_IDENTITY_MODE: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode || 'plan' }}
       FEISHU_IDENTITY_BATCH_LIMIT: '12000'
     steps:
       - uses: actions/checkout@v4
