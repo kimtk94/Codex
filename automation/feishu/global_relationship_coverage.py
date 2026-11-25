@@ -1014,6 +1014,135 @@ def registry_nonquote_project_audit(sources,projects):
             "business_writes":0}
 
 
+def registry_historical_h_sam_audit(sources,projects):
+    """Audit no-Quote/no-direct-X AMEA without fabricating H-to-SAM edges.
+
+    CSS Dashboard and Timeline may derive from the same mail stream. Their
+    literal agreement is not independent verification. Preserve H suffixes
+    and SAM identifiers, surface shared roots, and keep date evidence
+    separate from any business status. All counts are aggregate.
+    """
+    registry={value(r,"amea_quote_id").upper() for r in sources[REGISTRY_NAME]
+              if re.fullmatch(FORMATS["AMEA"],value(r,"amea_quote_id").upper())}
+    quoted={value(r,"Approved AMEA ID").upper() for r in sources["Quote Portfolio"]
+            if re.fullmatch(FORMATS["AMEA"],value(r,"Approved AMEA ID").upper())}
+    ids={r["amea"] for r in projects}
+    if len(ids)!=len(projects):
+        raise CoverageError("REGISTRY_H_SAM_DUPLICATE_AMEA")
+    candidates=[r for r in projects if r["amea"] not in registry|quoted
+                and not (r["refs"].get("LIFECYCLE_X") or r["refs"].get("FINANCE_X"))]
+    candidate_ids={r["amea"] for r in candidates}
+
+    dashboard="CSS Project Dashboard"
+    timeline="CSS Project Timeline"
+    online_h=set()
+    for row in sources[ONLINE]:
+        h,hstate=keys(value(row,"Contract Number"),"H")
+        if hstate=="OBSERVED" and len(h)==1:
+            online_h.add(next(iter(h))[1])
+    online_roots={h_root(h) for h in online_h}
+
+    history=Counter()
+    cooccurrence=Counter()
+    latest={}
+    invalid_date=Counter()
+    for row in sources[timeline]:
+        pid=value(row,"project_id").upper()
+        if pid not in candidate_ids:
+            continue
+        history[pid]+=1
+        h,hstate=keys(value(row,"h_project_numbers"),"H*")
+        sam,sstate=keys(value(row,"sam_numbers"),"SAM*")
+        if h and sam and hstate==sstate=="OBSERVED":
+            cooccurrence[pid]+=1
+        raw=value(row,"received_at")
+        if not re.match(r"^\d{4}-\d{2}-\d{2}(?:$|[ T])",raw):
+            invalid_date[pid]+=1
+            continue
+        try:
+            day=dt.date.fromisoformat(raw[:10])
+        except ValueError:
+            invalid_date[pid]+=1
+            continue
+        latest[pid]=max(latest.get(pid,day),day)
+
+    counts=Counter()
+    states=Counter()
+    latest_years=Counter()
+    hs_all=set()
+    roots_all=set()
+    sams_all=set()
+    shared_roots=set()
+    shared_sams=set()
+    for r in candidates:
+        pid=r["amea"]
+        refs=r["refs"]
+        hs=refs.get("H",{})
+        sams=refs.get("SAM",{})
+        roots={h_root(h) for h in hs}
+        hs_all.update(hs)
+        roots_all.update(roots)
+        sams_all.update(sams)
+        h_both=any({dashboard,timeline}<=set(src) for src in hs.values())
+        sam_both=any({dashboard,timeline}<=set(src) for src in sams.values())
+        sh={x["identifier"] for x in r["shared_reference_review"] if x["kind"]=="H_ROOT"}
+        ss={x["identifier"] for x in r["shared_reference_review"] if x["kind"]=="SAM"}
+        shared_roots.update(sh)
+        shared_sams.update(ss)
+        format_review=any(x["field"] in ("h_project_numbers","sam_numbers","Contract No.")
+                          and x["state"] in ("PARTIAL_FORMAT_REVIEW","FORMAT_REVIEW")
+                          for x in r["field_review"])
+        flags={
+            "has_h":bool(hs),"has_sam":bool(sams),"has_h_and_sam":bool(hs and sams),
+            "dashboard_amea_observed":dashboard in r["source_tables"],
+            "timeline_amea_observed":timeline in r["source_tables"],
+            "dashboard_and_timeline_amea":{dashboard,timeline}<=set(r["source_tables"]),
+            "same_exact_h_dashboard_timeline":h_both,
+            "same_exact_sam_dashboard_timeline":sam_both,
+            "same_exact_h_and_sam_dashboard_timeline":h_both and sam_both,
+            "multiple_h_roots":len(roots)>1,"multiple_sam":len(sams)>1,
+            "shared_h_root_review":bool(sh),"shared_sam_review":bool(ss),
+            "shared_h_or_sam_review":bool(sh or ss),
+            "h_sam_format_review":format_review,
+            "exact_h_observed_in_current_online":bool(set(hs)&online_h),
+            "h_root_observed_in_current_online":bool(roots&online_roots),
+            "timeline_row_with_both_h_and_sam":bool(cooccurrence[pid]),
+            "timeline_date_missing_or_invalid_rows":bool(invalid_date[pid]),
+        }
+        counts.update(k for k,v in flags.items() if v)
+        if sh or ss:
+            state="SHARED_H_OR_SAM_REVIEW"
+        elif format_review:
+            state="H_SAM_FORMAT_REVIEW"
+        elif h_both and sam_both:
+            state="H_AND_SAM_CORROBORATED_LITERAL_REFERENCES"
+        elif h_both:
+            state="H_CORROBORATED_LITERAL_REFERENCE"
+        elif hs and any(timeline in names for names in hs.values()):
+            state="H_TIMELINE_REFERENCE_ONLY"
+        elif hs or sams or refs.get("SIF"):
+            state="OTHER_H_SAM_SIF_REFERENCE"
+        else:
+            state="NO_H_SAM_SIF_REFERENCE"
+        states[state]+=1
+        latest_years[str(latest[pid].year) if pid in latest else "UNKNOWN"]+=1
+
+    if sum(states.values())!=len(candidates):
+        raise CoverageError("REGISTRY_H_SAM_PARTITION_MISMATCH")
+    return {"amea":len(candidates),"reference_states":dict(states),"counts":dict(counts),
+            "distinct_h_contract_refs":len(hs_all),"distinct_h_roots":len(roots_all),
+            "distinct_sam_refs":len(sams_all),"distinct_shared_h_roots":len(shared_roots),
+            "distinct_shared_sam_refs":len(shared_sams),
+            "timeline_rows":sum(history.values()),
+            "timeline_rows_with_h_and_sam":sum(cooccurrence.values()),
+            "timeline_invalid_or_missing_date_rows":sum(invalid_date.values()),
+            "latest_parseable_timeline_year_counts":dict(latest_years),
+            "same_stream_agreement":"NOT_INDEPENDENT_EVIDENCE",
+            "h_sam_pair_assignment":"NOT_INFERRED_FROM_COOCCURRENCE",
+            "current_or_completed_status":"NOT_ATTESTED",
+            "business_writes":0}
+
+
 def read_sources(session,specs=SOURCES):
     # Reuse existing authorized GET-only reader. Prove bounds against actual
     # grid metadata first; a sparse tab cannot silently exceed a fixed limit.
@@ -1072,7 +1201,12 @@ def main():
     if args.private_project_report and os.environ.get("GITHUB_ACTIONS"):
         raise CoverageError("GLOBAL_PRIVATE_REPORT_FORBIDDEN_IN_CI")
     started = dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
-    combined = read_sources(sheets_session(), {**SOURCES, **REGISTRY_EVIDENCE_SPECS})
+    # Require the Timeline timestamp header for the project-scope history
+    # audit, without expanding the mail audit's source contract.
+    read_specs = {**SOURCES, **REGISTRY_EVIDENCE_SPECS}
+    book,limit,role,schema=read_specs["CSS Project Timeline"]
+    read_specs["CSS Project Timeline"]=(book,limit,role,{**schema,"received_at":"HISTORY_TIMESTAMP"})
+    combined = read_sources(sheets_session(), read_specs)
     sources = {name:combined[name] for name in SOURCES}
     evidence = {name:combined[name] for name in REGISTRY_EVIDENCE_SPECS}
     summary = coverage(sources)
@@ -1080,6 +1214,7 @@ def main():
     summary["project_reference_coverage"], details = project_relationships(sources)
     summary["registry_expansion_audit"] = registry_expansion_audit(sources,evidence,details)
     summary["registry_nonquote_project_audit"] = registry_nonquote_project_audit(sources,details)
+    summary["registry_historical_h_sam_audit"] = registry_historical_h_sam_audit(sources,details)
     summary["read_started_kst"] = started
     summary["read_finished_kst"] = dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
     if args.private_project_report:
