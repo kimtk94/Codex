@@ -189,5 +189,104 @@ class ProjectRelationshipTests(unittest.TestCase):
             with self.assertRaisesRegex(g.CoverageError,"FORBIDDEN_IN_CI"):
                 g.private_project_report("/not-created.json",{},[])
 
+class RegistryReferenceTests(unittest.TestCase):
+    def fixture(self):
+        s=rows()
+        q=g.quote18(QUOTE)
+        r={"link_key":"synthetic-link","left_system":"CSS","left_entity":"Invoice",
+           "left_record_id":CMS,"right_system":"SFDC","right_entity":"Quote","right_record_id":QUOTE,
+           "sfdc_quote_id":QUOTE,"amea_quote_id":P,"invoice_number":CMS,
+           "matching_method":"SOURCE_RESOLVED_ID","verification_status":"SOURCE_RESOLVED_ACTIVE_UNVERIFIED",
+           "verified_at":"","account_id":"","contact_id":"","opportunity_id":"","project_id":P}
+        s[g.REGISTRY_NAME]=[r]
+        s["Quote Portfolio"]=[{"Salesforce Quote ID (18)":q,"Approved AMEA ID":P,
+                               "Quote QID":QID,"Opportunity ID":OPP,"Active":"ACTIVE"}]
+        s["SFDC Quote Export"]=[{"Salesforce Record ID":q,"AMEA Quotation ID":QID,
+                                 "Opportunity ID":OPP,"Account ID":"","Contact ID":""}]
+        s["SFDC Verified Relations"]=[{"Quotation ID":QID,"Opportunity ID":OPP,"Lead Converted ID":""}]
+        s["SFDC Email Opportunities Raw"]=[{"Opportunity ID":OPP,"Lead Converted ID":"","Account ID":""}]
+        e={"Payment & Tax Invoice":[{"Invoice Number":CMS,"SFDC Quote ID":QUOTE,"AMEA Project ID":P}],
+           "CSS Tax Invoice List":[{"invoice_number":CMS,"project_id":P}],
+           "CSS Tax Invoice Extract":[{"invoice_number":CMS,"project_id":P}]}
+        return s,e
+
+    def test_15_and_valid_18_normalize_exactly_and_case_preserved(self):
+        q=g.quote18(QUOTE)
+        self.assertEqual(len(q),18)
+        self.assertEqual(g.quote18(q),q)
+        self.assertNotEqual(g.quote18(QUOTE.replace("Abc","abc")),q)
+        self.assertEqual(g.quote18(q[:-1]+("B" if q[-1]=="A" else "A")),"")
+
+    def test_exact_normalized_registry_and_invoice_document_reference(self):
+        s,e=self.fixture()
+        before=copy.deepcopy((s,e))
+        out=g.registry_reference_audit(s,e)
+        self.assertEqual(out["quote_reference_states"],{"EXACT_NORMALIZED_QUOTE_AMEA_QID_OPP":1})
+        self.assertEqual(out["payment_reference_states"],{"EXACT_INVOICE_DOCUMENT_QUOTE_AMEA":1})
+        self.assertEqual(out["unique_exact_quote_payment_triples"],1)
+        self.assertEqual(out["diagnostic_counts"]["stored_active_unverified"],1)
+        self.assertEqual(out["invoice_document_reference_states"]["CSS Tax Invoice Extract"],
+                         {"EXACT_INVOICE_DOCUMENT_AMEA":1})
+        self.assertEqual(out["report_reference_observations"]["OPP_REPORT_UNIQUE"],1)
+        self.assertEqual(out["cms_identity"],"NOT_INFERRED_FROM_DOCUMENT_NUMBER")
+        self.assertEqual(out["business_writes"],0)
+        self.assertEqual((s,e),before)
+        for ident in (P,CMS,QUOTE,QID,OPP):
+            self.assertNotIn(ident,json.dumps(out))
+
+    def test_distinct_relation_types_do_not_double_count_invoice_triple(self):
+        s,e=self.fixture()
+        r=dict(s[g.REGISTRY_NAME][0],link_key="second",left_entity="QuoteApproval",
+               left_record_id=P,right_system="CSS",right_entity="Invoice",right_record_id=CMS)
+        s[g.REGISTRY_NAME].append(r)
+        out=g.registry_reference_audit(s,e)
+        self.assertEqual(out["rows"],2)
+        self.assertEqual(out["unique_invoice_quote_amea_triples"],1)
+        self.assertEqual(out["unique_exact_quote_payment_triples"],1)
+        self.assertEqual(out["diagnostic_counts"]["quote_and_payment_reference_exact_rows"],2)
+
+    def test_conflicting_quote_qid_or_parent_is_review(self):
+        s,e=self.fixture()
+        s["SFDC Quote Export"].append(dict(s["SFDC Quote Export"][0],
+            **{"Salesforce Record ID":g.quote18("a0P123456789012")}))
+        self.assertEqual(g.registry_reference_audit(s,e)["quote_reference_states"],
+                         {"QID_OPPORTUNITY_REFERENCE_REVIEW":1})
+        s,e=self.fixture()
+        s["Quote Portfolio"][0]["Approved AMEA ID"]=Q
+        self.assertEqual(g.registry_reference_audit(s,e)["quote_reference_states"],
+                         {"PORTFOLIO_AMEA_REVIEW":1})
+
+    def test_bad_endpoint_or_checksum_not_linked(self):
+        s,e=self.fixture()
+        s[g.REGISTRY_NAME][0]["right_record_id"]="a0P123456789012"
+        self.assertEqual(g.registry_reference_audit(s,e)["quote_reference_states"],
+                         {"REGISTRY_ENDPOINT_REVIEW":1})
+
+    def test_document_parent_conflicts_and_missing_not_zero_or_paid(self):
+        s,e=self.fixture()
+        e["Payment & Tax Invoice"].append(dict(e["Payment & Tax Invoice"][0],**{"AMEA Project ID":Q}))
+        e["CSS Tax Invoice Extract"]=[]
+        e["CSS Tax Invoice List"].append({"invoice_number":CMS,"project_id":Q})
+        out=g.registry_reference_audit(s,e)
+        self.assertEqual(out["payment_reference_states"],{"INVOICE_DOCUMENT_PARENT_REVIEW":1})
+        self.assertEqual(out["invoice_document_reference_states"]["CSS Tax Invoice List"],
+                         {"INVOICE_DOCUMENT_AMEA_REVIEW":1})
+        self.assertEqual(out["invoice_document_reference_states"]["CSS Tax Invoice Extract"],
+                         {"INVOICE_DOCUMENT_NOT_OBSERVED":1})
+        self.assertEqual(out["unique_exact_quote_payment_triples"],0)
+
+    def test_document_reference_not_added_to_cms_observation(self):
+        s,e=self.fixture()
+        out=g.coverage(s)
+        self.assertEqual(out["distinct_typed_identifiers"]["INVOICE_DOCUMENT_REF"],1)
+        self.assertNotIn("CMS",out["distinct_typed_identifiers"])
+        self.assertNotIn("CMS->AMEA",out["observed_reference_edges"])
+
+    def test_duplicate_registry_key_fails_closed(self):
+        s,e=self.fixture()
+        s[g.REGISTRY_NAME].append(s[g.REGISTRY_NAME][0].copy())
+        with self.assertRaisesRegex(g.CoverageError,"REGISTRY_LINK_KEY_INVALID_OR_DUPLICATE"):
+            g.registry_reference_audit(s,e)
+
 if __name__=="__main__":
     unittest.main()
