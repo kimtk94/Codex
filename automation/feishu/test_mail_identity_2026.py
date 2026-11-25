@@ -358,3 +358,16 @@ class IdentityChangePlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MixedCaseOpportunityRegression(unittest.TestCase):
+    def test_mixed_case_reference_preserved_and_mismatch_rejected(self):
+        export={"Salesforce Record ID":"a0PAbc123456789","AMEA Quotation ID":"QID-2026-000001","Opportunity ID":"Opp-2026-000001"}
+        portfolio={"Salesforce Quote ID (18)":"a0PAbc123456789AAA","Quote QID":"QID-2026-000001","Approved AMEA ID":"AMEA2026042239","Opportunity ID":"Opp-2026-000001"}
+        refs,review=m.quote_opportunity_index([export],[portfolio])
+        self.assertEqual(refs["AMEA2026042239"],[{"Opportunity ID":"Opp-2026-000001"}])
+        self.assertFalse(review)
+        export["Opportunity ID"]="OPP-2026-000001"
+        refs,review=m.quote_opportunity_index([export],[portfolio])
+        self.assertFalse(refs)
+        self.assertIn("AMEA2026042239",review)
