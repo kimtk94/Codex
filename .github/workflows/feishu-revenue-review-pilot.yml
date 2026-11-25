@@ -10,11 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'plan is read-only; apply creates only the reviewed frozen October-November pilot'
+        description: 'Read-only plan, create a fresh pilot, or resume the approved empty November 25 table'
         required: true
         type: choice
         default: plan
-        options: [plan, apply]
+        options: [plan, apply, resume-empty]
       expected_digest:
         description: 'Exact approved review_digest from the plan; required for apply'
         required: false
