@@ -238,6 +238,174 @@ def add_mail(index,canonical_rows,tables):
     # authoritative edges. Existing audit covers those relationship states.
 
 
+def index_parity(index,sources,canonical_rows=None,tables=None):
+    """Verify complete source membership and inverted postings, aggregate only.
+
+    Reparse each raw row and compare against the indexed membership. This
+    validates index assembly, not independent semantic correctness of the
+    shared identifier parser or a transactional source snapshot. No raw
+    values, query IDs, source records or per-key hashes are returned.
+    """
+    if (canonical_rows is None)!=(tables is None):
+        raise SearchError("SEARCH_PARITY_MAIL_SCOPE_INCOMPLETE")
+    if set(sources)!=set(SCHEMAS):
+        raise SearchError("SEARCH_PARITY_SOURCE_SET")
+    actual={}
+    for i,row in enumerate(index.rows):
+        marker=(row["source"],row["source_row_ordinal"])
+        if marker in actual:
+            raise SearchError("SEARCH_PARITY_DUPLICATE_SOURCE_ROW")
+        actual[marker]=(i,row)
+
+    seen=set()
+    received=Counter()
+    indexed=Counter()
+    no_refs=Counter()
+    reviewed=Counter()
+
+    def check(source,ordinal,fields,pairs=(),stable=None,review=()):
+        marker=(source,ordinal)
+        if marker in seen:
+            raise SearchError("SEARCH_PARITY_DUPLICATE_EXPECTED_ROW")
+        seen.add(marker)
+        received[source]+=1
+        refs={t for values in fields.values() for t in values}
+        if stable:
+            refs.add(stable)
+        if not refs:
+            no_refs[source]+=1
+            if marker in actual:
+                raise SearchError("SEARCH_PARITY_UNEXPECTED_EMPTY_ROW")
+            return
+        entry=actual.get(marker)
+        if entry is None:
+            raise SearchError("SEARCH_PARITY_MISSING_SOURCE_ROW")
+        _,row=entry
+        if row["refs"]!=refs or row["stable_key"]!=stable or row["field_format_review"]!=set(review):
+            raise SearchError("SEARCH_PARITY_ROW_MEMBERSHIP")
+        expected_edges=set()
+        for left,right in pairs:
+            if left in review or right in review:
+                continue
+            aa=fields.get(left,set())
+            bb=fields.get(right,set())
+            if len(aa)==1:
+                expected_edges.update((x,y) for x in aa for y in bb if x[0]!=y[0])
+        if row["edges"]!=expected_edges:
+            raise SearchError("SEARCH_PARITY_ROW_EDGES")
+        indexed[source]+=1
+        if review:
+            reviewed[source]+=1
+
+    for name,schema in SCHEMAS.items():
+        # Include explicitly empty source tabs in the summary.
+        received[name]=0
+        for ordinal,row in enumerate(sources[name],1):
+            if not set(schema)<=row.keys():
+                raise SearchError("SEARCH_PARITY_SOURCE_SCHEMA")
+            fields={}
+            review=set()
+            for col,kind in schema.items():
+                refs,state=cell(g.value(row,col),kind)
+                fields[col]=refs
+                if state not in ("OBSERVED","EMPTY"):
+                    review.add(col)
+            check(name,ordinal,fields,g.PAIRS.get(name,()),review=review)
+    if tables is not None:
+        if set(tables)!=set(m.TABLE_FIELDS):
+            raise SearchError("SEARCH_PARITY_MAIL_SOURCE_SET")
+        received["Canonical Mail Ledger"]=0
+        canonical_keys=set()
+        tuple_hashes=set()
+        for ordinal,row in enumerate(canonical_rows,1):
+            key,derived=m.canonical_key(row)
+            if key in canonical_keys or (derived and derived in tuple_hashes):
+                raise SearchError("SEARCH_PARITY_CANONICAL_DUPLICATE")
+            canonical_keys.add(key)
+            fields,review=mail_fields(row,True)
+            if derived:
+                tuple_hashes.add(derived)
+                fields["DERIVED_QQ_KEY"]={("QQ_MAIL_KEY",derived)}
+            check("Canonical Mail Ledger",ordinal,fields,
+                  stable=("CANONICAL_MAIL_KEY",key),review=review)
+        for name,kind in ((m.QQ,"QQ_MAIL_KEY"),(m.CRM,"CRM_MAIL_KEY")):
+            received[name]=0
+            for ordinal,(key,row) in enumerate(m.keyed(tables[name],"Mail Key",True).items(),1):
+                fields,review=mail_fields(row,False)
+                check(name,ordinal,fields,stable=(kind,key),review=review)
+
+    if set(actual)-seen or sum(indexed.values())!=len(index.rows):
+        raise SearchError("SEARCH_PARITY_EXTRA_SOURCE_ROW")
+    expected_postings=defaultdict(list)
+    type_counts=Counter()
+    for i,row in enumerate(index.rows):
+        for t in row["refs"]:
+            expected_postings[t].append(i)
+            type_counts[t[0]]+=1
+    # Compare every posting, including ordering/duplicates and unexpected
+    # keys; an empty invented entry is a failure too.
+    if dict(index.by_token)!=dict(expected_postings):
+        raise SearchError("SEARCH_PARITY_INVERTED_POSTINGS")
+    distinct_by_type=Counter(t[0] for t in expected_postings)
+    # Probe one deterministic exact identifier per type against an
+    # independent linear membership scan; no chosen values are emitted.
+    probes=0
+    for kind in sorted(distinct_by_type):
+        t=min(v for v in expected_postings if v[0]==kind)
+        want=[i for i,row in enumerate(index.rows) if t in row["refs"]]
+        out=index.search(kind,t[1],offset=0,limit=1)
+        expected_sources=Counter(index.rows[i]["source"] for i in want)
+        if (out["matched_source_rows"]!=len(want)
+                or out["source_row_counts"]!=dict(sorted(expected_sources.items()))
+                or len(out["records"])!=1
+                or out["records"][0]["source"]!=index.rows[want[0]]["source"]
+                or out["records"][0]["source_row_ordinal"]!=index.rows[want[0]]["source_row_ordinal"]
+                or out["records_remaining"]!=len(want)-1):
+            raise SearchError("SEARCH_PARITY_QUERY_PROBE")
+        probes+=1
+    by_source={name:{"raw_rows":received[name],"indexed_rows":indexed[name],
+                     "no_valid_typed_reference_rows":no_refs[name],"format_review_indexed_rows":reviewed[name]}
+               for name in sorted(received)}
+    if any(x["raw_rows"]!=x["indexed_rows"]+x["no_valid_typed_reference_rows"]
+           for x in by_source.values()):
+        raise SearchError("SEARCH_PARITY_SOURCE_COUNTS")
+    return {"status":"INDEX_MEMBERSHIP_AND_POSTINGS_PASS",
+            "sources":by_source,"sources_indexed":len(by_source),
+            "source_rows":sum(received.values()),"indexed_rows":len(index.rows),
+            "typed_identifiers":len(expected_postings),
+            "distinct_identifiers_by_type":dict(distinct_by_type),
+            "posting_memberships_by_type":dict(type_counts),"query_types_probed":probes,
+            "source_snapshot_transactional":"NOT_ATTESTED",
+            "identifier_parser_independent_validation":"NOT_ATTESTED",
+            "owner_payment_delivery_certification":"NOT_ATTESTED",
+            "business_writes":0}
+
+
+def aggregate_environment():
+    """Permit credentialed CI only in the manual main-branch audit."""
+    if os.environ.get("GITHUB_ACTIONS"):
+        if (os.environ.get("GITHUB_REF")!="refs/heads/main"
+                or os.environ.get("GITHUB_EVENT_NAME")!="workflow_dispatch"):
+            raise SearchError("SEARCH_PARITY_MAIN_MANUAL_ONLY")
+    elif os.environ.get("CI"):
+        raise SearchError("SEARCH_PARITY_UNRECOGNIZED_CI")
+
+
+def read_index_inputs(scope):
+    from sales_metrics_sync import CSS_SHEET,sheets_session
+    session=sheets_session()
+    sources=g.read_sources(session)
+    canonical_rows=tables=None
+    if scope=="all":
+        canonical_rows=m.read_canonical(session,CSS_SHEET)
+        tables=m.read_feishu()
+    index=ReferenceIndex()
+    add_nonmail(index,sources)
+    if tables is not None:
+        add_mail(index,canonical_rows,tables)
+    return index,sources,canonical_rows,tables
+
+
 def private_target(path):
     if os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI"):
         raise SearchError("SEARCH_LOCAL_ONLY")
@@ -256,11 +424,26 @@ def private_target(path):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scope",choices=("project","all"),default="project")
-    parser.add_argument("--type",required=True,help="Exact typed identifier (X or QUOTE aliases allowed)")
-    parser.add_argument("--output",required=True,help="New absolute path in a private local folder outside Git")
+    parser.add_argument("--type",help="Exact typed identifier (X or QUOTE aliases allowed)")
+    parser.add_argument("--output",help="New absolute path in a private local folder outside Git")
+    parser.add_argument("--verify-index",action="store_true",
+                        help="Aggregate-only membership and posting parity; no query or output file")
     parser.add_argument("--offset",type=int,default=0)
     parser.add_argument("--limit",type=int,default=100)
     args=parser.parse_args()
+    if args.verify_index:
+        if args.type is not None or args.output is not None or args.offset!=0 or args.limit!=100:
+            raise SearchError("SEARCH_PARITY_NO_QUERY_OR_OUTPUT")
+        aggregate_environment()
+        started=dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+        index,sources,canonical_rows,tables=read_index_inputs(args.scope)
+        result=index_parity(index,sources,canonical_rows,tables)
+        result.update({"scope":args.scope,"read_started_kst":started,
+                       "read_finished_kst":dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()})
+        print("REFERENCE_INDEX_PARITY "+json.dumps(result,sort_keys=True))
+        return
+    if args.type is None or args.output is None:
+        raise SearchError("SEARCH_QUERY_AND_OUTPUT_REQUIRED")
     target=private_target(args.output)
     if not sys.stdin.isatty():
         raise SearchError("SEARCH_INTERACTIVE_TERMINAL_REQUIRED")
@@ -268,13 +451,8 @@ def main():
         raise SearchError("SEARCH_PAGE_BOUND")
     raw=getpass("Enter identifier (hidden): ")
     queries(args.type,raw)
-    from sales_metrics_sync import CSS_SHEET,sheets_session
     started=dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
-    session=sheets_session()
-    index=ReferenceIndex()
-    add_nonmail(index,g.read_sources(session))
-    if args.scope=="all":
-        add_mail(index,m.read_canonical(session,CSS_SHEET),m.read_feishu())
+    index,_,_,_=read_index_inputs(args.scope)
     result=index.search(args.type,raw,args.offset,args.limit)
     result.update({"scope":args.scope,"read_started_kst":started,
                    "read_finished_kst":dt.datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
