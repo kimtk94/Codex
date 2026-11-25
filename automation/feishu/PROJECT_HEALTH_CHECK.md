@@ -51,6 +51,59 @@ times. Existing source owners and parity checks remain authoritative.
 
 ## Results and operations
 
+### Independent review axes
+
+The 2026-11-24 23:37 KST read-only audit returned 405/405 combined REVIEW
+rows, including a shared Quotation report receipt-age warning (approximately
+6.6 hours since the scheduled 17:00 report). The warning is advisory; it is
+not evidence that a new report is overdue or that all 405 projects are wrong.
+Keep the six-hour threshold unchanged until a separate schedule-aware source
+contract is approved.
+
+The original `health`, `reasons`, `project_counts` and `reason_counts`
+remain conservative combined fields. Use `projection_health`,
+`projection_reasons`, `projection_counts` and `projection_reason_counts`
+to prioritize individual observed connection/evidence reviews independently
+of the shared source metadata. Use `source_metadata_status`,
+`source_metadata_reasons` and corresponding aggregate counts for the scoped
+advisory source warnings. `review_basis_counts` partitions all board rows
+into BOTH, PROJECT_ONLY, SOURCE_METADATA_ONLY, NO_OBSERVED_REVIEW and
+NOT_ASSESSED. Carryover/unclassified rows are not newly checked.
+
+A matching archived receipt snapshot with unavailable or stale source
+metadata remains a source warning; an observed different snapshot date is
+also a project review. The conservative combined archive and invoice review
+remain in effect. No receipt, PO, delivery, amount, owner or relationship
+decision is changed. A limited projection pass and within-limit metadata
+do not establish live source completeness or current project correctness.
+All existing unattested-source labels remain visible. Counts can overlap
+between diagnostic codes; the review-basis partition cannot.
+
+### Board coverage by owner scope
+
+The post-deployment private native export (2026-11-24 23:30 KST)
+reproduced the initial authenticated aggregate: 63/110 current X records
+and 192/356 current invoice records had AMEA absent from the Board.
+All 63 X records carried OTHER_SALES; all 47 MY_VERIFIED X records were
+present on the Board. Among the 192 invoices, 173 were OTHER_SALES and
+19 MY_VERIFIED, with 19 distinct AMEA and no exact X assignment.
+
+The additional `board_coverage_by_owner` summary reports separate X and
+invoice populations, the existing MY_VERIFIED / OTHER_SALES /
+OWNER_UNVERIFIED scope plus UNCLASSIFIED, and fixed-code board/link states.
+Invoice registry relation distinguishes no X base observed, absent current
+base, one/multiple observed candidates, and explicit X/AMEA disagreement.
+An exact X base candidate alone is not exact lineage. All board-absent
+counts partition by owner; valid distinct AMEA counts are not additive
+across owner groups. Retained records stay excluded. Unknown scope is
+not OTHER_SALES. The original unassigned counts are preserved.
+No owner, AMEA, invoice, X, balance, receipt, or Board state is changed.
+OTHER_SALES is outside the personal queue, not proof of globally correct
+coverage. An absent current X may reflect the Online population, not a
+missing historical project. Inspect source evidence before repair.
+
+### Combined health labels
+
 - CONFLICT_REVIEW: observed contradiction between projections. Inspect source
   IDs, scope and timestamps before changing business data.
 - REVIEW: missing/ambiguous evidence, metadata beyond advisory limits or
