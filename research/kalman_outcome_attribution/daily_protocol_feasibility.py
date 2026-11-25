@@ -15,6 +15,7 @@ from outcome_profile import ARCHIVES, KEY, load_archive, load_original, csv
 from protocol_feasibility import HIGH_RISK, compare, bear_episodes, rolling_feasibility, paired_date_diagnostic
 from daily_gate_risk import analyze as gate_risk
 from daily_tail_attribution import analyze as tail_attribution
+from sector_tail_excess import analyze as sector_tail_excess
 
 CORE="SPY QQQ QLD IWM AAPL MSFT AMZN GOOGL META NVDA AMD AVGO MU TSLA PLTR IONQ COIN MSTR JPM XOM".split()
 
@@ -73,6 +74,8 @@ def report(raw,result,train):
             p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(blob)
         market=root/"market";features=root/"features"
         context=train.context_frame(market)
+        benchmark_prices={s:train.load_bars(train.market_file(market,s))[["open","close"]]
+                          for s in ("SPY","QQQ","SMH")}
         for s in CORE:
             f=train.feature_frame(s,market,features,context,20.)
             for y in (2024,2025,2026):
@@ -127,6 +130,8 @@ def report(raw,result,train):
                                "BEAR":gate_risk(y,"BEAR",cal)},
             "daily_tail_attribution":{"BULL":tail_attribution(x,"BULL"),
                                       "BEAR":tail_attribution(y,"BEAR")},
+            "sector_tail_excess":{"BULL":sector_tail_excess(x,"BULL",benchmark_prices),
+                                  "BEAR":sector_tail_excess(y,"BEAR",benchmark_prices)},
             "rolling_252_session_feasibility":rolling_feasibility(x,y,cal,episodes)}
     return {"schema":"kalman-all-daily-protocol-feasibility-v1",
         "input_sha256":{k:v[2] for k,v in ARCHIVES.items()},
