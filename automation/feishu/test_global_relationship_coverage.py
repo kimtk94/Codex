@@ -405,6 +405,74 @@ class RegistryReferenceTests(unittest.TestCase):
         self.assertEqual(out["counts"]["groups_with_activity_not_assessed"],1)
         self.assertEqual(out["primary_quote_selection"],"NOT_PERFORMED")
 
+    def nonquote_audit(self,s):
+        _,details=g.project_relationships(s)
+        return g.registry_nonquote_project_audit(s,details)
+
+    def test_nonquote_exact_lifecycle_and_finance_base_remain_separate(self):
+        s=rows()
+        s["BI Project Lifecycle Overview"]=[{"AMEA":P,"Project / Sub-project":X}]
+        s["Feishu Latest Online"]=[{"Contract Number":H+"-B01","Sub-Project Number":X}]
+        for name,field in (("Feishu Latest Outstanding","CMS Invoice Number"),
+                           ("Feishu Latest eTax","CMS Invoice Num")):
+            s[name]=[{"Quotation Number":P,"Project Number":"X209SC26000001",field:CMS}]
+        s["Feishu Latest Receipts"]=[{"CMS No.":CMS,"CMS No. [2]":"","CMS No. [3]":""}]
+        out=self.nonquote_audit(s)
+        current=out["cohorts"]["CURRENT_LIFECYCLE"]
+        self.assertEqual(out["outside_registry_without_portfolio_amea"],1)
+        self.assertEqual(out["distinct_exact_current_lifecycle_x"],1)
+        self.assertEqual(out["distinct_exact_online_x_h_reference_pairs"],1)
+        self.assertEqual(current["counts"]["finance_candidate_intersects_exact_lifecycle_x"],1)
+        self.assertEqual(current["counts"]["same_reported_x_in_outstanding_and_etax"],1)
+        self.assertEqual(current["counts"]["receipt_single_cms_cell_reference"],1)
+        self.assertEqual(current["counts"]["all_exact_x_have_unique_online_h_reference"],1)
+        self.assertEqual(out["payment_owner_issuance_certification"],"NOT_ATTESTED")
+        for ident in (P,H,X,CMS):
+            self.assertNotIn(ident,json.dumps(out))
+
+    def test_nonquote_duplicate_online_rows_do_not_certify_h_chain(self):
+        s=rows()
+        s["BI Project Lifecycle Overview"]=[{"AMEA":P,"Project / Sub-project":X}]
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X}]*2
+        out=self.nonquote_audit(s)
+        self.assertEqual(out["distinct_exact_current_lifecycle_x"],1)
+        self.assertEqual(out["distinct_exact_online_x_h_reference_pairs"],0)
+        self.assertEqual(out["cohorts"]["CURRENT_LIFECYCLE"]["counts"]["online_h_reference_review"],1)
+
+    def test_nonquote_missing_current_does_not_infer_historical_completion(self):
+        s=rows()
+        s["Feishu Latest Outstanding"]=[{"Quotation Number":P,"Project Number":X,"CMS Invoice Number":CMS},
+                                        {"Quotation Number":Q,"Project Number":X2,"CMS Invoice Number":"209126000002"}]
+        s["BI Project Lifecycle Overview"]=[{"AMEA":Q,"Project / Sub-project":X2}]
+        s["Feishu Latest Receipts"]=[{"CMS No.":CMS+";209126000002","CMS No. [2]":"","CMS No. [3]":""}]
+        out=self.nonquote_audit(s)
+        self.assertEqual(out["cohorts"]["X_REVIEW"]["reference_states"],
+                         {"FINANCE_NO_CURRENT_X":1,"LIFECYCLE_X_NOT_CURRENT":1})
+        self.assertEqual(out["cohorts"]["X_REVIEW"]["counts"]["receipt_group_or_partial_cms_cell_reference"],2)
+        self.assertEqual(out["historical_status"],"NOT_INFERRED_FROM_CURRENT_ONLINE_ABSENCE")
+        self.assertEqual(out["business_writes"],0)
+
+    def test_nonquote_suffix_and_shared_lifecycle_remain_review(self):
+        s=rows()
+        s["Feishu Latest Online"]=[{"Contract Number":H,"Sub-Project Number":X}]
+        s["BI Project Lifecycle Overview"]=[{"AMEA":pid,"Project / Sub-project":X} for pid in (P,Q)]
+        s["Feishu Latest Outstanding"]=[{"Quotation Number":P,"Project Number":X2,"CMS Invoice Number":CMS}]
+        out=self.nonquote_audit(s)
+        self.assertEqual(out["cohorts"]["X_REVIEW"]["reference_states"],{"SHARED_LIFECYCLE_REVIEW":2})
+        self.assertEqual(out["cohorts"]["X_REVIEW"]["counts"]["finance_reported_x_without_current_candidate"],1)
+        self.assertEqual(out["distinct_exact_current_lifecycle_x"],0)
+
+    def test_nonquote_excludes_registry_and_portfolio_and_retains_h_only(self):
+        s,e=self.fixture()
+        s["Quote Portfolio"][0]["Approved AMEA ID"]=Q
+        third="AMEA2026000003"
+        s["CSS Project Timeline"]=[{"project_id":pid,"h_project_numbers":H,"sam_numbers":S}
+                                   for pid in (P,Q,third)]
+        out=self.nonquote_audit(s)
+        self.assertEqual(out["outside_registry_without_portfolio_amea"],1)
+        self.assertEqual(out["cohorts"]["NO_DIRECT_X"]["counts"]["has_h"],1)
+        self.assertEqual(out["cohorts"]["NO_DIRECT_X"]["counts"]["shared_reference_review"],1)
+
     def test_duplicate_registry_key_fails_closed(self):
         s,e=self.fixture()
         s[g.REGISTRY_NAME].append(s[g.REGISTRY_NAME][0].copy())
