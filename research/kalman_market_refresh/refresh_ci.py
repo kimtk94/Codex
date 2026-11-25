@@ -24,6 +24,11 @@ NEEDED = ('yf_spy','yf_qqq','yf_smh','yf_vix','yf_tnx','yf_hyg','yf_lqd',
           'yf_tlt','yf_gld','yf_dxy','yf_usdkrw')
 OPTIONAL = ('yf_iwm','yf_dia','yf_soxx','yf_sp500','yf_ixic','yf_btc',
             'yf_kospi','yf_kosdaq')
+# Canonical TA filenames use the normalized symbol, not the fetch key.
+# Keep this mapping checked against the actual market universe in tests.
+FEATURE_STEMS = {key:key[3:] for key in NEEDED+OPTIONAL}
+FEATURE_STEMS.update(yf_sp500='s_p500', yf_ixic='nasdaq', yf_btc='btc_usd',
+                     yf_tnx='us10y', yf_usdkrw='usd_krw')
 FRED_SERIES = ('CPIAUCSL','DEXKOUS','DFF','DFII10','DGS2','DTWEXBGS',
                'M2SL','NASDAQCOM','SP500','UNRATE','VIXCLS','WALCL')
 
@@ -272,7 +277,7 @@ def candidate_status(bundle, status_path):
             raise RuntimeError('CANDIDATE_MEMBER_SET_MISMATCH')
         keys=NEEDED+OPTIONAL
         expected_market={f'market/raw/yfinance/{key}.parquet' for key in keys}
-        expected_features={f'features/talib/{key[3:]}.parquet' for key in keys}
+        expected_features={f'features/talib/{FEATURE_STEMS[key]}.parquet' for key in keys}
         if (manifest.get('market_assets')!=len(keys)
                 or manifest.get('feature_assets')!=len(keys)
                 or {p for p in paths if p.startswith('market/')}!=expected_market
