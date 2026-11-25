@@ -157,6 +157,17 @@ jobs:
           python research/kalman_outcome_attribution/protocol_feasibility.py \
             --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
             --out outputs/kalman_outcome_attribution/protocol_feasibility_report.json
+      - name: Reproduce all-daily historical feasibility using original model fits
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_outcome_attribution/daily_protocol_feasibility.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/daily_protocol_feasibility_report.json
       - name: Publish only aggregate metadata, never input archives or row-level features
         uses: actions/upload-artifact@v4
         with:
@@ -170,5 +181,6 @@ jobs:
             outputs/kalman_outcome_attribution/concentration_replay_report.json
             outputs/kalman_outcome_attribution/settlement_reconciliation_report.json
             outputs/kalman_outcome_attribution/protocol_feasibility_report.json
+            outputs/kalman_outcome_attribution/daily_protocol_feasibility_report.json
           if-no-files-found: error
           retention-days: 45
