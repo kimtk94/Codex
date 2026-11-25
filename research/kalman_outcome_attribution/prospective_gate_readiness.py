@@ -202,7 +202,7 @@ def load_attestation(source):
 
 def audit(archive,expected_sha,anchor_path,original_source):
     import exchange_calendars as xc
-    calendar=xc.get_calendar("XNYS")
+    calendar=xc.get_calendar("XNYS",start="2026-01-01",end="2028-02-01")
     blob,manifest,payload=verified_zip(archive,expected_sha)
     _,_,anchor=verified_zip(anchor_path,ANCHOR_SHA)
     verify_ancestry(anchor,payload)
