@@ -8,7 +8,7 @@ contains price bytes; no research release is implied by storage.
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, datetime, timezone
 import hashlib
 import io
 import json
@@ -21,6 +21,13 @@ from refresh_ci import json_write, parse_google_credentials
 ORIGINAL_ID = "1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd"
 ORIGINAL_SHA256 = "d524bc234e66632e9f1f052ecebff7df4cbd1e6d1afbfc8e1b4d92c6f7a7d829"
 CANDIDATE_FOLDER_ID = "1Fwkq_Ntzhv8IVyd5oygj1-oEDtQHG8ea"
+# Owner-side readback 2026-11-25 confirms this exact seed's parent,
+# original bytes, owner + same existing service-account writer, and
+# owner-only parent folder. CI preflight 45533146987 confirms the seed
+# and all gates except parent visibility. One UTC day only; no ACL change.
+OWNER_ATTESTED_SLOT = "1rptk7B9dJfNp2GgaDF0g27FZUolKEIDn"
+OWNER_ATTESTED_SESSION = "2026-11-24"
+OWNER_ATTESTED_UTC_DAY = "2026-11-25"
 MAX_BYTES = 50 * 1024 * 1024
 HEX64 = re.compile(r"[a-f0-9]{64}")
 FILE_ID = re.compile(r"[A-Za-z0-9_-]{15,100}")
@@ -31,16 +38,33 @@ def digest(blob):
     return hashlib.sha256(blob).hexdigest()
 
 
-def target_checks(meta, target_id, expected_session):
+def utc_day():
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def parent_evidence(meta, target_id, expected_session):
+    if "parents" in meta:
+        return ("DIRECT_PARENT_MATCH" if meta["parents"] == [CANDIDATE_FOLDER_ID]
+                else "VISIBLE_PARENT_MISMATCH")
+    if (target_id == OWNER_ATTESTED_SLOT and expected_session == OWNER_ATTESTED_SESSION
+            and utc_day() == OWNER_ATTESTED_UTC_DAY):
+        return "EXACT_OWNER_ATTESTED_SLOT_PARENT_HIDDEN"
+    return "UNVERIFIED_HIDDEN_PARENT"
+
+
+def target_checks(meta, target_id, expected_session, *, final_name=None):
     """Report only safe booleans / visibility states, never private metadata."""
     permissions = meta.get("permissions")
     capabilities = meta.get("capabilities")
+    evidence = parent_evidence(meta, target_id, expected_session)
     return {
         "id_is_noncanonical": bool(FILE_ID.fullmatch(target_id)) and target_id != ORIGINAL_ID,
         "id_matches": meta.get("id") == target_id,
         "parent_visible": "parents" in meta,
         "parent_matches": meta.get("parents") == [CANDIDATE_FOLDER_ID],
-        "name_matches": meta.get("name") == f"UNFILLED_market_candidate_{expected_session}.zip",
+        "parent_evidence": evidence,
+        "parent_gate_passed": evidence in ("DIRECT_PARENT_MATCH", "EXACT_OWNER_ATTESTED_SLOT_PARENT_HIDDEN"),
+        "name_matches": meta.get("name") == (final_name or f"UNFILLED_market_candidate_{expected_session}.zip"),
         "mime_matches": meta.get("mimeType") == "application/zip",
         "trashed_flag_visible": "trashed" in meta,
         "not_trashed": meta.get("trashed") is False,
@@ -54,11 +78,15 @@ def target_checks(meta, target_id, expected_session):
     }
 
 
+def identity_gate(checks):
+    return all(checks[k] for k in (
+        "id_is_noncanonical", "id_matches", "parent_gate_passed", "name_matches",
+        "mime_matches", "not_trashed", "can_edit"))
+
+
 def validate_target(meta, target_id, expected_session):
     checks = target_checks(meta, target_id, expected_session)
-    if not all(checks[k] for k in (
-            "id_is_noncanonical", "id_matches", "parent_matches", "name_matches",
-            "mime_matches", "not_trashed", "can_edit")):
+    if not identity_gate(checks):
         print(json.dumps({"candidate_slot_checks": checks}, sort_keys=True))
         raise ValueError("UNAPPROVED_OR_CONSUMED_CANDIDATE_SLOT")
     if not checks["permissions_exact_owner_writer"]:
@@ -81,7 +109,7 @@ def preflight(client, target_id, expected_session):
         "schema": "kalman-private-candidate-preflight-v1",
         "candidate_slot_checks": checks,
         "seed_sha256_matches": seed_matches,
-        "eligible_for_archive": all(checks.values()) and seed_matches,
+        "eligible_for_archive": identity_gate(checks) and checks["permissions_exact_owner_writer"] and seed_matches,
         "read_only": True,
         "production_writes": False,
         "ready_for_pit_training": False,
@@ -141,9 +169,8 @@ def save_once(client, *, original, candidate, audit, target_id, expected_session
     final_name = f"market_candidate_HOLD_{expected_session}_GH{run_id}.zip"
     client.rename(target_id, final_name)
     final = client.metadata(target_id)
-    if (final.get("id") != target_id or final.get("name") != final_name
-            or final.get("parents") != [CANDIDATE_FOLDER_ID]
-            or final.get("trashed") is not False
+    final_checks = target_checks(final, target_id, expected_session, final_name=final_name)
+    if (not identity_gate(final_checks) or not final_checks["permissions_exact_owner_writer"]
             or digest(client.download(target_id)) != digest(candidate)):
         raise RuntimeError("CANDIDATE_FINAL_READBACK_MISMATCH")
     return {
@@ -157,6 +184,8 @@ def save_once(client, *, original, candidate, audit, target_id, expected_session
         "original_drive_zip_replaced": False,
         "private_candidate_archive_persisted": True,
         "remote_sha256_verified": True,
+        "parent_evidence": final_checks["parent_evidence"],
+        "owner_side_postwrite_verification_required": not final_checks["parent_matches"],
         "approved_rows_for_merge": 0,
         "ready_for_pit_training": False,
         "production_writes": False,
