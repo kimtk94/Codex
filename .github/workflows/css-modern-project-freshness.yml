@@ -1,0 +1,69 @@
+name: CSS Modern Project Mirror Freshness (Read Only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/css_modern_project_freshness.py'
+      - 'scripts/test_css_modern_project_freshness.py'
+      - '.github/workflows/css-modern-project-freshness.yml'
+  pull_request:
+    paths:
+      - 'scripts/css_modern_project_freshness.py'
+      - 'scripts/test_css_modern_project_freshness.py'
+      - '.github/workflows/css-modern-project-freshness.yml'
+  schedule:
+    # After existing WEB_EXPORT_V4 08:25/12:25/17:25 KST sync.
+    # Run mirror readback at 08:50/12:50/17:50 KST.
+    - cron: '50 23,3,8 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('css-modern-project-ci-{0}', github.event.pull_request.number) || 'css-modern-project-main' }}
+  cancel-in-progress: false
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify retired-server migration and mirror-only source bounds
+        run: python3 -m unittest discover -s scripts -p test_css_modern_project_freshness.py -v
+      - name: Compile mirror-only guard
+        run: python3 -m py_compile scripts/css_modern_project_freshness.py
+      - name: State offline proof limits
+        run: echo 'SYNTHETIC_ONLY;NO_GOOGLE_SHEETS_ACCESS;NO_SFDC_SAVE;NO_FEISHU_WRITE;NO_CUSTOMER_EMAIL;NO_VERCEL;NO_RETIRED_SSH' >> "$GITHUB_STEP_SUMMARY"
+
+  mirror-readonly:
+    needs: offline-tests
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: TaehoonServer
+    timeout-minutes: 10
+    env:
+      # TaehoonServer is an EXISTING GITHUB ENVIRONMENT holding the credential,
+      # NOT a physical server; this workflow never uses server SSH.
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets read-only authentication support
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Read Lifecycle and WEB_EXPORT_V4 and publish bounded non-PII parity
+        run: python3 scripts/css_modern_project_freshness.py
+      - name: Explicit certification boundary
+        if: always()
+        run: echo 'ONLY_GOOGLE_MIRROR_PARITY;QQ_FEISHU_ORIGINAL_NOT_VERIFIED;SFDC_NOT_SAVED;GOOGLE_SHEETS_READONLY;SERVER_RETIRED;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
