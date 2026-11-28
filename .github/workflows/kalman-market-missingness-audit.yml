@@ -104,6 +104,10 @@ jobs:
           python research/kalman_market_missingness/data_catalog.py \
             --plan outputs/kalman_market_missingness/backfill_plan.json \
             --out outputs/kalman_market_missingness
+      - name: Reconcile historical versus tail market gaps (metadata only)
+        run: |
+          python research/kalman_market_missingness/market_gap_ledger.py \
+            --out outputs/kalman_market_missingness
       - name: Publish metadata only; never licensed price values
         uses: actions/upload-artifact@v4
         with:
