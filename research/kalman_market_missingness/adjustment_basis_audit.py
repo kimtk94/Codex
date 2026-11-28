@@ -10,7 +10,9 @@ import numpy as np
 import pandas as pd
 from backfill_queue import validated_archives, frame_dates, PRICE_KEYS, PAIRED_SHARED, sha
 
-VERSION = "kalman-adjustment-basis-audit-v1"
+from bond_cash_factor_evidence import audit_cash_events
+
+VERSION = "kalman-adjustment-basis-audit-v2"
 # Numerical diagnostic tolerances, not market price certification tolerances.
 COMMON_FACTOR_TOL_BP = 0.1
 STEP_TOL_BP = 0.1
@@ -80,9 +82,13 @@ def compare_frames(old, new, key):
 def build_report(macro_blob, daily_blob):
     mzip, dzip, _, ready, daily, a, b = validated_archives(macro_blob, daily_blob)
     with mzip, dzip:
-        rows = [compare_frames(pd.read_parquet(BytesIO(mzip.read(a[key]))),
-                               pd.read_parquet(BytesIO(dzip.read(b[key]))), key)
-                for key in sorted(PAIRED_SHARED)]
+        rows, cash_events = [], []
+        for key in sorted(PAIRED_SHARED):
+            old = pd.read_parquet(BytesIO(mzip.read(a[key])))
+            new = pd.read_parquet(BytesIO(dzip.read(b[key])))
+            rows.append(compare_frames(old, new, key))
+            cash_events.extend(audit_cash_events(old, new, key,
+                                daily["data_expected_last_closed_xnys"]))
     return {"version": VERSION, "status": "RESEARCH_HOLD",
             "source_sha256": sha(macro_blob), "reference_sha256": sha(daily_blob),
             "source_session": ready["expected_last_completed_nyse_session"],
@@ -91,7 +97,7 @@ def build_report(macro_blob, daily_blob):
             "factor_step_tolerance_bp": STEP_TOL_BP,
             "research_only": True, "production_writes": False, "live_execution": False,
             "strategy_promoted": False, "approved_backfill_rows": 0,
-            "assets": rows}
+            "assets": rows, "cash_event_hypotheses": cash_events}
 
 
 def main():
