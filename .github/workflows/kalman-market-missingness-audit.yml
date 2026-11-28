@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install -q 'pandas>=2.2,<3' 'numpy>=2,<3' 'exchange-calendars>=4.7' 'pyarrow>=17,<28'
+      - run: python -m pip install -q 'pandas>=2.2,<3' 'numpy>=2,<3' 'exchange-calendars>=4.7' 'pyarrow>=17,<28' 'TA-Lib==0.7.1'
       - run: python -m unittest discover -s research/kalman_market_missingness -p 'test_*.py' -v
       - run: python -m compileall -q research/kalman_market_missingness
   audit:
@@ -45,7 +45,7 @@ jobs:
           python-version: '3.11'
       - name: Install pinned audit dependencies
         run: |
-          python -m pip install -q 'pandas>=2.2,<3' 'numpy>=2,<3' 'pyarrow>=17' 'exchange-calendars>=4.7' google-auth google-api-python-client
+          python -m pip install -q 'pandas>=2.2,<3' 'numpy>=2,<3' 'pyarrow>=17' 'exchange-calendars>=4.7' google-auth google-api-python-client 'TA-Lib==0.7.1'
       - name: Fetch private research ZIP read-only
         env:
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
@@ -99,6 +99,27 @@ jobs:
                 r["source_last_completed_xnys"],r["reference_last_completed_xnys"],
                 "eligible_candidate_asset_count",r["market_assets_with_any_reusable_candidate"])
           PY
+      - name: Build catalogue from validated backfill plan (metadata only)
+        run: |
+          python research/kalman_market_missingness/data_catalog.py \
+            --plan outputs/kalman_market_missingness/backfill_plan.json \
+            --out outputs/kalman_market_missingness
+      - name: Reconcile historical versus tail market gaps (metadata only)
+        run: |
+          python research/kalman_market_missingness/market_gap_ledger.py \
+            --out outputs/kalman_market_missingness
+      - name: Audit raw versus adjusted OHLC factor patterns (metadata only)
+        run: |
+          python research/kalman_market_missingness/adjustment_basis_audit.py \
+            --market-zip "$RUNNER_TEMP/research_source.zip" \
+            --daily20-zip "$RUNNER_TEMP/daily20_price_reference.zip" \
+            --out outputs/kalman_market_missingness
+      - name: Compare same-runtime features across archive bases (metadata only)
+        run: |
+          python research/kalman_market_missingness/feature_basis_sensitivity.py \
+            --market-zip "$RUNNER_TEMP/research_source.zip" \
+            --daily20-zip "$RUNNER_TEMP/daily20_price_reference.zip" \
+            --out outputs/kalman_market_missingness
       - name: Publish metadata only; never licensed price values
         uses: actions/upload-artifact@v4
         with:
