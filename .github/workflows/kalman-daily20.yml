@@ -520,14 +520,9 @@ jobs:
           assert r["issuer_payments_certified"] == 0
           assert r["source_finality_verified"] == 0
           assert r["unarchived_research_leads_are_certified"] is False
-          assert r["status"] == "ISSUER_DISTRIBUTIONS_2_EVENTS_HOLD"
-          assert {(x["symbol"],x["ex_date"]) for x in r["events"]} == {
-            ("QQQ","2018-06-18"), ("QLD","2023-09-20")}
-          assert all(not x["actual_payment_certified"] for x in r["events"])
-          if "${{ github.event_name }}" != "pull_request":
-              assert r["both_archived_sources_verified"]
-          print("DAILY20_DIVIDEND_GAP_HOLD",r["status"],
-                "archived",r["both_archived_sources_verified"],"0/26")
+          python research/kalman_daily20/issuer_ca_gap_workflow_gate.py \
+            --report output/daily20/research/issuer_ca_gap_audit.json \
+            --out output/daily20/research/issuer_ca_gap_workflow_gate.json
           PY
       - name: Audit per-asset official-close and issuer-factor proof obligations (HOLD)
         run: |
