@@ -192,6 +192,11 @@ jobs:
           python research/kalman_outcome_attribution/exposure_benchmark.py \
             --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
             --out outputs/kalman_outcome_attribution/exposure_benchmark.json
+      - name: Reproduce paired exposure block Monte Carlo
+        run: |
+          python research/kalman_outcome_attribution/paired_exposure_mc.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/paired_exposure_mc.json
       - name: Publish only aggregate metadata, never input archives or row-level features
         uses: actions/upload-artifact@v4
         with:
@@ -210,5 +215,6 @@ jobs:
             outputs/kalman_outcome_attribution/reduced_risk_cash_report.json
             outputs/kalman_outcome_attribution/regime_feature_slices.json
             outputs/kalman_outcome_attribution/exposure_benchmark.json
+            outputs/kalman_outcome_attribution/paired_exposure_mc.json
           if-no-files-found: error
           retention-days: 45
