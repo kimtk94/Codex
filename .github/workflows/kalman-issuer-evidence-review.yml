@@ -17,8 +17,8 @@ jobs:
       - name: Offline evidence contracts
         run: |
           cd research/kalman_issuer_evidence_review
-          python -m unittest -v test_evidence_review.py test_independent_review.py test_cache_rehearsal.py
-          python -m py_compile evidence_review.py independent_review.py cache_rehearsal.py
+          python -m unittest -v test_evidence_review.py test_independent_review.py test_cache_rehearsal.py test_drive_backup_reader.py
+          python -m py_compile evidence_review.py independent_review.py cache_rehearsal.py drive_backup_reader.py
   incident-metadata:
     if: github.event.pull_request.head.repo.full_name == github.repository
     needs: contracts

@@ -1,0 +1,22 @@
+name: Kalman Issuer Backup Readback (Manual Read Only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  readback:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install read-only reader dependencies
+        run: python -m pip install google-auth google-api-python-client 'pypdf==6.21.4'
+      - name: Read and verify exactly one pinned Drive backup
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: python research/kalman_issuer_evidence_review/drive_backup_reader.py
