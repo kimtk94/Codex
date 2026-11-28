@@ -15,7 +15,8 @@ from outcome_profile import ARCHIVES, ASOF, KEY, load_archive, load_original, cs
 HIGH_RISK={"QLD","COIN","MSTR","IONQ"}
 CORE="SPY QQQ QLD IWM AAPL MSFT AMZN GOOGL META NVDA AMD AVGO MU TSLA PLTR IONQ COIN MSTR JPM XOM".split()
 NAMES=("BULL_LOGISTIC","BULL_TREND","BEAR_LOGISTIC","BULL_PLUS_BEAR",
-       "REGIME_SWITCH_CASH","REGIME_SWITCH_BEAR","REGIME_SWITCH_TREND_SIDEWAYS","DISCOVERY_GATES")
+       "REGIME_SWITCH_CASH","REGIME_SWITCH_BEAR","REGIME_SWITCH_TREND_SIDEWAYS","DISCOVERY_GATES",
+       "REGIME_SWITCH_AVOID_HIGH_DOWN","REGIME_SWITCH_AVOID_ALL_HIGH","CASH_ONLY")
 OLD={"BULL_LOGISTIC":("LOGISTIC","portfolio"),"BULL_TREND":("TREND_RULE","portfolio"),
      "BEAR_LOGISTIC":("BEAR_LOGISTIC_ONLY","regime"),"BULL_PLUS_BEAR":("BULL_PLUS_BEAR_LOGISTIC","regime")}
 
@@ -27,6 +28,7 @@ def context(prices):
     regime=regime.where(m.notna())
     return pd.DataFrame({"mom_regime":regime,
         "spy5":spy.pct_change(5,fill_method=None).shift(1),
+        "spy_realized_vol20_lag":spy.pct_change(fill_method=None).rolling(20,min_periods=20).std().shift(1)*np.sqrt(252),
         "gld5":prices["GLD"].close.pct_change(5,fill_method=None).shift(1),
         "vix":prices["^VIX"].close.shift(1)})
 
@@ -38,6 +40,9 @@ def masks(frame):
     up=frame.mom_regime.eq("UP")
     down=frame.mom_regime.eq("DOWN")
     side=frame.mom_regime.eq("SIDEWAYS")
+    vol=frame.get("spy_realized_vol20_lag",pd.Series(np.nan,index=frame.index))
+    observed=vol.notna()
+    switch=(t&up)|(l&down)|b
     # Missing lagged inputs never qualify for the discovery gates.
     a=l&frame.ret5.lt(0)&frame.spy5.ge(0)
     c=b&frame.vix.ge(20)&frame.gld5.ge(0)
@@ -45,7 +50,10 @@ def masks(frame):
         "REGIME_SWITCH_CASH":(t&up)|(l&down),
         "REGIME_SWITCH_BEAR":(t&up)|(l&down)|b,
         "REGIME_SWITCH_TREND_SIDEWAYS":(t&(up|side))|(l&down)|b,
-        "DISCOVERY_GATES":a|c}
+        "DISCOVERY_GATES":a|c,
+        "REGIME_SWITCH_AVOID_HIGH_DOWN":switch&observed&~(down&vol.ge(.2)),
+        "REGIME_SWITCH_AVOID_ALL_HIGH":switch&observed&vol.lt(.2),
+        "CASH_ONLY":pd.Series(False,index=frame.index)}
 
 
 def candidates(result,prices,portfolio):
@@ -66,7 +74,7 @@ def candidates(result,prices,portfolio):
         if not np.allclose(r,g.gross_return,rtol=0,atol=2e-6) or not np.allclose(r-.002,g.net_return,rtol=0,atol=2e-6):
             raise ValueError("FROZEN_OHLC_LABEL_MISMATCH")
         frame.loc[g.index,"ret5"]=p.close.pct_change(5,fill_method=None).loc[g.signal_date].to_numpy()
-    if frame[["ret5","mom_regime"]].isna().any().any():
+    if frame[["ret5","mom_regime","spy_realized_vol20_lag"]].isna().any().any():
         raise ValueError("MISSING_CANDIDATE_CONTEXT")
     original_state=portfolio.market_state(prices)
     event_map={}
@@ -130,19 +138,19 @@ def replay(prices,result,portfolio):
                     curve,fills,skips=portfolio.simulate(events,prices,sessions,
                         strategy=name,cohort=cohort,max_positions=cap,
                         allocation=1./cap,round_trip_cost_bps=cost)
-                    if not len(fills) or (curve.cash<-1e-6).any() or curve.active_positions.gt(cap).any():
+                    if (name in OLD and not len(fills)) or (curve.cash<-1e-6).any() or curve.active_positions.gt(cap).any():
                         raise ValueError("REPLAY_CASH_OR_CAPACITY_VIOLATION")
                     m=portfolio.performance(curve)
                     scenarios.append({"name":name,"cohort":cohort,"cap":cap,"cost_bp":cost,
                         "candidates":len(events),"fills":len(fills),"skipped":skips,
-                        "win_rate":float(fills.realized_return.gt(0).mean()),
-                        "mean_trade":float(fills.realized_return.mean()),
-                        "severe":int(fills.realized_return.le(-.05).sum()),**m})
+                        "win_rate":float(fills.realized_return.gt(0).mean()) if len(fills) else None,
+                        "mean_trade":float(fills.realized_return.mean()) if len(fills) else None,
+                        "severe":int(fills.realized_return.le(-.05).sum()) if len(fills) else 0,**m})
                     if name in OLD and (cap==5 or OLD[name][1]=="portfolio"):
                         prefix,table=OLD[name]
                         scenario=f"{prefix}__{cohort}__POS{cap}__COST{cost}BP"
                         audit.append(audit_original(curve,fills,scenario,checks[table]))
-    if len(scenarios)!=64 or len(audit)!=24 or sum(x["fills"] for x in audit)!=8108:
+    if len(scenarios)!=88 or len(audit)!=24 or sum(x["fills"] for x in audit)!=8108:
         raise ValueError("FROZEN_REPLAY_COVERAGE_MISMATCH")
     return {"schema":"kalman-frozen-regime-cash-replay-v1",
         "asof":ASOF,"input_sha256":{k:v[2] for k,v in ARCHIVES.items()},
@@ -159,6 +167,7 @@ def replay(prices,result,portfolio):
             "Original next-open/exit-close friction, equal capital fractions, no leverage; no extra slippage, taxes, or cash interest.",
             "Market momentum categories are lagged SPY 20d return >2%, <-2%, otherwise sideways, separate from original Bull/Bear gate.",
             "Discovery gates use signal close stock ret5<0 and lagged SPY ret5>=0; Bear uses lagged VIX>=20 and lagged GLD ret5>=0.",
+            "New entry-only cash gates use lagged annualized 20-day SPY realized volatility >=20%; existing positions retain their exits. Cash-only assumes zero interest.",
             "No threshold search, model promotion, live change, or future return used to rank candidates.",
         ]}
 
