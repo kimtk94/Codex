@@ -70,6 +70,61 @@ jobs:
           if-no-files-found: error
           retention-days: 45
 
+  frozen-artifact-cash-rehearsal:
+    needs: contracts
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'research/kalman-outcome-attribution-20261125'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: '06c66c0fea6de93eeb581ce856d648d24c0ff942'
+          path: original-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated standard-reader dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=2,<2.4' 'pandas>=2.2,<3' 'scikit-learn>=1.6,<2' 'pyarrow>=17,<25' 'exchange-calendars==4.13.3'
+      - name: Download existing pinned GitHub data artifact (read only)
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '14914022566'
+          run-id: '45382109010'
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/kalman-original-data
+      - name: Download existing pinned GitHub result artifact (read only)
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '14915505210'
+          run-id: '45382109010'
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/kalman-original-results
+      - name: Verify 187 payload members and reproduce original cash ledger
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_outcome_attribution/artifact_cash_replay.py \
+            --data "$RUNNER_TEMP/kalman-original-data" \
+            --results "$RUNNER_TEMP/kalman-original-results" \
+            --original-source original-source \
+            --out outputs/kalman_artifact_replay
+      - name: Publish only aggregate replay evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-artifact-cash-rehearsal-metadata
+          path: outputs/kalman_artifact_replay/*.json
+          if-no-files-found: error
+          retention-days: 45
+
   frozen-report:
     needs: contracts
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
