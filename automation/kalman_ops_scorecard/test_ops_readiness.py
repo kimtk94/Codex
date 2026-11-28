@@ -287,6 +287,26 @@ class SettlementFreshnessTest(unittest.TestCase):
             self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
                              "SETTLEMENT_EVIDENCE_INVALID_HOLD")
 
+    def test_duplicate_or_malformed_family_records_fail_closed(self):
+        bull, bear, _ = self.LOG.splitlines()
+        for duplicate in (bull, bear, bull.replace('"signals": 80', '"signals": 999'),
+                          bear[:-1], bull.replace('"signals": 80', '"signals": 80, "signals": 80')):
+            for log in (duplicate + "\n" + self.LOG, self.LOG + "\n" + duplicate):
+                with self.subTest(duplicate=duplicate):
+                    self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                                     "SETTLEMENT_EVIDENCE_INVALID_HOLD")
+
+    def test_duplicate_json_keys_are_not_silently_resolved(self):
+        for log in (
+            self.LOG.replace('"signals": 80', '"signals": 999, "signals": 80'),
+            self.LOG.replace('"signal_events": 160', '"signal_events": 0, "signal_events": 160'),
+        ):
+            self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                             "SETTLEMENT_EVIDENCE_INVALID_HOLD")
+        log = self.LOG.replace('"pending": 240', '"pending": 0, "pending": 240')
+        self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                         "SETTLEMENT_EVIDENCE_UNAVAILABLE_HOLD")
+
     def test_all_settled_is_observed_queue_only(self):
         log = (self.LOG.replace('"signals": 80, "settled": 0', '"signals": 80, "settled": 80')
                .replace('"signal_events": 160, "settled": 0', '"signal_events": 160, "settled": 160')

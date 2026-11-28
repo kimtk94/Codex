@@ -87,15 +87,30 @@ def settlement_freshness(log: str, session: str | None, now: datetime) -> dict:
     monitor never computes prices, settles observations, or claims that an
     overdue observation is absent from a newer, uninspected journal.
     """
-    evidence = []
+    # A later duplicate must not overwrite ambiguous family evidence.
+    keys = ("DAILY20_SETTLEMENT_INTEGRITY", "DAILY20_FORWARD_SHADOW",
+            "DAILY20_BEAR_FORWARD")
+    records = {key: [] for key in keys}
+
+    def unique_object(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError("duplicate JSON key")
+            obj[key] = value
+        return obj
+
     for line in log.splitlines():
         match = DIAG_START.search(line)
-        if not match or match.group(1) != "DAILY20_SETTLEMENT_INTEGRITY":
+        if not match or match.group(1) not in records:
             continue
+        key = match.group(1)
         try:
-            evidence.append(json.loads(line[match.start():])[match.group(1)])
+            record = json.loads(line[match.start():], object_pairs_hook=unique_object)
+            records[key].append(record[key])
         except (ValueError, KeyError, TypeError):
-            evidence.append(None)
+            records[key].append(None)
+    evidence = records[keys[0]]
     result = {
         "status": "SETTLEMENT_EVIDENCE_UNAVAILABLE_HOLD",
         "source_session": session, "signals": None, "settled": None,
@@ -132,8 +147,9 @@ def settlement_freshness(log: str, session: str | None, now: datetime) -> dict:
     except (ValueError, TypeError, OverflowError):
         return result
     # Cross-check both family journals, not just the settlement summary.
-    diag = parse_diagnostics(log)
-    bull, bear = diag.get("DAILY20_FORWARD_SHADOW"), diag.get("DAILY20_BEAR_FORWARD")
+    if any(len(records[key]) != 1 for key in keys[1:]):
+        return result
+    bull, bear = (records[key][0] for key in keys[1:])
     if not isinstance(bull, dict) or not isinstance(bear, dict):
         return result
     family_counts = (bull.get("signals"), bear.get("signal_events"),
