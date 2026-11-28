@@ -108,6 +108,12 @@ jobs:
         run: |
           python research/kalman_market_missingness/market_gap_ledger.py \
             --out outputs/kalman_market_missingness
+      - name: Audit raw versus adjusted OHLC factor patterns (metadata only)
+        run: |
+          python research/kalman_market_missingness/adjustment_basis_audit.py \
+            --market-zip "$RUNNER_TEMP/research_source.zip" \
+            --daily20-zip "$RUNNER_TEMP/daily20_price_reference.zip" \
+            --out outputs/kalman_market_missingness
       - name: Publish metadata only; never licensed price values
         uses: actions/upload-artifact@v4
         with:
