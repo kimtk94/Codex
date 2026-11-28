@@ -5,7 +5,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request
 from ops_readiness import (SafeGitHubLogRedirect, make_scorecard, parse_diagnostics,
-                           parse_first_seal_check, safe_job_log)
+                           parse_first_seal_check, safe_job_log, settlement_freshness)
 
 NOW = datetime(2026, 11, 22, 10, tzinfo=timezone.utc)
 RUN = {
@@ -239,6 +239,93 @@ class ReadinessTest(unittest.TestCase):
                                   None, "SECRET", "persist-google-drive")
         self.assertEqual(log, "")
         self.assertEqual(code, "JOB_ID_NOT_FOUND:persist-google-drive")
+
+
+
+class SettlementFreshnessTest(unittest.TestCase):
+    SESSION = "2026-11-25"
+    NOW = datetime(2026, 11, 28, 9, tzinfo=timezone.utc)
+    LOG = (
+        '2026Z {"DAILY20_FORWARD_SHADOW": {"signals": 80, "settled": 0}}\n'
+        '2026Z {"DAILY20_BEAR_FORWARD": {"signal_events": 160, "settled": 0}}\n'
+        '2026Z {"DAILY20_SETTLEMENT_INTEGRITY": {"session": "2026-11-25", '
+        '"signals": 240, "settled": 0, "pending": 240, '
+        '"first_unsettled_exit_date": "2026-11-27", '
+        '"status": "SETTLEMENT_SCHEDULE_AND_ARITHMETIC_RESEARCH_HOLD"}}'
+    )
+
+    def test_real_shape_overdue_is_not_claim_of_missing_new_journal(self):
+        result = settlement_freshness(self.LOG, self.SESSION, self.NOW)
+        self.assertEqual(result["status"], "SETTLEMENT_RECHECK_OVERDUE_HOLD")
+        self.assertEqual(result["pending"], 240)
+        self.assertEqual(result["conservative_deadline_utc"], "2026-11-28T00:00:00+00:00")
+
+    def test_conservative_boundary(self):
+        before = datetime(2026, 11, 27, 23, 59, tzinfo=timezone.utc)
+        at = datetime(2026, 11, 28, tzinfo=timezone.utc)
+        self.assertEqual(settlement_freshness(self.LOG, self.SESSION, before)["status"],
+                         "SETTLEMENT_PENDING_NOT_PAST_CONSERVATIVE_DEADLINE")
+        self.assertEqual(settlement_freshness(self.LOG, self.SESSION, at)["status"],
+                         "SETTLEMENT_RECHECK_OVERDUE_HOLD")
+
+    def test_missing_and_duplicate_summary_fail_closed(self):
+        for log in ("", self.LOG + "\n" + self.LOG.splitlines()[-1]):
+            self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                             "SETTLEMENT_EVIDENCE_UNAVAILABLE_HOLD")
+
+    def test_invalid_counts_session_dates_and_family_totals(self):
+        for log in (
+            self.LOG.replace('"pending": 240', '"pending": 239'),
+            self.LOG.replace('"session": "2026-11-25"', '"session": "2026-11-24"'),
+            self.LOG.replace('"2026-11-27"', '"2026-11-25"'),
+            self.LOG.replace('"2026-11-27"', '"2026-02-30"'),
+            self.LOG.replace('"signal_events": 160', '"signal_events": 159'),
+            self.LOG.replace('"settled": 0', '"settled": false'),
+            self.LOG.replace('"first_unsettled_exit_date": "2026-11-27"',
+                             '"first_unsettled_exit_date": null'),
+        ):
+            self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                             "SETTLEMENT_EVIDENCE_INVALID_HOLD")
+
+    def test_duplicate_or_malformed_family_records_fail_closed(self):
+        bull, bear, _ = self.LOG.splitlines()
+        for duplicate in (bull, bear, bull.replace('"signals": 80', '"signals": 999'),
+                          bear[:-1], bull.replace('"signals": 80', '"signals": 80, "signals": 80')):
+            for log in (duplicate + "\n" + self.LOG, self.LOG + "\n" + duplicate):
+                with self.subTest(duplicate=duplicate):
+                    self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                                     "SETTLEMENT_EVIDENCE_INVALID_HOLD")
+
+    def test_duplicate_json_keys_are_not_silently_resolved(self):
+        for log in (
+            self.LOG.replace('"signals": 80', '"signals": 999, "signals": 80'),
+            self.LOG.replace('"signal_events": 160', '"signal_events": 0, "signal_events": 160'),
+        ):
+            self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                             "SETTLEMENT_EVIDENCE_INVALID_HOLD")
+        log = self.LOG.replace('"pending": 240', '"pending": 0, "pending": 240')
+        self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                         "SETTLEMENT_EVIDENCE_UNAVAILABLE_HOLD")
+
+    def test_all_settled_is_observed_queue_only(self):
+        log = (self.LOG.replace('"signals": 80, "settled": 0', '"signals": 80, "settled": 80')
+               .replace('"signal_events": 160, "settled": 0', '"signal_events": 160, "settled": 160')
+               .replace('"settled": 0, "pending": 240', '"settled": 240, "pending": 0')
+               .replace('"first_unsettled_exit_date": "2026-11-27"', '"first_unsettled_exit_date": null'))
+        self.assertEqual(settlement_freshness(log, self.SESSION, self.NOW)["status"],
+                         "NO_PENDING_IN_LAST_OBSERVED_QUEUE")
+
+    def test_historical_green_does_not_clear_overdue_research_hold(self):
+        log = (FUTURE_LOG.replace("2026-11-23", self.SESSION)
+               .replace('"signals": 20', '"signals": 80')
+               + "\n" + "\n".join(self.LOG.splitlines()[1:]))
+        run = dict(FUTURE_RUN, created_at="2026-11-27T14:19:05Z")
+        publisher = FUTURE_PUBLISH.replace("2026-11-23", self.SESSION)
+        card = make_scorecard(run, JOBS, log, publisher, now=self.NOW)
+        self.assertEqual(card["operational_status"], "PASS")
+        self.assertEqual(card["research_status"], "HOLD")
+        self.assertIn("SETTLEMENT_RECHECK_OVERDUE_HOLD", card["research_hold_reasons"])
+        self.assertFalse(card["strategy_promoted"])
 
 
 if __name__ == "__main__":

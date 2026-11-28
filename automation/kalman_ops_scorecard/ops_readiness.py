@@ -7,7 +7,7 @@ strategy promotion, Drive mutation, or credential echo is permitted.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -77,6 +77,98 @@ def parse_diagnostics(log: str) -> dict:
 def readback_session(log: str) -> str | None:
     m = DRIVE_SESSION.search(log.replace("\n", " "))
     return m.group(1) if m else None
+
+
+def settlement_freshness(log: str, session: str | None, now: datetime) -> dict:
+    """Assess the last observed queue against a conservative wall-clock deadline.
+
+    The original audit computes the exchange-calendar exit date. The following
+    UTC midnight is later than any regular XNYS close plus 45 minutes. This
+    monitor never computes prices, settles observations, or claims that an
+    overdue observation is absent from a newer, uninspected journal.
+    """
+    # A later duplicate must not overwrite ambiguous family evidence.
+    keys = ("DAILY20_SETTLEMENT_INTEGRITY", "DAILY20_FORWARD_SHADOW",
+            "DAILY20_BEAR_FORWARD")
+    records = {key: [] for key in keys}
+
+    def unique_object(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError("duplicate JSON key")
+            obj[key] = value
+        return obj
+
+    for line in log.splitlines():
+        match = DIAG_START.search(line)
+        if not match or match.group(1) not in records:
+            continue
+        key = match.group(1)
+        try:
+            record = json.loads(line[match.start():], object_pairs_hook=unique_object)
+            records[key].append(record[key])
+        except (ValueError, KeyError, TypeError):
+            records[key].append(None)
+    evidence = records[keys[0]]
+    result = {
+        "status": "SETTLEMENT_EVIDENCE_UNAVAILABLE_HOLD",
+        "source_session": session, "signals": None, "settled": None,
+        "pending": None, "first_pending_exit_date": None,
+        "conservative_deadline_utc": None,
+    }
+    if len(evidence) != 1 or not isinstance(evidence[0], dict):
+        return result
+    rec = evidence[0]
+    result["status"] = "SETTLEMENT_EVIDENCE_INVALID_HOLD"
+    signals, settled, pending = (rec.get(k) for k in ("signals", "settled", "pending"))
+    if (now.tzinfo is None or now.utcoffset() is None
+            or not isinstance(session, str) or rec.get("session") != session
+            or any(type(v) is not int or v < 0 for v in (signals, settled, pending))
+            or signals < 60 or signals % 60 or settled + pending != signals
+            or rec.get("status") not in (
+                "SETTLEMENT_SCHEDULE_AND_ARITHMETIC_RESEARCH_HOLD",
+                "SETTLED_VENDOR_REVISION_RESEARCH_HOLD")):
+        return result
+    first_due = rec.get("first_unsettled_exit_date")
+    try:
+        source_day = date.fromisoformat(session)
+        if source_day.isoformat() != session or source_day > now.astimezone(timezone.utc).date():
+            return result
+        if pending:
+            due = date.fromisoformat(first_due)
+            if due.isoformat() != first_due or due <= source_day:
+                return result
+            deadline = datetime.combine(due + timedelta(days=1), time.min, timezone.utc)
+        elif first_due is not None:
+            return result
+        else:
+            deadline = None
+    except (ValueError, TypeError, OverflowError):
+        return result
+    # Cross-check both family journals, not just the settlement summary.
+    if any(len(records[key]) != 1 for key in keys[1:]):
+        return result
+    bull, bear = (records[key][0] for key in keys[1:])
+    if not isinstance(bull, dict) or not isinstance(bear, dict):
+        return result
+    family_counts = (bull.get("signals"), bear.get("signal_events"),
+                     bull.get("settled"), bear.get("settled"))
+    if (any(type(v) is not int or v < 0 for v in family_counts)
+            or family_counts[0] + family_counts[1] != signals
+            or family_counts[1] != 2 * family_counts[0]
+            or family_counts[2] + family_counts[3] != settled
+            or family_counts[2] > family_counts[0] or family_counts[3] > family_counts[1]):
+        return result
+    result.update(signals=signals, settled=settled, pending=pending,
+                  first_pending_exit_date=first_due,
+                  conservative_deadline_utc=deadline.isoformat() if deadline else None)
+    result["status"] = (
+        "SETTLEMENT_RECHECK_OVERDUE_HOLD" if deadline and now >= deadline else
+        "SETTLEMENT_PENDING_NOT_PAST_CONSERVATIVE_DEADLINE" if pending else
+        "NO_PENDING_IN_LAST_OBSERVED_QUEUE"
+    )
+    return result
 
 
 def make_scorecard(run: dict, jobs: list[dict], research_log: str,
@@ -172,7 +264,10 @@ def make_scorecard(run: dict, jobs: list[dict], research_log: str,
                                or seal["status"] != "AWAITING_GENUINE_NEW_SESSION"):
         problems.append("LEGACY_FAKE_PROSPECTIVE_EVIDENCE")
 
+    settlement = settlement_freshness(research_log, session, now)
     gate_reasons = []
+    if settlement['status'].endswith('_HOLD'):
+        gate_reasons.append(settlement['status'])
     if source.get("verified") != source.get("required") or source.get("status") != "SOURCE_FINALITY_VERIFIED":
         gate_reasons.append("INDEPENDENT_REGULAR_CLOSE_NOT_CERTIFIED")
     if stability.get("hold") is not False or stability.get("status") != "READY":
@@ -213,6 +308,7 @@ def make_scorecard(run: dict, jobs: list[dict], research_log: str,
         "portfolio_scenarios": portfolio.get("scenarios") if isinstance(portfolio, dict) else None,
         "forward_replay_drift": forward.get("frozen_replay_drift"),
         "forward_settled": forward.get("settled"),
+        "settlement_freshness": settlement,
         "stability_status": stability.get("status"),
         "stability_incidents": stability.get("incidents"),
         "drive_readback_verified": matched,
@@ -279,7 +375,8 @@ def render_md(card: dict) -> str:
         "## Kalman Daily20 research readiness (read-only)",
         f"- Source: Actions run #{card['source_run_id']}: {card['source_run_url']}",
         f"- Source session: {card['source_session']}",
-        f"- Operational pipeline: **{card['operational_status']}**",
+        f"- Observed historical pipeline: **{card['operational_status']}** (not current schedule delivery)",
+        f"- Settlement evidence freshness: **{card['settlement_freshness']['status']}**; last observed pending: {card['settlement_freshness']['pending']}; first pending exit: {card['settlement_freshness']['first_pending_exit_date']}; conservative UTC deadline: {card['settlement_freshness']['conservative_deadline_utc']}",
         f"- Research approval: **{card['research_status']}** (never auto-promote)",
         f"- Assets: {card['total_assets']}/26; current scores: {card['research_scores']}/20; cumulative Bull journal: {card['forward_journal_signals']}",
         f"- Independent regular-close source: {card['source_certified']}/{card['source_required']}",
