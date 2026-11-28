@@ -155,6 +155,30 @@ class IndependentFeedTests(unittest.TestCase):
     def test_session_anchor_uses_timezone_and_dst(self):
         self.assertEqual(ci._session_anchor(DATE),"2026-11-20T21:00:00Z")
         self.assertEqual(ci._session_anchor("2026-07-01"),"2026-07-01T20:00:00Z")
+        self.assertEqual(ci._session_anchor("2026-11-27"),"2026-11-27T18:00:00Z")
+
+    def test_early_close_market_center_M_print_is_accepted(self):
+        early="2026-11-27"
+        stamp="2026-11-27T18:00:00Z"  # 13:00 ET, Black Friday early close
+        parsed=ci.parse_alpaca_auctions(
+            {"SPY":[{"d":early,"c":[official_record(689.81,"P",stamp=stamp)],"o":[]}]},
+            early,["SPY"])
+        self.assertEqual(parsed["SPY"]["status"],
+            "SIP_OFFICIAL_CONDITION_WITHOUT_LISTING_VENUE_CERTIFICATION")
+        self.assertEqual(parsed["SPY"]["quotes"][0]["timestamp_utc"],stamp)
+
+    def test_early_close_window_rejects_late_or_16_et_prints(self):
+        early="2026-11-27"
+        for stamp in ("2026-11-27T18:30:00Z","2026-11-27T21:00:00Z"):
+            parsed=ci.parse_alpaca_auctions(
+                {"SPY":[{"d":early,"c":[official_record(689.81,"P",stamp=stamp)],"o":[]}]},
+                early,["SPY"])
+            self.assertEqual(parsed["SPY"]["status"],
+                "NO_VALID_MARKET_CENTER_OFFICIAL_CLOSE")
+
+    def test_non_xnys_holiday_has_no_scheduled_close(self):
+        with self.assertRaisesRegex(RuntimeError,"AUCTION_SESSION_NOT_XNYS_SESSION"):
+            ci._session_anchor("2026-11-26")
 
 if __name__=="__main__":
     unittest.main()
