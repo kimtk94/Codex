@@ -167,7 +167,49 @@ def fit_fold(train,test):
     out["symbol_risk"]=out.symbol.map(rates).fillna(severe.mean())
     threshold=float(np.quantile(model_loss.predict_proba(x)[:,1],.8))
     out["flag"]=out.severe_prob.ge(threshold)
+    out["vol_flag"]=out.vol_risk.ge(float(np.quantile(vol.predict_proba(train[["vol20"]])[:,1],.8)))
     return out,threshold
+
+
+def fixed_arms(frame):
+    return {"BASELINE": pd.Series(True,index=frame.index),
+            "RISK_KEEP": ~frame.flag,
+            "VOL_KEEP": ~frame.vol_flag,
+            "WIN_KEEP": frame.win_prob.ge(.5),
+            "COMBINED_KEEP": frame.win_prob.ge(.5)&~frame.flag,
+            "RETURN_POS": frame.return_pred.gt(0)}
+
+
+def matched_date_random(frame, keep, draws=10000):
+    """Match count by signal date, not portfolio exposure; diagnostic only."""
+    if not keep.index.equals(frame.index) or not keep.isin([True,False]).all():
+        raise ValueError("INVALID_KEEP_MASK")
+    if draws<1 or not np.isfinite(frame.net_return).all():
+        raise ValueError("INVALID_RANDOM_INPUT")
+    rng=np.random.default_rng(42)
+    sums=np.zeros(draws);severe=np.zeros(draws);n=0
+    for _,g in frame.groupby("signal_date",sort=True):
+        k=int(keep.loc[g.index].sum())
+        n+=k
+        if not k:
+            continue
+        ix=np.argsort(rng.random((draws,len(g))),axis=1)[:,:k]
+        v=g.net_return.to_numpy()[ix]
+        sums+=v.sum(axis=1);severe+=(v<=LOSS_CUTOFF).sum(axis=1)
+    return {"draws":draws,"matched_candidate_count":n,
+            "random_mean_net_quantiles":np.quantile(sums/n,[.025,.5,.975]).tolist() if n else None,
+            "random_severe_count_quantiles":np.quantile(severe,[.025,.5,.975]).tolist() if n else None,
+            "observed":group_metrics(frame.loc[keep]),
+            "not_cash_exposure_matched":True}
+
+
+def fixed_arm_metrics(frame):
+    arms=fixed_arms(frame)
+    return {"costs":{str(cost):{name:group_metrics(frame.loc[mask].assign(
+                net_return=frame.loc[mask,"gross_return"]-cost/10000.))
+                for name,mask in arms.items()} for cost in (20,40,80)},
+            "date_count_matched_risk_control":matched_date_random(frame,arms["RISK_KEEP"]),
+            "portfolio_mdd_verified":False}
 
 
 def metrics(frame):
@@ -264,6 +306,7 @@ def run(payload):
                 "40bp_frozen_flags":{"flagged":group_metrics(q.loc[q.flag]),
                     "unflagged":group_metrics(q.loc[~q.flag])},
                 "within_symbol_year":stratified_flag_differences(g),
+                "fixed_arm_comparison":fixed_arm_metrics(g),
                 "block_resampling":resample_brier(g,calendar)}
         report["pooled_by_family"]=by_family
     return report
