@@ -1,0 +1,39 @@
+name: Kalman Issuer Evidence Review (PR Only)
+on:
+  pull_request:
+    paths:
+      - 'research/kalman_issuer_evidence_review/**'
+      - '.github/workflows/kalman-issuer-evidence-review.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Offline evidence contracts
+        run: |
+          cd research/kalman_issuer_evidence_review
+          python -m unittest -v test_evidence_review.py
+          python -m py_compile evidence_review.py
+  incident-metadata:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: contracts
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read pinned failed-run artifact; print metadata only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/kimtk94/Codex/actions/artifacts/15260102752/zip > "$RUNNER_TEMP/issuer-incident.zip"
+          python research/kalman_issuer_evidence_review/evidence_review.py "$RUNNER_TEMP/issuer-incident.zip" --sha256 ca733ef791d264dcf8f194d00af48d17993d49f02061426ec6fec1eeebe3f60f
