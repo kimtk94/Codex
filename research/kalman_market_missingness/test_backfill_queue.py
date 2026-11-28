@@ -250,5 +250,67 @@ class ArchiveBackfillProposalTests(unittest.TestCase):
             validated_archives(bundle(objects), self.new)
 
 
+    def test_release_decision_is_hold_even_when_all_shared_tails_exist(self):
+        plan = make_plan(self.old, self.new)
+        d = plan["release_decision"]
+        self.assertEqual(d["decision"], "HOLD")
+        self.assertEqual(d["same_provider_available_asset_count"], 9)
+        self.assertEqual(d["same_provider_available_candidate_rows"], 135)
+        self.assertEqual(d["matching_adjustment_flag_but_uncertified_asset_count"], 9)
+        self.assertEqual(d["incompatible_price_basis_asset_count"], 0)
+        self.assertEqual(d["market_only_assets_to_refetch"], 10)
+        self.assertEqual(d["unfilled_market_tail_rows"], 155)
+        self.assertEqual(d["fred_series_blocked_for_pit_training"], 12)
+        self.assertEqual(d["approved_market_assets_for_merge"], 0)
+        self.assertEqual(d["approved_candidate_rows_for_merge"], 0)
+        self.assertEqual(d["independently_certified_regular_closes"], 0)
+        self.assertFalse(d["ready_for_pit_training"])
+        self.assertFalse(d["ready_to_replace_original_drive_zip"])
+        self.assertFalse(d["new_versioned_candidate_archive_created"])
+        self.assertFalse(d["daily20_first_seal_touched"])
+        self.assertTrue(d["requires_separate_source_qc_and_manual_promotion"])
+
+    def test_release_decision_counts_mismatched_basis_but_never_approves(self):
+        # Re-sign a synthetic fixture's original manifest ONLY to isolate
+        # semantic rejection from the separate invalid-SHA test.
+        name = "market/raw/yfinance/yf_qqq.parquet"
+        with ZipFile(BytesIO(self.new)) as z:
+            data = {key: z.read(key) for key in z.namelist()}
+        prices = pd.read_parquet(BytesIO(data[name]))
+        prices["is_adjusted"] = False
+        data[name] = parquet(prices)
+        manifest = json.loads(data["drive_manifest.json"])
+        manifest["payload_hashes_sha256"][name] = sha256(data[name]).hexdigest()
+        data["drive_manifest.json"] = json.dumps(manifest).encode()
+        plan = make_plan(self.old, bundle(data))
+        d = plan["release_decision"]
+        self.assertEqual(d["incompatible_price_basis_asset_count"], 1)
+        self.assertEqual(d["matching_adjustment_flag_but_uncertified_asset_count"], 8)
+        self.assertIn("PRICE_ADJUSTMENT_BASIS_MISMATCH", d["reason_codes"])
+        self.assertEqual(d["approved_candidate_rows_for_merge"], 0)
+        self.assertEqual(d["decision"], "HOLD")
+
+    def test_cli_writes_valid_read_only_decision_json(self):
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from backfill_queue import main
+        with TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "old.zip").write_bytes(self.old)
+            (folder / "new.zip").write_bytes(self.new)
+            with patch("sys.argv", [
+                "backfill_queue.py", "--market-zip", str(folder / "old.zip"),
+                "--daily20-zip", str(folder / "new.zip"),
+                "--out", str(folder / "out")
+            ]):
+                self.assertEqual(main(), 0)
+            report = json.loads(
+                (folder / "out/backfill_decision.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(report["decision"], "HOLD")
+            self.assertFalse(report["ready_to_replace_original_drive_zip"])
+            self.assertTrue((folder / "out/backfill_market_queue.csv").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

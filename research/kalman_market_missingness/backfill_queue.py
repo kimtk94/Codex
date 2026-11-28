@@ -262,8 +262,52 @@ def make_plan(macro_blob, daily_blob, *, now=None):
     required_tail = sum(x["expected_tail_rows"] for x in queue)
     require(required_tail == cross + missing,
             "TAIL_LEDGER_CANDIDATE_ACCOUNTING_MISMATCH")
+    shared_rows = [x for x in queue if x["indicator"] in PAIRED_SHARED]
+    incompatible = [x for x in shared_rows
+                    if x["adjustment_flag_matches"] is False]
+    compatible = [x for x in shared_rows
+                  if x["adjustment_flag_matches"] is True]
+    require(len(shared_rows) == len(PAIRED_SHARED) and
+            len(incompatible) + len(compatible) == len(shared_rows),
+            "SHARED_ADJUSTMENT_BASIS_CLASSIFICATION_INCOMPLETE")
+    require(all(x["reuse_status"] == "PRICE_ADJUSTMENT_BASIS_MISMATCH_HOLD"
+                for x in incompatible) and
+            all(x["reuse_status"] == "UNAPPROVED_SAME_PROVIDER_CANDIDATE_ONLY"
+                for x in compatible),
+            "UNSAFE_SHARED_SOURCE_STATUS")
+    # Count candidate availability separately from approval. Matching Yahoo
+    # provenance, even with matching is_adjusted, is not independent 16:00
+    # exchange evidence; latest-revised FRED is not a historical PIT vintage.
+    release_decision = {
+        "decision": "HOLD",
+        "reason_codes": [
+            "SAME_PROVIDER_IS_NOT_INDEPENDENT_REGULAR_CLOSE",
+            "PRICE_ADJUSTMENT_BASIS_MISMATCH" if incompatible else
+            "PRICE_ADJUSTMENT_BASIS_NOT_INDEPENDENTLY_CERTIFIED",
+            "INDEPENDENT_MARKET_REFETCH_REQUIRED",
+            "FRED_LATEST_REVISED_NOT_POINT_IN_TIME",
+            "DERIVED_FEATURES_REQUIRE_SOURCE_VINTAGE_REBUILD",
+        ],
+        "same_provider_available_asset_count": len(shared_rows),
+        "same_provider_available_candidate_rows": cross,
+        "incompatible_price_basis_asset_count": len(incompatible),
+        "matching_adjustment_flag_but_uncertified_asset_count": len(compatible),
+        "market_only_assets_to_refetch": MACRO_MARKET_COUNT - len(shared_rows),
+        "unfilled_market_tail_rows": missing,
+        "fred_series_blocked_for_pit_training": len(fred_tasks),
+        "rebuild_technical_feature_assets_after_source_qc": len(features),
+        "approved_market_assets_for_merge": 0,
+        "approved_candidate_rows_for_merge": 0,
+        "independently_certified_regular_closes": 0,
+        "ready_for_pit_training": False,
+        "ready_to_replace_original_drive_zip": False,
+        "new_versioned_candidate_archive_created": False,
+        "daily20_first_seal_touched": False,
+        "requires_separate_source_qc_and_manual_promotion": True,
+    }
     return {
         "version": VERSION,
+        "release_decision": release_decision,
         "status": "BACKFILL_CANDIDATES_STAGED_METADATA_ONLY_RESEARCH_HOLD",
         "source_archive_drive_id": MACRO_ID,
         "source_archive_sha256": sha(macro_blob),
@@ -316,6 +360,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "backfill_plan.json").write_text(
         json.dumps(plan, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    (out / "backfill_decision.json").write_text(
+        json.dumps(plan["release_decision"], indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")
     csv_out(out / "backfill_market_queue.csv", plan["market_queue"])
     csv_out(out / "backfill_fred_queue.csv", plan["fred_queue"])

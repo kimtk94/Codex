@@ -99,6 +99,35 @@ jobs:
                 r["source_last_completed_xnys"],r["reference_last_completed_xnys"],
                 "eligible_candidate_asset_count",r["market_assets_with_any_reusable_candidate"])
           PY
+      - name: Enforce research-only market backfill release HOLD
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import os
+
+          p = Path("outputs/kalman_market_missingness/backfill_decision.json")
+          decision = json.loads(p.read_text(encoding="utf-8"))
+          assert decision["decision"] == "HOLD"
+          assert decision["approved_market_assets_for_merge"] == 0
+          assert decision["approved_candidate_rows_for_merge"] == 0
+          assert decision["independently_certified_regular_closes"] == 0
+          assert decision["ready_for_pit_training"] is False
+          assert decision["ready_to_replace_original_drive_zip"] is False
+          assert decision["new_versioned_candidate_archive_created"] is False
+          assert decision["daily20_first_seal_touched"] is False
+          summary = (
+              "### Kalman market backfill decision: HOLD\n"
+              f"- Same-provider candidate rows: {decision['same_provider_available_candidate_rows']}\n"
+              f"- Adjustment-basis mismatch assets: {decision['incompatible_price_basis_asset_count']}\n"
+              f"- Unfilled market tail observations: {decision['unfilled_market_tail_rows']}\n"
+              f"- FRED series without PIT certification: {decision['fred_series_blocked_for_pit_training']}\n"
+              "- Approved source replacements: **0**; no trading or first-seal changes\n"
+          )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(summary)
+          print("KALMAN_MARKET_BACKFILL_RELEASE_HOLD", p)
+          PY
       - name: Publish metadata only; never licensed price values
         uses: actions/upload-artifact@v4
         with:
