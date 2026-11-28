@@ -110,6 +110,7 @@ class IndependentFeedTests(unittest.TestCase):
         self.assertEqual(vix["price"],22.45)
         self.assertEqual(vix["adjustment"],"RAW")
         self.assertFalse(vix["independently_exchange_certified_at_16_00"])
+        self.assertFalse(vix["independently_exchange_certified_at_scheduled_close"])
         self.assertEqual(report["verified_regular_finality"],0)
         self.assertFalse(report["strategy_promoted"])
 
