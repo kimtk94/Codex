@@ -19,4 +19,4 @@ jobs:
         env:
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
-        run: python research/kalman_issuer_evidence_review/drive_backup_reader.py
+        run: python automation/kalman_issuer_evidence_review/drive_backup_reader.py
