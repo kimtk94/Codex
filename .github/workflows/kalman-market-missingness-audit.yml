@@ -99,6 +99,11 @@ jobs:
                 r["source_last_completed_xnys"],r["reference_last_completed_xnys"],
                 "eligible_candidate_asset_count",r["market_assets_with_any_reusable_candidate"])
           PY
+      - name: Build catalogue from validated backfill plan (metadata only)
+        run: |
+          python research/kalman_market_missingness/data_catalog.py \
+            --plan outputs/kalman_market_missingness/backfill_plan.json \
+            --out outputs/kalman_market_missingness
       - name: Publish metadata only; never licensed price values
         uses: actions/upload-artifact@v4
         with:
