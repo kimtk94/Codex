@@ -1,0 +1,131 @@
+name: Kalman Research Staged Price Validation & Historical 53 Gap Recovery
+
+on:
+  pull_request:
+    paths:
+      - 'research/kalman_data_backfill/validate_staged.py'
+      - 'research/kalman_data_backfill/build_snapshot.py'
+      - 'research/kalman_data_backfill/test_build_snapshot.py'
+      - '.github/workflows/kalman-staged-price-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-staged-vs-raw:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install audit and immutable-parquet dependencies
+        run: python -m pip install pandas pyarrow requests exchange-calendars google-api-python-client google-auth
+      - name: Fetch research snapshots read-only with existing Drive account
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kalman_sources" "$RUNNER_TEMP/kalman_stages"
+          python research/kalman_triple_barrier/drive_input.py --file-id 13biLe0-QIv3wYUbCJFeHZnW2EuHQhnil --output "$RUNNER_TEMP/kalman_sources/QQQ_15m.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 14tFlcG3-TmdtlzLyWOeHY5K-4EIHQCiE --output "$RUNNER_TEMP/kalman_sources/QLD_15m.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1BVYrKDsKl50Q9Aw1438w4T1W267-Zgn- --output "$RUNNER_TEMP/kalman_sources/QQQ_1d.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1HM6nbAmYI_DCLVJk8TQph21gsva2xjw4 --output "$RUNNER_TEMP/kalman_sources/QLD_1d.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1cZvbxcBjBv5WpUirq83PaBpyRumKFOa2 --output "$RUNNER_TEMP/kalman_stages/QQQ_15m_202609.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1ePizOJpc4xC-6x0XaOTvuiyEodlcEOlg --output "$RUNNER_TEMP/kalman_stages/QQQ_15m_202610.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1BE041jcv05RrwUfBu6qW2LokroYPh4zr --output "$RUNNER_TEMP/kalman_stages/QLD_15m_202609.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1taXn9co-8yDaQox3dfB1hdn4LdNOthvm --output "$RUNNER_TEMP/kalman_stages/QLD_15m_202610.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1Eq9ePgRMZ155uW1RwZM-oHTvyvXTZS5t --output "$RUNNER_TEMP/kalman_stages/QQQ_1d_202609.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1d7_2nh5DGGC-qcDQaXyj_ChEgRxj1ZDq --output "$RUNNER_TEMP/kalman_stages/QQQ_1d_202610.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1je0tLEGQ96FA9XEq8bpwkCT8H9NrEBza --output "$RUNNER_TEMP/kalman_stages/QLD_1d_202609.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1wdnlwEVQgNSsYVEQlfvTvB2YAYYapkjO --output "$RUNNER_TEMP/kalman_stages/QLD_1d_202610.parquet"
+      - name: Validate actual parquet keys, OHLC and price basis; fetch only 53 historic gaps
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_data_backfill/validate_staged.py \
+            --source-dir "$RUNNER_TEMP/kalman_sources" \
+            --stage-dir "$RUNNER_TEMP/kalman_stages" \
+            --out outputs/kalman_staged_validation \
+            --as-of 2026-10-29 \
+            --recover-old
+      - name: Publish audit-only status; no original raw files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-staged-2052-validation
+          path: outputs/kalman_staged_validation/validation.json
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Test four-session label embargo and non-imputation
+        run: python -m unittest discover -s research/kalman_data_backfill -p 'test_build_snapshot.py' -v
+      - name: Build ephemeral research PIT V1; NO licensed prices in CI artifacts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          p=Path('outputs/kalman_staged_validation/historical_QQQ_15m.parquet')
+          if not p.is_file():raise SystemExit('BLOCKED: historical 50 bars missing')
+          with ZipFile('outputs/kalman_staged_validation/historical_50_input.zip','w',ZIP_DEFLATED) as z:
+              z.write(p,arcname='historical_QQQ_15m.parquet')
+          PY
+          python research/kalman_data_backfill/build_snapshot.py \
+            --source-dir "$RUNNER_TEMP/kalman_sources" \
+            --stage-dir "$RUNNER_TEMP/kalman_stages" \
+            --validation-json outputs/kalman_staged_validation/validation.json \
+            --historical-zip outputs/kalman_staged_validation/historical_50_input.zip \
+            --out-dir "$RUNNER_TEMP/research_pit_v1" --as-of 2026-10-29
+          mkdir -p outputs/kalman_research_pit_v1_meta
+          cp "$RUNNER_TEMP/research_pit_v1/manifest.json" outputs/kalman_research_pit_v1_meta/
+          cp "$RUNNER_TEMP/research_pit_v1/unresolved_gap_mask.csv" outputs/kalman_research_pit_v1_meta/
+      - name: Encrypt research-only dataset with recipient public key before artifact upload
+        run: |
+          python -m pip install cryptography
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from cryptography.hazmat.primitives import hashes,serialization
+          import os
+          source=Path(os.environ['RUNNER_TEMP'])/'research_pit_v1'
+          names=['QQQ_15m_research_pit_v1.parquet','QQQ_1d_research_pit_v1.parquet',
+                 'QLD_15m_research_pit_v1.parquet','QLD_1d_research_pit_v1.parquet',
+                 'manifest.json','unresolved_gap_mask.csv']
+          assert all((source/name).is_file() for name in names)
+          zip_path=Path(os.environ['RUNNER_TEMP'])/'kalman_temp_private.zip'
+          with ZipFile(zip_path,'w',ZIP_DEFLATED,compresslevel=6) as z:
+              for name in names:z.write(source/name,arcname=name)
+          public=X25519PublicKey.from_public_bytes(bytes.fromhex('af4696737b008b702217467b7bfeca876d72152e69fddf4c8855460e5464cb0e'))
+          sender=X25519PrivateKey.generate()
+          salt=os.urandom(16); nonce=os.urandom(12)
+          aes_key=HKDF(algorithm=hashes.SHA256(),length=32,salt=salt,info=b'kalman-research-pit-v1').derive(sender.exchange(public))
+          ciphertext=AESGCM(aes_key).encrypt(nonce,zip_path.read_bytes(),b'KALMAN_QQQ_QLD_20261029')
+          target=Path('outputs/kalman_encrypted_pit_v1')
+          target.mkdir(parents=True,exist_ok=True)
+          # The payload contains ONLY sender public key, salt, nonce and AES-GCM ciphertext.
+          (target/'research_pit_v1.enc').write_bytes(b'KALMAN1'+sender.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)+salt+nonce+ciphertext)
+          zip_path.unlink()
+          print('ENCRYPTED_RESEARCH_ARCHIVE_BYTES=',(target/'research_pit_v1.enc').stat().st_size)
+          PY
+      - name: Publish ciphertext only for private Drive transfer
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-research-pit-v1-encrypted-only
+          path: outputs/kalman_encrypted_pit_v1/research_pit_v1.enc
+          retention-days: 1
+          if-no-files-found: error
+      - name: Publish research-only integrity manifest and missing timestamps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-research-pit-v1-metadata-only
+          path: outputs/kalman_research_pit_v1_meta/
+          retention-days: 14
+          if-no-files-found: warn
