@@ -99,6 +99,7 @@ jobs:
           run-id: '45382109010'
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/kalman-original-data
+          merge-multiple: true
       - name: Download existing pinned GitHub result artifact (read only)
         uses: actions/download-artifact@v4
         with:
@@ -106,6 +107,7 @@ jobs:
           run-id: '45382109010'
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/kalman-original-results
+          merge-multiple: true
       - name: Verify 187 payload members and reproduce original cash ledger
         env:
           OPENBLAS_NUM_THREADS: '1'
