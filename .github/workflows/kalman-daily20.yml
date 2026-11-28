@@ -1069,6 +1069,12 @@ jobs:
             --out output/daily20/research/forward_shadow
       - name: PR-only real-data bear scorer smoke (does not count as forward OOS)
         if: github.event_name == 'pull_request'
+        env:
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+          NUMEXPR_NUM_THREADS: '1'
+          BLIS_NUM_THREADS: '1'
         run: |
           python research/kalman_daily20/bear_forward.py \
             --config research/kalman_daily20/universe.json \
