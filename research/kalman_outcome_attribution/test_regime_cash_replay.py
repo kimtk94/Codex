@@ -20,6 +20,20 @@ class RegimeCashContracts(unittest.TestCase):
         self.assertEqual(r["DISCOVERY_GATES"].tolist(),[False,False,True,False,True,False,False])
         self.assertEqual(r["BULL_PLUS_BEAR"].tolist(),[False,False,True,True,True,True,False])
 
+    def test_volatility_cash_gates_abstain_without_forced_exit(self):
+        f=pd.DataFrame({"family":["BULL_TREND","BULL_LOGISTIC","BEAR_LOGISTIC",
+                                  "BEAR_LOGISTIC","BEAR_LOGISTIC","BULL_TREND"],
+                        "mom_regime":["UP","DOWN","DOWN","SIDEWAYS","DOWN","UP"],
+                        "ret5":[0.]*6,"spy5":[0.]*6,"vix":[25.]*6,"gld5":[0.]*6,
+                        "spy_realized_vol20_lag":[.21,.2,.19,.25,np.nan,.1]})
+        r=masks(f)
+        self.assertEqual(r["REGIME_SWITCH_AVOID_HIGH_DOWN"].tolist(),
+                         [True,False,True,True,False,True])
+        self.assertEqual(r["REGIME_SWITCH_AVOID_ALL_HIGH"].tolist(),
+                         [False,False,True,False,False,True])
+        self.assertFalse(r["CASH_ONLY"].any())
+        self.assertTrue(r["REGIME_SWITCH_BEAR"].all())
+
     def test_context_is_previous_session_only(self):
         dates=pd.bdate_range("2024-01-01",periods=60)
         p={s:pd.DataFrame({"close":np.linspace(100,120,60)},index=dates)
