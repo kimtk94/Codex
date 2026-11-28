@@ -1,0 +1,277 @@
+name: Kalman Frozen Outcome Attribution (Research Only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research/kalman_outcome_attribution/**'
+      - '.github/workflows/kalman-outcome-attribution.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-outcome-attribution-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'manual-readonly' }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated analysis dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=2,<2.4' 'pandas>=2.2,<3' 'scikit-learn>=1.6,<2' 'exchange-calendars>=4.7,<5'
+      - name: Verify outcome, provenance and temporal join contracts
+        run: |
+          python -m unittest discover -s research/kalman_outcome_attribution -p 'test_*.py' -v
+          python -m compileall -q research/kalman_outcome_attribution
+
+  historical-schedule-evidence-rehearsal:
+    needs: contracts
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'research/kalman-outcome-attribution-20261125'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: '7d3cb91f86183fe3905b3f70327ebf1f58bb2ac4'
+          path: evidence-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated evidence calendar
+        run: python -m pip install --disable-pip-version-check 'exchange-calendars==4.13.3'
+      - name: Verify actual Nov24 failed two-pass records using read-only GitHub evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python research/kalman_outcome_attribution/prospective_schedule_evidence.py \
+            --rehearse-known-failure \
+            --original-source evidence-source \
+            --out outputs/kalman_outcome_attribution/schedule_rehearsal.json
+      - name: Preserve metadata only (not a study admission)
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-schedule-failure-rehearsal-metadata
+          path: outputs/kalman_outcome_attribution/schedule_rehearsal.json
+          if-no-files-found: error
+          retention-days: 45
+
+  frozen-artifact-cash-rehearsal:
+    needs: contracts
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'research/kalman-outcome-attribution-20261125'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: '06c66c0fea6de93eeb581ce856d648d24c0ff942'
+          path: original-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated standard-reader dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=2,<2.4' 'pandas>=2.2,<3' 'scikit-learn>=1.6,<2' 'pyarrow>=17,<25' 'exchange-calendars==4.13.3'
+      - name: Download existing pinned GitHub data artifact (read only)
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '14914022566'
+          run-id: '45382109010'
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/kalman-original-data
+          merge-multiple: true
+      - name: Download existing pinned GitHub result artifact (read only)
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '14915505210'
+          run-id: '45382109010'
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/kalman-original-results
+          merge-multiple: true
+      - name: Verify 187 payload members and reproduce original cash ledger
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_outcome_attribution/artifact_cash_replay.py \
+            --data "$RUNNER_TEMP/kalman-original-data" \
+            --results "$RUNNER_TEMP/kalman-original-results" \
+            --original-source original-source \
+            --out outputs/kalman_artifact_replay
+      - name: Publish only aggregate replay evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-artifact-cash-rehearsal-metadata
+          path: outputs/kalman_artifact_replay/*.json
+          if-no-files-found: error
+          retention-days: 45
+
+  frozen-report:
+    needs: contracts
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: '06c66c0fea6de93eeb581ce856d648d24c0ff942'
+          path: original-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated original-model feature reader
+        run: python -m pip install --disable-pip-version-check 'numpy>=2,<2.4' 'pandas>=2.2,<3' 'scikit-learn>=1.6,<2' 'pyarrow>=17,<25' google-auth google-api-python-client 'exchange-calendars==4.13.3'
+      - name: Download exact frozen research archives read-only
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: python research/kalman_outcome_attribution/fetch_frozen_inputs.py --out "$RUNNER_TEMP/kalman_frozen_inputs"
+      - name: Attribute wins, losses and loss severity using original source
+        run: |
+          python research/kalman_outcome_attribution/outcome_profile.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/aggregate_report.json
+      - name: Independently reproduce exact OHLC paths and full-feature risk comparison
+        run: |
+          python research/kalman_outcome_attribution/ohlc_exit.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/exact_ohlc_report.json
+      - name: Independently reproduce causal Kalman versus EMA ablation
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_outcome_attribution/kalman_ablation.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/kalman_ablation_report.json
+      - name: Reproduce close-only market-relative discovery
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_outcome_attribution/market_relative.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/market_relative_report.json
+      - name: Reproduce original cash ledger and fixed regime combinations
+        run: |
+          python research/kalman_outcome_attribution/regime_cash_replay.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/regime_cash_replay_report.json
+      - name: Reproduce concentration and group-omission cash replays
+        run: |
+          python research/kalman_outcome_attribution/concentration_replay.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/concentration_replay_report.json
+      - name: Reconcile original settlement journal and published queue
+        run: |
+          python research/kalman_outcome_attribution/settlement_queue_review.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --data-sha256 e8fe9d37e3db3037280878adf63bd0e0e51dd2ca3ca71ebb2dfbdefe86897711 \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --results-sha256 256467e4ed8d3979c1f8c28993f9aed1fb7f4f16135879d1809b870456c8622f \
+            --anchor "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/settlement_reconciliation_report.json
+      - name: Reproduce historical feasibility without modifying preregistered thresholds
+        run: |
+          python research/kalman_outcome_attribution/protocol_feasibility.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/protocol_feasibility_report.json
+      - name: Reproduce all-daily historical feasibility using original model fits
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_outcome_attribution/daily_protocol_feasibility.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/daily_protocol_feasibility_report.json
+      - name: Compare fixed reduced-feature risk arms and exact cash ledger
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_outcome_attribution/risk_pilot.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/reduced_risk_report.json
+          python research/kalman_outcome_attribution/risk_cash_replay.py \
+            --data "$RUNNER_TEMP/kalman_frozen_inputs/data.zip" \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --original-source original-source \
+            --out outputs/kalman_outcome_attribution/reduced_risk_cash_report.json
+      - name: Reproduce momentum and realized-volatility slices
+        run: |
+          python research/kalman_outcome_attribution/regime_feature_slices.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/regime_feature_slices.json
+      - name: Compare archived equity against lagged-exposure ETF benchmarks
+        run: |
+          python research/kalman_outcome_attribution/exposure_benchmark.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/exposure_benchmark.json
+      - name: Reproduce paired exposure block Monte Carlo
+        run: |
+          python research/kalman_outcome_attribution/paired_exposure_mc.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/paired_exposure_mc.json
+      - name: Publish only aggregate metadata, never input archives or row-level features
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-frozen-outcome-attribution-metadata
+          path: |
+            outputs/kalman_outcome_attribution/aggregate_report.json
+            outputs/kalman_outcome_attribution/exact_ohlc_report.json
+            outputs/kalman_outcome_attribution/kalman_ablation_report.json
+            outputs/kalman_outcome_attribution/market_relative_report.json
+            outputs/kalman_outcome_attribution/regime_cash_replay_report.json
+            outputs/kalman_outcome_attribution/concentration_replay_report.json
+            outputs/kalman_outcome_attribution/settlement_reconciliation_report.json
+            outputs/kalman_outcome_attribution/protocol_feasibility_report.json
+            outputs/kalman_outcome_attribution/daily_protocol_feasibility_report.json
+            outputs/kalman_outcome_attribution/reduced_risk_report.json
+            outputs/kalman_outcome_attribution/reduced_risk_cash_report.json
+            outputs/kalman_outcome_attribution/regime_feature_slices.json
+            outputs/kalman_outcome_attribution/exposure_benchmark.json
+            outputs/kalman_outcome_attribution/paired_exposure_mc.json
+          if-no-files-found: error
+          retention-days: 45
