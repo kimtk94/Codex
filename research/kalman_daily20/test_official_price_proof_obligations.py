@@ -105,6 +105,16 @@ class ProofMatrixTest(unittest.TestCase):
         self.assertEqual(report["rows"][1]["issuer_cash_gap"], "2018-06-18")
         self.assertEqual(report["rows"][2]["issuer_cash_gap"], "2023-09-20")
 
+    def test_equity_close_obligation_is_early_close_aware(self):
+        rows = self.evaluate()["rows"]
+        equities = [row for row in rows if row["asset_type"] == "EQUITY_OR_ETF"]
+        self.assertEqual(len(equities), 25)
+        for row in equities:
+            self.assertIn("CERTIFIED_XNYS_SCHEDULED_REGULAR_CLOSE_NOT_JUST_M_PRINT",
+                          row["required_evidence"])
+            self.assertNotIn("CERTIFIED_REGULAR_16_ET_CLOSE_NOT_JUST_M_PRINT",
+                             row["required_evidence"])
+
     def test_vix_no_equity_corporate_factor(self):
         rows = self.evaluate()["rows"]
         vix = next(x for x in rows if x["symbol"] == "^VIX")
