@@ -314,7 +314,6 @@ def collect(session, symbols, *, fetcher=http_bytes):
                 "source_body_sha256":vix["body_sha256"],
                 "independent_from_yahoo_by_origin":True,
                 "independently_exchange_certified_at_16_00":False,
-            "independently_exchange_certified_at_scheduled_close":False,
                 "independently_exchange_certified_at_scheduled_close":False,
             })
     except HTTPError as e:
@@ -344,6 +343,7 @@ def collect(session, symbols, *, fetcher=http_bytes):
             "source_body_page_sha256":alpaca["raw_response_sha256"],
             "primary_listing_exchange_independently_verified":False,
             "independently_exchange_certified_at_16_00":False,
+            "independently_exchange_certified_at_scheduled_close":False,
         })
     report={
         "version":VERSION,"session":session,
