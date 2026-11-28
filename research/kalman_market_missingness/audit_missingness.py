@@ -8,7 +8,7 @@ import hashlib
 import io
 import json
 import zipfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from functools import lru_cache
 
@@ -87,6 +87,53 @@ def last_closed_nyse_session(now_utc=None):
     return str(day.date())
 
 
+def classify_feature_gaps(dates, values, asof, expected, raw_validity):
+    """Separate inferred warmup, actual in-scope gaps and out-of-scope rows.
+
+    Nominal calendar status is not proof of a provider placeholder or of
+    indicator correctness. A fully empty in-scope series has no observed
+    warmup boundary. Future data must never determine that boundary.
+    """
+    require_dates = pd.Series(dates, dtype="string").reset_index(drop=True)
+    if (require_dates.isna().any() or not require_dates.is_monotonic_increasing
+            or require_dates.duplicated().any()):
+        raise ValueError("INVALID_FEATURE_DATE_SEQUENCE")
+    dates = require_dates.tolist()
+    numeric = pd.to_numeric(pd.Series(values).reset_index(drop=True), errors="coerce")
+    if len(dates) != len(numeric):
+        raise ValueError("FEATURE_VALUE_LENGTH_MISMATCH")
+    present = np.isfinite(numeric.to_numpy(dtype=float, na_value=np.nan))
+    eligible = [i for i,d in enumerate(dates) if d <= asof]
+    # An off-session finite value cannot establish an expected-session warmup.
+    first_valid = next((i for i in eligible if dates[i] in expected and present[i]), None)
+    reasons = {}
+    for i,d in enumerate(dates):
+        if d > asof:
+            if not present[i]:
+                reasons[i] = "AFTER_ASOF_NULL"
+            continue
+        if present[i]:
+            continue
+        if d not in expected:
+            raw = raw_validity.get(d)
+            reasons[i] = ("OFF_SESSION_RAW_INVALID" if raw == "P" else
+                          "OFF_SESSION_RAW_VALID" if raw == "V" else
+                          "OFF_SESSION_RAW_ABSENT")
+        elif first_valid is None:
+            reasons[i] = "NO_VALID_SESSION_FEATURE_HOLD"
+        elif i < first_valid:
+            reasons[i] = "LEADING_NULL_WARMUP_CANDIDATE"
+        else:
+            raw = raw_validity.get(d)
+            reasons[i] = ("IN_SESSION_RAW_INVALID" if raw == "P" else
+                          "IN_SESSION_RAW_VALID_FEATURE_GAP" if raw == "V" else
+                          "IN_SESSION_RAW_ABSENT")
+    counts = dict(Counter(reasons.values()))
+    if sum(counts.values()) != int((~present).sum()):
+        raise ValueError("FEATURE_GAP_ACCOUNTING_MISMATCH")
+    return reasons, counts
+
+
 def audit(input_zip:Path,output_dir:Path,limit_through='auto',now_utc=None):
     output_dir.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(input_zip) as z:
@@ -102,7 +149,7 @@ def audit(input_zip:Path,output_dir:Path,limit_through='auto',now_utc=None):
         if not source_asof: raise ValueError('MISSING_SOURCE_SESSION_CONTRACT')
         if source_asof>calendar_asof: raise ValueError('SOURCE_AHEAD_OF_EXCHANGE_CLOSE')
         asof=calendar_asof if limit_through in (None,'auto') else min(limit_through,calendar_asof)
-        events=[];summary=[];date_market={};date_fred={};date_features={};month_rows=[]
+        events=[];summary=[];date_market={};date_fred={};date_features={};month_rows=[];raw_by_asset={}
         for path in sorted(x for x in names if x.startswith('market/raw/yfinance/') and x.endswith('.parquet')):
             key=Path(path).stem;mode=mode_market(key)
             raw=pd.read_parquet(io.BytesIO(z.read(path)))
@@ -120,6 +167,7 @@ def audit(input_zip:Path,output_dir:Path,limit_through='auto',now_utc=None):
                 validity[d] = 'P' if bad or invalid_ohlc else 'V'
                 if validity[d]!='V':
                     events.append({'layer':'MARKET','indicator':key,'date':d,'status':'PRESENT_INVALID','field':','.join(bad)+('/ohlc' if invalid_ohlc else ''),'frequency':mode,'classification':'observed_missing_or_invalid_price'})
+            raw_by_asset[key]=validity
             dupe_count=int(datecol.duplicated().sum())
             for ix in datecol[datecol.duplicated()].index:
                 events.append({'layer':'MARKET','indicator':key,'date':str(datecol.loc[ix]),'status':'DUPLICATE_RECORD','field':'timestamp','frequency':mode,'classification':'duplicate_timestamp'})
@@ -184,23 +232,55 @@ def audit(input_zip:Path,output_dir:Path,limit_through='auto',now_utc=None):
             if 'timestamp' not in f: raise ValueError('BAD_FEATURE_TIMESTAMP:'+key)
             d=pd.to_datetime(f.timestamp,errors='coerce',utc=True).dt.strftime('%Y-%m-%d')
             feature_cols=[c for c in f if str(c).startswith('talib_v2_')]
-            feature_mode=mode_market('yf_'+key)
+            raw_key=key if key.startswith("yf_") else "yf_"+key
+            if raw_key not in raw_by_asset:
+                raise ValueError("FEATURE_RAW_ASSET_UNMATCHED:"+key)
+            feature_mode=mode_market(raw_key)
             valid_feature_sessions=date_keys(str(d.min()),min(str(d.max()),asof),feature_mode)
             for col in feature_cols:
-                present=f[col].notna().to_numpy()
-                first_valid=int(np.argmax(present)) if present.any() else len(present)
-                missing_count=int((~present).sum())
-                warmup_missing=int((~present[:first_valid]).sum())
-                internal_missing=int((~present[first_valid:]).sum())
-                internal_in_session=int(sum(not present[ix] and d.iloc[ix] in valid_feature_sessions for ix in range(first_valid,len(f))))
-                off_session_missing=internal_missing-internal_in_session
-                summary.append({'layer':'FEATURE','indicator':f'{key}:{col}','schedule':mode_market('yf_'+key),'first_date':str(d.min()),'last_date':str(d.max()),'asof_date':asof,'records':len(f),'expected_session_count':len(f),'observed_missing_value':missing_count,'warmup_missing':warmup_missing,'post_warmup_missing':internal_missing,'post_warmup_on_session':internal_in_session,'off_session_missing':off_session_missing,'missing_rate_pct':round(100*missing_count/max(1,len(f)),3),'note':'post-warmup null candidate; may be caused by raw OHLC missing'})
-                for ix in np.flatnonzero(~present):
+                reasons,counts=classify_feature_gaps(d,f[col],asof,valid_feature_sessions,raw_by_asset[raw_key])
+                warmup_missing=counts.get("LEADING_NULL_WARMUP_CANDIDATE",0)
+                internal_in_session=sum(v for k,v in counts.items() if k.startswith("IN_SESSION_"))
+                off_session_missing=sum(v for k,v in counts.items() if k.startswith("OFF_SESSION_"))
+                all_null_hold=counts.get("NO_VALID_SESSION_FEATURE_HOLD",0)
+                after_asof=counts.get("AFTER_ASOF_NULL",0)
+                # Legacy post-warmup count now explicitly excludes off-session
+                # rows before the first observed valid session and future rows.
+                first_valid=next((i for i,dt in enumerate(d) if dt<=asof and dt in valid_feature_sessions
+                                  and pd.notna(f[col].iloc[i]) and np.isfinite(f[col].iloc[i])),None)
+                post_off=sum(1 for i,reason in reasons.items() if reason.startswith("OFF_SESSION_")
+                             and first_valid is not None and i>=first_valid)
+                internal_missing=internal_in_session+post_off
+                missing_count=sum(counts.values())
+                summary.append({'layer':'FEATURE','indicator':f'{key}:{col}','schedule':feature_mode,
+                    'first_date':str(d.min()),'last_date':str(d.max()),'asof_date':asof,'records':len(f),
+                    'expected_session_count':len(valid_feature_sessions),'observed_missing_value':missing_count,
+                    'warmup_missing':warmup_missing,'post_warmup_missing':internal_missing,
+                    'post_warmup_on_session':internal_in_session,'off_session_missing':post_off,
+                    'feature_all_null_session_hold':all_null_hold,'feature_after_asof_null':after_asof,
+                    'feature_off_session_total':off_session_missing,'feature_gap_reason_counts':json.dumps(counts,sort_keys=True),
+                    'missing_rate_pct':round(100*missing_count/max(1,len(f)),3),
+                    'note':'Leading nulls are inferred warmup only; nominal off-session is not source proof.'})
+                for ix,reason in reasons.items():
                     dt=d.iloc[ix]
+                    if reason=="AFTER_ASOF_NULL":
+                        status="AFTER_ASOF_NULL"
+                    elif reason=="LEADING_NULL_WARMUP_CANDIDATE":
+                        status="WARMUP_NULL"
+                    elif reason.startswith("OFF_SESSION_"):
+                        status="OFF_SESSION_NULL"
+                    elif reason=="NO_VALID_SESSION_FEATURE_HOLD":
+                        status=reason
+                    else:
+                        status="POST_WARMUP_NULL"
+                    events.append({'layer':'FEATURE','indicator':f'{key}:{col}','date':dt,'status':status,
+                        'field':col,'frequency':'daily_derived','classification':reason})
                     if dt<=asof:
-                        typ='W' if ix<first_valid else ('I' if dt in valid_feature_sessions else 'O')
-                        events.append({'layer':'FEATURE','indicator':f'{key}:{col}','date':dt,'status':{'W':'WARMUP_NULL','I':'POST_WARMUP_NULL','O':'OFF_SESSION_NULL'}[typ],'field':col,'frequency':'daily_derived','classification':{'W':'indicator_warmup','I':'internal_feature_missing_requires_source_check','O':'derived_from_off_session_null_source'}[typ]})
-                        date_features.setdefault(dt,{})[f'{key}:{col}']=typ
+                        date_features.setdefault(dt,{})[f'{key}:{col}']=status
+        feature_reason_totals=Counter()
+        for item in summary:
+            if item['layer']=='FEATURE':
+                feature_reason_totals.update(json.loads(item['feature_gap_reason_counts']))
         all_dates=sorted(set(date_market)|set(date_fred)|set(date_features))
         fields_market=sorted(Path(p).stem for p in names if p.startswith('market/raw/yfinance/') and p.endswith('.parquet'))
         fields_fred=sorted(fred.series_id.unique())
@@ -231,6 +311,10 @@ def audit(input_zip:Path,output_dir:Path,limit_through='auto',now_utc=None):
           'fred_missing_expected_records':int(s.loc[s.layer=='FRED','missing_expected_records'].sum()),
           'feature_post_warmup_missing':int(s.loc[s.layer=='FEATURE','post_warmup_missing'].sum()),
           'feature_post_warmup_on_valid_sessions':int(s.loc[s.layer=='FEATURE','post_warmup_on_session'].sum()),
+          'feature_no_valid_session_hold':int(s.loc[s.layer=='FEATURE','feature_all_null_session_hold'].sum()),
+          'feature_after_asof_null':int(s.loc[s.layer=='FEATURE','feature_after_asof_null'].sum()),
+          'feature_off_session_total':int(s.loc[s.layer=='FEATURE','feature_off_session_total'].sum()),
+          'feature_gap_reason_counts':dict(feature_reason_totals),
           'market_off_session_null_rows':int(s.loc[s.layer=='MARKET','off_session_null_rows'].sum()),
           'fred_not_vintage_pit':True,'market_us_calendar':'XNYS','market_kr_calendar':'XKRX',
           'fx_weekdays':'USD/KRW weekday candidate; DXY NYSE proxy, not ICE official schedule','fred_lag':'not imputed',
