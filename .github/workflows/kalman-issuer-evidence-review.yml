@@ -17,8 +17,8 @@ jobs:
       - name: Offline evidence contracts
         run: |
           cd research/kalman_issuer_evidence_review
-          python -m unittest -v test_evidence_review.py
-          python -m py_compile evidence_review.py
+          python -m unittest -v test_evidence_review.py test_independent_review.py
+          python -m py_compile evidence_review.py independent_review.py
   incident-metadata:
     if: github.event.pull_request.head.repo.full_name == github.repository
     needs: contracts
@@ -37,3 +37,10 @@ jobs:
         run: |
           gh api repos/kimtk94/Codex/actions/artifacts/15260102752/zip > "$RUNNER_TEMP/issuer-incident.zip"
           python research/kalman_issuer_evidence_review/evidence_review.py "$RUNNER_TEMP/issuer-incident.zip" --sha256 ca733ef791d264dcf8f194d00af48d17993d49f02061426ec6fec1eeebe3f60f
+      - name: Independently re-extract prior and current issuer evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m pip install 'pypdf==6.21.4'
+          gh api repos/kimtk94/Codex/actions/artifacts/15204783619/zip > "$RUNNER_TEMP/issuer-prior.zip"
+          python research/kalman_issuer_evidence_review/independent_review.py "$RUNNER_TEMP/issuer-incident.zip" "$RUNNER_TEMP/issuer-prior.zip" --current-sha256 ca733ef791d264dcf8f194d00af48d17993d49f02061426ec6fec1eeebe3f60f --prior-sha256 956a7a17c124e98277588c333386634ac66119952f18fcc0a2454b9cdbdd4fe6
