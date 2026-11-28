@@ -17,8 +17,8 @@ jobs:
       - name: Offline evidence contracts
         run: |
           cd automation/kalman_issuer_evidence_review
-          python -m unittest -v test_evidence_review.py test_independent_review.py test_cache_rehearsal.py test_drive_backup_reader.py
-          python -m py_compile evidence_review.py independent_review.py cache_rehearsal.py drive_backup_reader.py
+          python -m unittest -v test_evidence_review.py test_independent_review.py test_cache_rehearsal.py test_drive_backup_reader.py test_origin_sidecar.py
+          python -m py_compile evidence_review.py independent_review.py cache_rehearsal.py drive_backup_reader.py origin_sidecar.py
   incident-metadata:
     if: github.event.pull_request.head.repo.full_name == github.repository
     needs: contracts
@@ -47,3 +47,6 @@ jobs:
       - name: Rehearse exact prior evidence in memory (no writer)
         run: |
           python automation/kalman_issuer_evidence_review/cache_rehearsal.py "$RUNNER_TEMP/issuer-incident.zip" "$RUNNER_TEMP/issuer-prior.zip"
+      - name: Compare actual Daily20 gap replay and isolated origin sidecar
+        run: |
+          python automation/kalman_issuer_evidence_review/origin_sidecar.py "$RUNNER_TEMP/issuer-incident.zip" "$RUNNER_TEMP/issuer-prior.zip"
