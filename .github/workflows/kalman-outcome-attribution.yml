@@ -182,6 +182,11 @@ jobs:
             --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
             --original-source original-source \
             --out outputs/kalman_outcome_attribution/reduced_risk_cash_report.json
+      - name: Reproduce momentum and realized-volatility slices
+        run: |
+          python research/kalman_outcome_attribution/regime_feature_slices.py \
+            --results "$RUNNER_TEMP/kalman_frozen_inputs/results.zip" \
+            --out outputs/kalman_outcome_attribution/regime_feature_slices.json
       - name: Publish only aggregate metadata, never input archives or row-level features
         uses: actions/upload-artifact@v4
         with:
@@ -198,5 +203,6 @@ jobs:
             outputs/kalman_outcome_attribution/daily_protocol_feasibility_report.json
             outputs/kalman_outcome_attribution/reduced_risk_report.json
             outputs/kalman_outcome_attribution/reduced_risk_cash_report.json
+            outputs/kalman_outcome_attribution/regime_feature_slices.json
           if-no-files-found: error
           retention-days: 45
