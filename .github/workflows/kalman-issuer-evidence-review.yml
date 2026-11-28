@@ -17,8 +17,8 @@ jobs:
       - name: Offline evidence contracts
         run: |
           cd automation/kalman_issuer_evidence_review
-          python -m unittest -v test_evidence_review.py test_independent_review.py test_cache_rehearsal.py test_drive_backup_reader.py test_origin_sidecar.py test_downstream_shadow.py
-          python -m py_compile evidence_review.py independent_review.py cache_rehearsal.py drive_backup_reader.py origin_sidecar.py downstream_shadow.py
+          python -m unittest -v test_evidence_review.py test_independent_review.py test_cache_rehearsal.py test_drive_backup_reader.py test_origin_sidecar.py test_downstream_shadow.py test_fresh_incident_lineage.py
+          python -m py_compile evidence_review.py independent_review.py cache_rehearsal.py drive_backup_reader.py origin_sidecar.py downstream_shadow.py fresh_incident_lineage.py
   incident-metadata:
     if: github.event.pull_request.head.repo.full_name == github.repository
     needs: contracts
@@ -53,3 +53,12 @@ jobs:
       - name: Replay downstream proof and lineage without changing originals
         run: |
           python automation/kalman_issuer_evidence_review/downstream_shadow.py "$RUNNER_TEMP/issuer-incident.zip" "$RUNNER_TEMP/issuer-prior.zip"
+      - name: Fresh issuer API and schedule recheck for incident session (read-only)
+        run: |
+          python automation/kalman_issuer_evidence_review/fresh_incident_lineage.py "$RUNNER_TEMP/issuer-incident.zip" --out-dir "$RUNNER_TEMP/fresh-issuer-lineage"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kalman-issuer-fresh-lineage-recheck
+          path: ${{ runner.temp }}/fresh-issuer-lineage/
+          if-no-files-found: error
+          retention-days: 7
