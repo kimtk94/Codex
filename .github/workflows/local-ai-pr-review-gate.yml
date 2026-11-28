@@ -1,0 +1,47 @@
+name: Local AI - PR change scope and human review gate
+
+# Always produce this check even for unrelated PRs.
+# GitHub leaves path-filtered required checks Pending and blocks merges.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-pr-scope-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scope-gate:
+    name: Read-only change scope / no auto approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests on isolated synthetic Git repo
+        run: python -m unittest discover -s scripts -p "test_local_ai_pr_gate.py" -v
+      - name: Review change size and task metadata
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python scripts/local_ai_pr_gate.py \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --event "$GITHUB_EVENT_PATH" \
+            --output "$RUNNER_TEMP/local-ai-pr-review.json"
+      - name: Upload non-sensitive review status (no source/PR description)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-ai-pr-review-${{ github.run_id }}
+          path: ${{ runner.temp }}/local-ai-pr-review.json
+          if-no-files-found: ignore
+          retention-days: 7
