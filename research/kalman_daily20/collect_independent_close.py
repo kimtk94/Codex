@@ -56,11 +56,29 @@ def _session_window(session):
     return (start.isoformat(), stop.isoformat())
 
 
+def _scheduled_close_et(session):
+    """Return the XNYS scheduled close, including exchange early-close sessions."""
+    try:
+        import exchange_calendars as xc
+        import pandas as pd
+        label = pd.Timestamp(date.fromisoformat(session))
+        calendar = xc.get_calendar("XNYS")
+        if not calendar.is_session(label):
+            raise RuntimeError("AUCTION_SESSION_NOT_XNYS_SESSION")
+        close = calendar.session_close(label).to_pydatetime()
+        if close.tzinfo is None:
+            raise RuntimeError("AUCTION_SESSION_CLOSE_UNZONED")
+        return close.astimezone(NY)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError("AUCTION_XNYS_CALENDAR_UNAVAILABLE") from exc
+
+
 def _session_anchor(session):
-    """Label for regular U.S. market session, NOT claim of Cboe close timestamp."""
-    day=date.fromisoformat(session)
-    anchor=datetime.combine(day,datetime.min.time(),NY).replace(hour=16)
-    return anchor.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z")
+    """Scheduled XNYS close label, not a claim of an observed or certified tick."""
+    close = _scheduled_close_et(session)
+    return close.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def http_bytes(url, headers=None, *, limit=MAX_ALPACA_BYTES):
@@ -134,10 +152,11 @@ def _parse_timestamp(value, session):
     et=item.astimezone(NY)
     if et.date().isoformat()!=session:
         raise RuntimeError("AUCTION_WRONG_SESSION_TIMESTAMP")
-    # Accept only the closing-cross timing window. A late 16:30 ET trade
-    # bearing an unexpected condition must never become a closing reference.
-    minutes = et.hour * 60 + et.minute
-    if not (15 * 60 + 59 <= minutes <= 16 * 60 + 5):
+    # Accept only the closing-cross timing window around the actual XNYS
+    # scheduled close. This includes 13:00 ET early closes and rejects late
+    # after-hours M-labelled prints.
+    close_et = _scheduled_close_et(session)
+    if not (close_et - timedelta(minutes=1) <= et <= close_et + timedelta(minutes=5)):
         raise RuntimeError("AUCTION_OUTSIDE_REGULAR_CLOSE_WINDOW")
     return item.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z")
 
@@ -266,6 +285,7 @@ def collect(session, symbols, *, fetcher=http_bytes):
     names=list(symbols)
     if len(names)!=26 or len(set(names))!=26 or "^VIX" not in names:
         raise RuntimeError("INDEPENDENT_UNIVERSE_NOT_CANONICAL_26")
+    close_et=_scheduled_close_et(session)
     observed=_session_anchor(session)
     stamp=utc_time()
     sources={"^VIX":{"status":"NOT_REQUESTED","provider":"Cboe"}}
@@ -294,6 +314,8 @@ def collect(session, symbols, *, fetcher=http_bytes):
                 "source_body_sha256":vix["body_sha256"],
                 "independent_from_yahoo_by_origin":True,
                 "independently_exchange_certified_at_16_00":False,
+            "independently_exchange_certified_at_scheduled_close":False,
+                "independently_exchange_certified_at_scheduled_close":False,
             })
     except HTTPError as e:
         sources["^VIX"]={"status":"CBOE_UNAVAILABLE","reason":"HTTP_"+str(e.code)}
@@ -330,6 +352,9 @@ def collect(session, symbols, *, fetcher=http_bytes):
         "production_writes":False,"strategy_promoted":False,
         "quote_type_certified":False,
         "collected_at_utc":stamp,
+        "scheduled_close_et":close_et.isoformat(timespec="seconds"),
+        "scheduled_close_utc":observed,
+        "session_close_policy":"XNYS_CALENDAR_SESSION_CLOSE_EARLY_CLOSE_AWARE",
         "attempted":26,
         "cboe":sources["^VIX"],
         "alpaca":{
