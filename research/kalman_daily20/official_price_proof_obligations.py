@@ -143,7 +143,7 @@ def build(spec, source, bridge, actions, gaps, *, input_sha256):
             grade = ("SIP_PRIMARY_M_RESEARCH_REFERENCE_ONLY" if observed
                      else "PRIMARY_M_NOT_OBSERVED_HOLD")
             obligations = [
-                "CERTIFIED_REGULAR_16_ET_CLOSE_NOT_JUST_M_PRINT",
+                "CERTIFIED_XNYS_SCHEDULED_REGULAR_CLOSE_NOT_JUST_M_PRINT",
                 "POINT_IN_TIME_PRIMARY_LISTING_VENUE",
                 "ISSUER_VERIFIED_SPLIT_AND_CASH_DISTRIBUTION_FACTOR_CHAIN",
                 "YAHOO_REPAIR_AND_VINTAGE_BRIDGE_RECONCILIATION",
